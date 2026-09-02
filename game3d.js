@@ -4712,6 +4712,10 @@ window.__shot = (opts = {}) => {
 // 조준을 요구하지 않는 게 핵심이다. 스윙 앵커는 findSwingAnchor가 고른다.
 let touchMode = false;
 let stickX = 0, stickY = 0, stickLen = 0;
+// 손을 뗀 뒤 이만큼 지나면 자동 카메라가 다시 붙는다.
+const CAM_RETURN = 2.5;
+let lookIdle = 0;          // 마지막 시점 조작 이후 흐른 시간
+let lookActive = false;    // 지금 손가락으로 시점을 돌리는 중인가
 
 function enableTouch() {
   if (touchMode) return;
@@ -4726,8 +4730,25 @@ function enableTouch() {
   say('터치 모드', 2.5);
 }
 
-// 터치 기기면 켠다. ?touch=1 로 데스크톱에서도 강제할 수 있다(테스트용).
-if (navigator.maxTouchPoints > 0 || /[?&]touch=1/.test(location.search)) enableTouch();
+// 터치 UI를 켤지 판정한다.
+//  · maxTouchPoints는 못 쓴다 — 터치스크린/정밀 터치패드 노트북이 10을 보고한다.
+//  · pointer:coarse(주 입력이 손가락) + hover:none(호버 불가) 이라야 태블릿·폰이다.
+// ?touch=1 강제 켜기 / ?touch=0 강제 끄기. 한 번 정하면 그 기기에 기억된다.
+function wantTouchUI() {
+  const q = /[?&]touch=([01])/.exec(location.search);
+  if (q) {
+    try { localStorage.setItem('touchUI', q[1]); } catch (e) {}
+    return q[1] === '1';
+  }
+  try {
+    const saved = localStorage.getItem('touchUI');
+    if (saved !== null) return saved === '1';
+  } catch (e) {}
+  const mm = window.matchMedia;
+  if (!mm) return false;
+  return mm('(pointer: coarse)').matches && mm('(hover: none)').matches;
+}
+if (wantTouchUI()) enableTouch();
 
 {
   const padEl = document.getElementById('touchUI');
@@ -4797,7 +4818,9 @@ if (navigator.maxTouchPoints > 0 || /[?&]touch=1/.test(location.search)) enableT
       viewPitch -= (e.clientY - t.py) * 0.005;
       viewPitch = Math.min(Math.max(viewPitch, -1.0), 1.2);
       t.px = e.clientX; t.py = e.clientY;
-      camAuto = false;            // 직접 돌리기 시작하면 자동 카메라는 물러난다
+      camAuto = false;            // 직접 돌리는 동안만 물러난다 (아래에서 되돌아온다)
+      lookIdle = 0;
+      lookActive = true;
     }
   }
 
@@ -4806,18 +4829,18 @@ if (navigator.maxTouchPoints > 0 || /[?&]touch=1/.test(location.search)) enableT
     if (!t) return;
     active.delete(e.pointerId);
     if (t.kind === 'stick') endStick();
+    else if (t.kind === 'look') { lookActive = false; lookIdle = 0; }
     else if (t.kind === 'btn') { t.el.classList.remove('on'); releaseBtn(t.el.dataset.act); }
   }
 
   // 거미줄 버튼 상태: 누른 시각과 이번 누름으로 새로 붙였는지
-  let webBtnDown = false, webBtnT = 0, webBtnFresh = false;
+  let webBtnDown = false;
 
   function pressBtn(act) {
     if (act === 'web') {
       webBtnDown = true;
-      webBtnT = performance.now() / 1000;
-      if (web) { releaseWeb(); webBtnFresh = false; }   // 붙어 있으면 이번 탭은 놓기
-      else { mouseDownL = true; webBtnFresh = tryAttachAuto(); }
+      if (web) releaseWeb();                    // 붙어 있으면 이번 탭은 놓기
+      else { mouseDownL = true; tryAttachAuto(); }
     }
     else if (act === 'reel') keys['Space'] = true;      // 줄 감기 (거미줄 옆 버튼)
     else if (act === 'boost') keys['KeyE'] = true;      // 속도 부스트
@@ -4838,7 +4861,7 @@ if (navigator.maxTouchPoints > 0 || /[?&]touch=1/.test(location.search)) enableT
   }
   function releaseBtn(act) {
     // 거미줄은 떼도 줄이 유지된다. 감기만 멈춘다.
-    if (act === 'web') { webBtnDown = false; keys['Space'] = false; }
+    if (act === 'web') webBtnDown = false;    // 떼도 줄은 유지된다
     else if (act === 'reel') keys['Space'] = false;
     else if (act === 'boost') keys['KeyE'] = false;
     else if (act === 'jump') keys['Space'] = false;
@@ -4856,12 +4879,18 @@ if (navigator.maxTouchPoints > 0 || /[?&]touch=1/.test(location.search)) enableT
     return el ? [el.querySelector('.cd'), f, el] : null;
   }).filter(Boolean);
   const modeEl = document.getElementById('btnMode');
+  let camPrevT = performance.now();
   function updateTouchCd() {
-    if (modeEl) modeEl.classList.toggle('on2', attackMode);
-    // 거미줄 버튼을 붙인 채로 계속 누르고 있으면 줄을 감는다(스페이스 대체).
-    if (webBtnDown && web && webBtnFresh) {
-      if (performance.now() / 1000 - webBtnT > 0.22) keys['Space'] = true;
+    // 시점에서 손을 뗀 뒤 CAM_RETURN 만큼 지나면 자동 카메라가 다시 붙는다.
+    // 한 번 만졌다고 영영 수동으로 두면 스윙 내내 시점을 직접 몰아야 한다.
+    const nowMs = performance.now();
+    const dtc = Math.min(0.1, (nowMs - camPrevT) / 1000);
+    camPrevT = nowMs;
+    if (!lookActive) {
+      lookIdle += dtc;
+      if (lookIdle > CAM_RETURN && !camAuto) { camAuto = true; camMsg = 1.2; }
     }
+    if (modeEl) modeEl.classList.toggle('on2', attackMode);
     for (const [bar, f, el] of cdMap) {
       const v = Math.max(0, Math.min(1, f()));
       bar.style.height = (v * 100).toFixed(0) + '%';
@@ -4877,7 +4906,8 @@ if (navigator.maxTouchPoints > 0 || /[?&]touch=1/.test(location.search)) enableT
     addEventListener('pointercancel', onUp);
   }
   // 디버그용
-  window.__touch = { get mode(){ return touchMode; }, enableTouch,
+  window.__touch = { get mode(){ return touchMode; }, enableTouch, keys,
+    get camAuto(){ return camAuto; }, get lookIdle(){ return lookIdle; }, CAM_RETURN,
     get stick(){ return { x: stickX, y: stickY, len: stickLen }; },
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
