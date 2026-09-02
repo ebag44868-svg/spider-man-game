@@ -4504,6 +4504,7 @@ function updateHud(dtReal) {
   stamWrapEl.classList.toggle("flash", stamFx > 0);
 
   updateObjective();
+  if (touchMode && window.__touchCd) window.__touchCd();
   updateSense(Math.min(1, 6 * dtReal));
 
   hurtEl.style.opacity = Math.max(0, Math.min(1, hurtFx)) * 0.85;
@@ -4712,15 +4713,19 @@ if (navigator.maxTouchPoints > 0 || /[?&]touch=1/.test(location.search)) enableT
     stickKnob.style.transform = 'translate(' + dx.toFixed(0) + 'px,' + dy.toFixed(0) + 'px)';
   }
 
+  // 베이스는 화면에 고정. 어디를 짚든 베이스 중심을 원점으로 삼는다.
+  function stickCenter() {
+    const r = stickBase.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
   function beginStick(id, x, y) {
-    stickBase.style.left = x + 'px';
-    stickBase.style.top = y + 'px';
-    stickBase.style.opacity = '0.5';
-    active.set(id, { kind: 'stick', ox: x, oy: y });
-    updateStickVisual(0, 0);
+    stickBase.classList.add('on');
+    active.set(id, { kind: 'stick' });
+    moveStick(null, x, y);
   }
   function moveStick(t, x, y) {
-    let dx = x - t.ox, dy = y - t.oy;
+    const c = stickCenter();
+    let dx = x - c.x, dy = y - c.y;
     const l = Math.hypot(dx, dy);
     if (l > STICK_R) { dx = dx / l * STICK_R; dy = dy / l * STICK_R; }
     updateStickVisual(dx, dy);
@@ -4730,7 +4735,7 @@ if (navigator.maxTouchPoints > 0 || /[?&]touch=1/.test(location.search)) enableT
   }
   function endStick() {
     stickX = stickY = stickLen = 0;
-    stickBase.style.opacity = '0';
+    stickBase.classList.remove('on');
     updateStickVisual(0, 0);
   }
 
@@ -4778,11 +4783,41 @@ if (navigator.maxTouchPoints > 0 || /[?&]touch=1/.test(location.search)) enableT
   function pressBtn(act) {
     if (act === 'web') { mouseDownL = true; tryAttachAuto(); }
     else if (act === 'jump') keys['Space'] = true;
+    else if (act === 'dash') { keys['ShiftLeft'] = true; }
+    else if (act === 'lunge') fireGrab();
+    else if (act === 'pull') firePull();
+    else if (act === 'bind') fireBind();      // 터치엔 모드가 없다 — 바로 나간다
+    else if (act === 'ult') fireUlt();
+    else if (act === 'view') {
+      firstPerson = !firstPerson;
+      spiderGroup.visible = !firstPerson;
+      say(firstPerson ? '1인칭' : '3인칭', 1.6);
+    }
   }
   function releaseBtn(act) {
     if (act === 'web') { mouseDownL = false; releaseWeb(); }
     else if (act === 'jump') keys['Space'] = false;
+    else if (act === 'dash') keys['ShiftLeft'] = false;
   }
+
+  // 스킬 버튼 쿨타임 — 아래에서 차오르는 층으로 남은 시간을 보여준다
+  const cdMap = [
+    ['btnC', () => lungeCd / LUNGE_CD],
+    ['btnR', () => pullCd / PULL_CD],
+    ['btnE', () => bindCd / BIND_CD],
+    ['btnQ', () => 1 - ultFake],
+  ].map(([id, f]) => {
+    const el = document.getElementById(id);
+    return el ? [el.querySelector('.cd'), f, el] : null;
+  }).filter(Boolean);
+  function updateTouchCd() {
+    for (const [bar, f, el] of cdMap) {
+      const v = Math.max(0, Math.min(1, f()));
+      bar.style.height = (v * 100).toFixed(0) + '%';
+      el.classList.toggle('ready', v <= 0);
+    }
+  }
+  window.__touchCd = updateTouchCd;
 
   if (padEl) {
     addEventListener('pointerdown', onDown, { passive: false });

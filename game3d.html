@@ -240,31 +240,64 @@
   #touchUI { display: none; }
   body.touch #touchUI { display: block; position: fixed; inset: 0; z-index: 45; pointer-events: none; }
 
-  /* 왼쪽 가상 스틱 — 짚는 자리에 생긴다(고정 위치가 아니라 엄지를 따라감) */
+  /* 터치 중에는 데스크톱 스킬 줄을 숨긴다 — 점프 버튼과 겹친다 */
+  body.touch #uiRight { display: none; }
+  /* 체력·스태미나는 왼쪽 위로. 왼쪽 아래는 조이스틱이 쓴다. */
+  body.touch #uiLeft { left: 20px; bottom: auto; top: 74px; }
+  body.touch #portrait { width: 62px; height: 62px; }
+  body.touch #hpBar { width: 210px; height: 20px; }
+  body.touch #stamBar { width: 210px; }
+  body.touch #hpNum { font-size: 13px; }
+  /* 궁 게이지는 터치 버튼(궁)이 대신한다 */
+  body.touch #uiUlt { display: none; }
+
+  /* 왼쪽 조이스틱 — 항상 보이는 고정형 */
   #stickBase {
-    position: fixed; width: 132px; height: 132px; margin: -66px 0 0 -66px;
-    border-radius: 50%; border: 2px solid rgba(255,255,255,.45);
-    background: rgba(0,0,0,.22); opacity: 0; transition: opacity .12s;
+    position: fixed; left: 132px; bottom: 132px;
+    width: 190px; height: 190px; margin: 0 0 -95px -95px;
+    border-radius: 50%; border: 3px solid rgba(255,255,255,.4);
+    background: radial-gradient(circle, rgba(255,255,255,.10) 0%, rgba(0,0,0,.30) 70%);
+    opacity: .55; transition: opacity .12s; pointer-events: auto;
   }
+  #stickBase.on { opacity: 1; }
   #stickKnob {
-    position: absolute; left: 50%; top: 50%; width: 54px; height: 54px;
-    margin: -27px 0 0 -27px; border-radius: 50%;
-    background: rgba(255,255,255,.5); box-shadow: 0 2px 10px rgba(0,0,0,.5);
+    position: absolute; left: 50%; top: 50%; width: 76px; height: 76px;
+    margin: -38px 0 0 -38px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #fff 0%, rgba(255,255,255,.62) 60%, rgba(200,215,235,.5) 100%);
+    box-shadow: 0 3px 14px rgba(0,0,0,.55);
   }
 
-  /* 오른쪽 엄지 버튼들 */
+  /* 버튼 공통 (기존 대비 1.4배) */
   .tbtn {
     position: fixed; border-radius: 50%; pointer-events: auto;
-    display: grid; place-items: center; color: #fff; font: 700 13px/1.1 sans-serif;
+    display: grid; place-items: center; color: #fff; font: 700 12px/1.1 sans-serif;
     background: rgba(10,16,26,.5); border: 2px solid rgba(255,255,255,.35);
     box-shadow: 0 3px 14px rgba(0,0,0,.5); user-select: none;
     transition: transform .06s, background .06s;
   }
-  .tbtn .ic { font-size: 26px; line-height: 1; }
+  .tbtn .ic { font-size: 30px; line-height: 1; }
   .tbtn.on { transform: scale(.92); background: rgba(255,210,74,.5); border-color: #ffd24a; }
-  /* 거미줄 = 제일 많이 누르는 버튼이라 제일 크고 엄지에 제일 가깝게 */
-  #btnWeb  { right: 34px;  bottom: 34px;  width: 118px; height: 118px; }
-  #btnJump { right: 168px; bottom: 52px;  width: 84px;  height: 84px; }
+  .tbtn.sk { width: 78px; height: 78px; font-size: 11px; }
+  .tbtn.sk .ic { font-size: 24px; }
+  /* 쿨타임 — 아래에서 차오르는 어두운 층 */
+  .tbtn .cd {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
+    background: rgba(0,0,0,.62); border-radius: 0 0 999px 999px; pointer-events: none;
+  }
+
+  /* 거미줄 = 제일 많이 누르는 버튼. 오른쪽 아래 구석. */
+  #btnWeb { right: 58px; bottom: 58px; width: 158px; height: 158px; }
+  /* 스킬은 거미줄 버튼 바깥을 곡선으로 감싼다 (마블 퓨쳐파이트식 호 배치) */
+  #btnJump { right: 70px;  bottom: 252px; }
+  #btnQ    { right: 152px; bottom: 236px; }
+  #btnE    { right: 214px; bottom: 186px; }
+  #btnC    { right: 250px; bottom: 118px; }
+  #btnR    { right: 258px; bottom: 44px;  }
+
+  /* 왼쪽: 대시(Shift) — 조이스틱 위쪽, 왼손 엄지가 닿는 자리 */
+  #btnDash { left: 44px; bottom: 268px; width: 92px; height: 92px; }
+  /* 시점 전환 — 자주 안 누르니 위쪽 구석 */
+  #btnView { right: 40px; top: 92px; width: 74px; height: 74px; font-size: 11px; }
 
   #speedlines {
     position: fixed; inset: 0; pointer-events: none; opacity: 0;
@@ -296,7 +329,13 @@
 <div id="touchUI">
   <div id="stickBase"><div id="stickKnob"></div></div>
   <div class="tbtn" id="btnWeb"  data-act="web"><div class="ic">🕸</div>거미줄</div>
-  <div class="tbtn" id="btnJump" data-act="jump"><div class="ic">↑</div>점프</div>
+  <div class="tbtn sk" id="btnJump" data-act="jump"><div class="ic">↑</div>점프</div>
+  <div class="tbtn sk" id="btnQ" data-act="ult"><div class="cd"></div><div class="ic">✷</div>궁</div>
+  <div class="tbtn sk" id="btnE" data-act="bind"><div class="cd"></div><div class="ic">✧</div>속박</div>
+  <div class="tbtn sk" id="btnC" data-act="lunge"><div class="cd"></div><div class="ic">➤</div>돌진</div>
+  <div class="tbtn sk" id="btnR" data-act="pull"><div class="cd"></div><div class="ic">↢</div>끌기</div>
+  <div class="tbtn" id="btnDash" data-act="dash"><div class="ic">»</div>대시</div>
+  <div class="tbtn" id="btnView" data-act="view"><div class="ic">◉</div>시점</div>
 </div>
 <div id="speedlines"></div>
 <div id="divefx"></div>
