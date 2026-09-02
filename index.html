@@ -4,10 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Spider 3D</title>
-<meta http-equiv="refresh" content="0; url=game3d.html">
-<link rel="canonical" href="game3d.html">
 </head>
 <body style="background:#0a0e18;color:#cfe0f5;font:15px sans-serif;padding:2rem">
-로딩 중… 안 넘어가면 <a href="game3d.html" style="color:#ffd24a">game3d.html</a>
+로딩 중…
+<noscript><a href="game3d.html" style="color:#ffd24a">game3d.html 열기</a></noscript>
+<script>
+  // 깃허브 Pages는 max-age=600을 강제한다. 주소가 같으면 아이패드가 10분간
+  // 옛 파일을 쓰기 때문에, 매번 다른 주소로 넘겨 캐시를 우회한다.
+  location.replace("game3d.html?t=" + Date.now());
+</script>
 </body>
 </html>
