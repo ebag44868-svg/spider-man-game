@@ -1,0 +1,11 @@
+# 실행에 필요 없는 것들 — 저장소에는 넣지 않는다
+node_modules/
+shots/
+*.fbx
+_harness.mjs
+_bench.mjs
+game3d.backup.js
+game3d.prev.js
+game3d.prev2.js
+game.js
+package-lock.json
