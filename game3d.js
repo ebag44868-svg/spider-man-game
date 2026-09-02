@@ -1507,6 +1507,15 @@ function enemyFire(e) {
   sfxEnemyShot();
 }
 
+// 적 눈높이에서 플레이어까지 막힌 게 없는가.
+// 탄 충돌과 같은 공간 해시라 싸다. 조준 시작·발사 순간에만 부르면 부담이 없다.
+const _losA = new THREE.Vector3(), _losB = new THREE.Vector3(), _losH = new THREE.Vector3();
+function canSeePlayer(e) {
+  _losA.set(e.g.position.x, e.g.position.y + 4.0, e.g.position.z);
+  _losB.set(player.pos.x - _losA.x, player.pos.y + 1.0 - _losA.y, player.pos.z - _losA.z);
+  return !segHitWorld(_losA, _losB, _losH);
+}
+
 // 적 한 명의 사고. dist는 플레이어까지 거리(제곱근 이미 계산됨).
 const _eBoxes = [];
 // 그 지점이 건물 안인가. 발밑에서 어깨높이 사이를 막는 박스가 있으면 못 간다.
@@ -1592,17 +1601,21 @@ function updateEnemyAI(e, dt, dist) {
     e.mat.emissive.setRGB(0.9 * (1 - e.aimT / ty.aim), 0.1, 0.05);
     if (e.aimT <= 0) {
       freeBeam(e);
-      if (ty.melee) {
+      // 예고 도중에 엄폐물 뒤로 숨었으면 쏘지 않는다. 피한 보람이 있어야 한다.
+      if (!canSeePlayer(e)) {
+        e.fireCd = ty.cd * 0.4;              // 곧 다시 노린다
+      } else if (ty.melee) {
         // 돌격병은 탄이 없다. 붙어 있으면 그 자리에서 후려친다.
         if (dist < ty.range + 3) { damagePlayer(ty.dmg); sfxEnemyShot(); }
       } else enemyFire(e);
-      e.fireCd = ty.cd * (0.7 + Math.random() * 0.6);
+      if (e.fireCd <= 0) e.fireCd = ty.cd * (0.7 + Math.random() * 0.6);
     }
     return;
   }
 
   e.state = "engage";
-  if (e.fireCd <= 0) e.aimT = ty.aim;
+  // 안 보이면 조준을 시작하지 않는다. 엄폐가 실제로 통해야 한다.
+  if (e.fireCd <= 0 && canSeePlayer(e)) e.aimT = ty.aim;
 }
 
 // 전부 길바닥에 세워두면 스윙 중에는 아무 일도 안 일어난다.
