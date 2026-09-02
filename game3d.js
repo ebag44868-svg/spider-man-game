@@ -2518,9 +2518,10 @@ function segBoxT(p, d, x0, y0, z0, x1, y1, z1) {
 }
 
 // 이번 틱에 탄이 지나간 선분이 건물/지면에 닿았으면 그 지점을 out에 담고 true.
-function segHitWorld(p0, step, out) {
+function segHitWorld(p0, step, out, minT) {
   const len = step.length();
   if (len < 1e-6) return false;
+  const lo = minT || 0;          // 이 비율보다 가까운 충돌은 무시 (벽에 붙어 있을 때)
   let best = 2;
   nearbyBuildings(p0.x + step.x * 0.5, p0.z + step.z * 0.5, len * 0.5 + 6, _segBoxes);
   for (let i = 0; i < _segBoxes.length; i++) {
@@ -2528,14 +2529,14 @@ function segHitWorld(p0, step, out) {
     const t = segBoxT(p0, step,
       b.x - b.w / 2, b.y0, b.z - b.d / 2,
       b.x + b.w / 2, b.y0 + b.h, b.z + b.d / 2);
-    if (t >= 0 && t < best) best = t;
+    if (t >= lo && t < best) best = t;
   }
   // 지면(인도 턱 포함)
   if (step.y < 0) {
     const gy = groundHeightAt(p0.x + step.x, p0.z + step.z, p0.y);
     if (p0.y > gy && p0.y + step.y <= gy) {   // 이미 지면 아래면 무시
       const t = (gy - p0.y) / step.y;
-      if (t >= 0 && t < best) best = t;
+      if (t >= lo && t < best) best = t;
     }
   }
   if (best > 1) return false;
@@ -3270,7 +3271,7 @@ function releaseWeb() {
 const AUTO_YAW = [0, 18, -18, 36, -36, 55, -55];   // 진행 방향 기준 좌우
 const AUTO_PITCH = [22, 34, 46, 16, 56, 8, 0, -8]; // 위로 올려다보는 각도 (수평 아래까지)
 const _aDir = new THREE.Vector3(), _aOrigin = new THREE.Vector3();
-const _aRay = new THREE.Raycaster();
+const _aStep = new THREE.Vector3(), _aHit = new THREE.Vector3();
 
 // 스윙하기 좋은 앵커인가를 점수로 매긴다.
 function scoreAnchor(p, fx, fz) {
@@ -3293,10 +3294,9 @@ function scoreAnchor(p, fx, fz) {
 
 // 진행 방향(느리면 시선) 기준으로 부채꼴을 쏴 제일 좋은 앵커를 고른다.
 function findSwingAnchor() {
-  let fx = player.vel.x, fz = player.vel.z;
-  const sp = Math.hypot(fx, fz);
-  if (sp < 6) { fx = Math.sin(viewYaw); fz = Math.cos(viewYaw); }   // 느리면 보는 쪽
-  else { fx /= sp; fz /= sp; }
+  // 보는 쪽을 기준으로 삼는다. 속도 기준으로 하면 시선과 다른 데 붙어서
+  // "왜 저기에 걸리지"가 되고, 조작이 통제 불능으로 느껴진다.
+  const fx = Math.sin(viewYaw), fz = Math.cos(viewYaw);
   _aOrigin.set(player.pos.x, player.pos.y + 1.6, player.pos.z);
   let best = null, bestScore = -Infinity;
   for (const yd of AUTO_YAW) {
@@ -3304,16 +3304,44 @@ function findSwingAnchor() {
     for (const pd of AUTO_PITCH) {
       const c = Math.cos(pd * Math.PI / 180), sy = Math.sin(pd * Math.PI / 180);
       _aDir.set(Math.sin(a) * c, sy, Math.cos(a) * c).normalize();
-      _aRay.set(_aOrigin, _aDir);
-      _aRay.near = 18;              // 코앞의 벽은 건너뛴다 (벽에 붙어도 걸 곳을 찾게)
-      _aRay.far = ROPE_MAX;
-      const hits = _aRay.intersectObjects(aimTargets, false);
-      if (!hits.length) continue;
-      const sc = scoreAnchor(hits[0].point, fx, fz);
-      if (sc > -1 && sc > bestScore) { bestScore = sc; best = hits[0].point.clone(); }
+      // Raycaster로 InstancedMesh를 훑으면 1발에 0.88ms — 40발이면 프레임이 죽는다.
+      // 탄 충돌과 같은 공간 해시를 쓴다. 18m 안쪽은 무시해야 벽에 붙어서도 걸 곳을 찾는다.
+      _aStep.copy(_aDir).multiplyScalar(ROPE_MAX);
+      if (!segHitWorld(_aOrigin, _aStep, _aHit, 18 / ROPE_MAX)) continue;
+      const sc = scoreAnchor(_aHit, fx, fz);
+      if (sc > -1 && sc > bestScore) { bestScore = sc; best = _aHit.clone(); }
     }
   }
   return best;
+}
+
+// 붙을 지점 미리보기. 벽에 가려도 보여야 하므로 깊이검사를 끈다.
+const swingMark = new THREE.Group();
+{
+  const core = new THREE.Mesh(new THREE.SphereGeometry(1.5, 12, 10),
+    new THREE.MeshBasicMaterial({ color: 0x6ff0ff, depthTest: false, toneMapped: false }));
+  const ring = new THREE.Mesh(new THREE.RingGeometry(3.4, 4.4, 24),
+    new THREE.MeshBasicMaterial({ color: 0x6ff0ff, side: THREE.DoubleSide,
+      transparent: true, opacity: 0.75, depthTest: false, toneMapped: false }));
+  swingMark.add(core); swingMark.add(ring);
+  swingMark.userData.ring = ring;
+  swingMark.renderOrder = 999;
+  swingMark.visible = false;
+  scene.add(swingMark);
+}
+let swingPreview = null;
+
+// 매 프레임 갱신해도 되는 비용(0.08ms)이라 항상 최신 지점을 보여준다.
+function updateSwingPreview() {
+  if (!touchMode || web || zip || !canAct()) { swingMark.visible = false; swingPreview = null; return; }
+  swingPreview = findSwingAnchor();
+  if (!swingPreview) { swingMark.visible = false; return; }
+  swingMark.visible = true;
+  swingMark.position.copy(swingPreview);
+  swingMark.userData.ring.lookAt(camera.position);
+  // 멀수록 크게 그려 화면상 크기를 일정하게 유지한다
+  const d = camera.position.distanceTo(swingPreview);
+  swingMark.scale.setScalar(Math.max(0.6, d * 0.012));
 }
 
 // 터치용 부착: 조준 대신 자동 앵커를 쓴다. 나머지는 tryAttach와 같다.
@@ -4504,6 +4532,7 @@ function updateHud(dtReal) {
   stamWrapEl.classList.toggle("flash", stamFx > 0);
 
   updateObjective();
+  updateSwingPreview();
   if (touchMode && window.__touchCd) window.__touchCd();
   updateSense(Math.min(1, 6 * dtReal));
 
@@ -4780,10 +4809,23 @@ if (navigator.maxTouchPoints > 0 || /[?&]touch=1/.test(location.search)) enableT
     else if (t.kind === 'btn') { t.el.classList.remove('on'); releaseBtn(t.el.dataset.act); }
   }
 
+  // 거미줄 버튼 상태: 누른 시각과 이번 누름으로 새로 붙였는지
+  let webBtnDown = false, webBtnT = 0, webBtnFresh = false;
+
   function pressBtn(act) {
-    if (act === 'web') { mouseDownL = true; tryAttachAuto(); }
+    if (act === 'web') {
+      webBtnDown = true;
+      webBtnT = performance.now() / 1000;
+      if (web) { releaseWeb(); webBtnFresh = false; }   // 붙어 있으면 이번 탭은 놓기
+      else { mouseDownL = true; webBtnFresh = tryAttachAuto(); }
+    }
+    else if (act === 'reel') keys['Space'] = true;      // 줄 감기 (거미줄 옆 버튼)
+    else if (act === 'boost') keys['KeyE'] = true;      // 속도 부스트
+    else if (act === 'mode') { attackMode = !attackMode; camMsg = 1.6;
+      if (attackMode) { releaseWeb(); zip = null; } }
     else if (act === 'jump') keys['Space'] = true;
     else if (act === 'dash') { keys['ShiftLeft'] = true; }
+    else if (act === 'help') hudEl.classList.toggle('show');
     else if (act === 'lunge') fireGrab();
     else if (act === 'pull') firePull();
     else if (act === 'bind') fireBind();      // 터치엔 모드가 없다 — 바로 나간다
@@ -4795,7 +4837,10 @@ if (navigator.maxTouchPoints > 0 || /[?&]touch=1/.test(location.search)) enableT
     }
   }
   function releaseBtn(act) {
-    if (act === 'web') { mouseDownL = false; releaseWeb(); }
+    // 거미줄은 떼도 줄이 유지된다. 감기만 멈춘다.
+    if (act === 'web') { webBtnDown = false; keys['Space'] = false; }
+    else if (act === 'reel') keys['Space'] = false;
+    else if (act === 'boost') keys['KeyE'] = false;
     else if (act === 'jump') keys['Space'] = false;
     else if (act === 'dash') keys['ShiftLeft'] = false;
   }
@@ -4810,7 +4855,13 @@ if (navigator.maxTouchPoints > 0 || /[?&]touch=1/.test(location.search)) enableT
     const el = document.getElementById(id);
     return el ? [el.querySelector('.cd'), f, el] : null;
   }).filter(Boolean);
+  const modeEl = document.getElementById('btnMode');
   function updateTouchCd() {
+    if (modeEl) modeEl.classList.toggle('on2', attackMode);
+    // 거미줄 버튼을 붙인 채로 계속 누르고 있으면 줄을 감는다(스페이스 대체).
+    if (webBtnDown && web && webBtnFresh) {
+      if (performance.now() / 1000 - webBtnT > 0.22) keys['Space'] = true;
+    }
     for (const [bar, f, el] of cdMap) {
       const v = Math.max(0, Math.min(1, f()));
       bar.style.height = (v * 100).toFixed(0) + '%';
