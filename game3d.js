@@ -3266,6 +3266,67 @@ function releaseWeb() {
   web = null;
 }
 
+// --- 자동 앵커 (터치 전용) ---
+const AUTO_YAW = [0, 18, -18, 36, -36, 55, -55];   // 진행 방향 기준 좌우
+const AUTO_PITCH = [22, 34, 46, 16, 56, 8, 0, -8]; // 위로 올려다보는 각도 (수평 아래까지)
+const _aDir = new THREE.Vector3(), _aOrigin = new THREE.Vector3();
+const _aRay = new THREE.Raycaster();
+
+// 스윙하기 좋은 앵커인가를 점수로 매긴다.
+function scoreAnchor(p, fx, fz) {
+  const dx = p.x - player.pos.x, dy = p.y - player.pos.y, dz = p.z - player.pos.z;
+  const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (len < 18 || len > ROPE_MAX) return -1;        // 너무 짧으면 덜컹, 길면 안 당겨짐
+  if (dy < -14) return -1;                          // 너무 아래면 그네가 아니라 추락이다
+  const h = Math.hypot(dx, dz) || 1;
+  const fwd = (dx / h) * fx + (dz / h) * fz;        // 진행 방향과의 일치도 (-1..1)
+  if (fwd < -0.15) return -1;                       // 뒤쪽은 버린다
+  // 줄 길이는 최대의 45~85%가 가장 좋은 호를 만든다
+  const r = len / ROPE_MAX;
+  const lenScore = 1 - Math.min(1, Math.abs(r - 0.62) / 0.45);
+  // 머리 바로 위는 그네가 아니라 정지다
+  const steep = Math.min(1, Math.hypot(dx, dz) / Math.max(1, Math.abs(dy)));
+  // 높을수록 좋지만 필수는 아니다. 스카이라인 위를 날 때도 걸 데가 있어야 한다.
+  const highScore = Math.max(0, Math.min(1, (dy + 14) / 45));
+  return fwd * 1.5 + lenScore * 1.2 + steep * 0.8 + highScore * 1.1;
+}
+
+// 진행 방향(느리면 시선) 기준으로 부채꼴을 쏴 제일 좋은 앵커를 고른다.
+function findSwingAnchor() {
+  let fx = player.vel.x, fz = player.vel.z;
+  const sp = Math.hypot(fx, fz);
+  if (sp < 6) { fx = Math.sin(viewYaw); fz = Math.cos(viewYaw); }   // 느리면 보는 쪽
+  else { fx /= sp; fz /= sp; }
+  _aOrigin.set(player.pos.x, player.pos.y + 1.6, player.pos.z);
+  let best = null, bestScore = -Infinity;
+  for (const yd of AUTO_YAW) {
+    const a = Math.atan2(fx, fz) + yd * Math.PI / 180;
+    for (const pd of AUTO_PITCH) {
+      const c = Math.cos(pd * Math.PI / 180), sy = Math.sin(pd * Math.PI / 180);
+      _aDir.set(Math.sin(a) * c, sy, Math.cos(a) * c).normalize();
+      _aRay.set(_aOrigin, _aDir);
+      _aRay.near = 18;              // 코앞의 벽은 건너뛴다 (벽에 붙어도 걸 곳을 찾게)
+      _aRay.far = ROPE_MAX;
+      const hits = _aRay.intersectObjects(aimTargets, false);
+      if (!hits.length) continue;
+      const sc = scoreAnchor(hits[0].point, fx, fz);
+      if (sc > -1 && sc > bestScore) { bestScore = sc; best = hits[0].point.clone(); }
+    }
+  }
+  return best;
+}
+
+// 터치용 부착: 조준 대신 자동 앵커를 쓴다. 나머지는 tryAttach와 같다.
+function tryAttachAuto() {
+  if (!canAct()) return false;
+  if (stamEmpty) { say("스태미나 부족"); sfxMiss(); stamFx = 1; return false; }
+  initAudio();
+  const p = findSwingAnchor();
+  if (!p) { say("걸 곳 없음"); sfxMiss(); return false; }
+  attachWeb(p);
+  return true;
+}
+
 function tryAttach() {
   if (!canAct()) return false;
   if (stamEmpty) { say("스태미나 부족"); sfxMiss(); stamFx = 1; return false; }
@@ -3599,6 +3660,8 @@ function update(dt) {
   if (keys["KeyS"]) iz += 1;
   if (keys["KeyA"]) ix -= 1;
   if (keys["KeyD"]) ix += 1;
+  // 가상 스틱(터치). 키보드와 섞이지 않게 스틱이 밀려 있을 때만 덮어쓴다.
+  if (stickLen > 0.08) { ix = stickX; iz = stickY; }
 
   fwdFlat.set(Math.sin(viewYaw), 0, Math.cos(viewYaw));
   rightV.crossVectors(fwdFlat, new THREE.Vector3(0, 1, 0));
@@ -4615,4 +4678,122 @@ window.__shot = (opts = {}) => {
   camera.updateProjectionMatrix();
   return url;
 };
+// ================== 터치 조작 (아이패드) ==================
+// 조준을 요구하지 않는 게 핵심이다. 스윙 앵커는 findSwingAnchor가 고른다.
+let touchMode = false;
+let stickX = 0, stickY = 0, stickLen = 0;
+
+function enableTouch() {
+  if (touchMode) return;
+  touchMode = true;
+  document.body.classList.add('touch');
+  camAuto = true;            // 자동 카메라가 있어야 시점을 거의 안 만진다
+  firstPerson = false;       // 3인칭이 터치에 훨씬 편하다
+  spiderGroup.visible = true;
+  const vw = innerWidth || document.documentElement.clientWidth || 1024;
+  const vh = innerHeight || document.documentElement.clientHeight || 768;
+  mx = vw / 2; my = vh / 2;      // 터치엔 커서가 없다 — 조준 기준을 화면 중앙으로
+  say('터치 모드', 2.5);
+}
+
+// 터치 기기면 켠다. ?touch=1 로 데스크톱에서도 강제할 수 있다(테스트용).
+if (navigator.maxTouchPoints > 0 || /[?&]touch=1/.test(location.search)) enableTouch();
+
+{
+  const padEl = document.getElementById('touchUI');
+  const stickBase = document.getElementById('stickBase');
+  const stickKnob = document.getElementById('stickKnob');
+  const STICK_R = 62;                 // 스틱 최대 반경(px)
+
+  // pointerId -> 이 손가락이 무슨 역할인지
+  const active = new Map();
+
+  function updateStickVisual(dx, dy) {
+    stickKnob.style.transform = 'translate(' + dx.toFixed(0) + 'px,' + dy.toFixed(0) + 'px)';
+  }
+
+  function beginStick(id, x, y) {
+    stickBase.style.left = x + 'px';
+    stickBase.style.top = y + 'px';
+    stickBase.style.opacity = '0.5';
+    active.set(id, { kind: 'stick', ox: x, oy: y });
+    updateStickVisual(0, 0);
+  }
+  function moveStick(t, x, y) {
+    let dx = x - t.ox, dy = y - t.oy;
+    const l = Math.hypot(dx, dy);
+    if (l > STICK_R) { dx = dx / l * STICK_R; dy = dy / l * STICK_R; }
+    updateStickVisual(dx, dy);
+    stickX = dx / STICK_R;
+    stickY = dy / STICK_R;          // 화면 아래 = 뒤로 (iz 부호와 같다)
+    stickLen = Math.min(1, l / STICK_R);
+  }
+  function endStick() {
+    stickX = stickY = stickLen = 0;
+    stickBase.style.opacity = '0';
+    updateStickVisual(0, 0);
+  }
+
+  function onDown(e) {
+    if (!touchMode) return;
+    const btn = e.target.closest && e.target.closest('.tbtn');
+    if (btn) {
+      e.preventDefault();
+      active.set(e.pointerId, { kind: 'btn', el: btn });
+      btn.classList.add('on');
+      pressBtn(btn.dataset.act);
+      return;
+    }
+    e.preventDefault();
+    initAudio();
+    // 화면 왼쪽 42%는 이동 스틱, 나머지는 시점.
+    // innerWidth가 0으로 잡히는 순간(회전 직후 등)이 있어 대체값을 둔다.
+    const vw = innerWidth || document.documentElement.clientWidth || 1024;
+    if (e.clientX < vw * 0.42) beginStick(e.pointerId, e.clientX, e.clientY);
+    else active.set(e.pointerId, { kind: 'look', px: e.clientX, py: e.clientY });
+  }
+
+  function onMove(e) {
+    const t = active.get(e.pointerId);
+    if (!t) return;
+    e.preventDefault();
+    if (t.kind === 'stick') moveStick(t, e.clientX, e.clientY);
+    else if (t.kind === 'look') {
+      viewYaw -= (e.clientX - t.px) * 0.006;
+      viewPitch -= (e.clientY - t.py) * 0.005;
+      viewPitch = Math.min(Math.max(viewPitch, -1.0), 1.2);
+      t.px = e.clientX; t.py = e.clientY;
+      camAuto = false;            // 직접 돌리기 시작하면 자동 카메라는 물러난다
+    }
+  }
+
+  function onUp(e) {
+    const t = active.get(e.pointerId);
+    if (!t) return;
+    active.delete(e.pointerId);
+    if (t.kind === 'stick') endStick();
+    else if (t.kind === 'btn') { t.el.classList.remove('on'); releaseBtn(t.el.dataset.act); }
+  }
+
+  function pressBtn(act) {
+    if (act === 'web') { mouseDownL = true; tryAttachAuto(); }
+    else if (act === 'jump') keys['Space'] = true;
+  }
+  function releaseBtn(act) {
+    if (act === 'web') { mouseDownL = false; releaseWeb(); }
+    else if (act === 'jump') keys['Space'] = false;
+  }
+
+  if (padEl) {
+    addEventListener('pointerdown', onDown, { passive: false });
+    addEventListener('pointermove', onMove, { passive: false });
+    addEventListener('pointerup', onUp);
+    addEventListener('pointercancel', onUp);
+  }
+  // 디버그용
+  window.__touch = { get mode(){ return touchMode; }, enableTouch,
+    get stick(){ return { x: stickX, y: stickY, len: stickLen }; },
+    onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
+}
+
 window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, get lampCount(){ return lampCount; } };

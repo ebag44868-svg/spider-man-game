@@ -235,6 +235,37 @@
   .senseSeg.foe { background: radial-gradient(ellipse at center, rgba(255,40,40,0) 30%, rgba(255,40,40,.85) 100%); }
   .senseSeg.obj { background: radial-gradient(ellipse at center, rgba(255,210,74,0) 30%, rgba(255,210,74,.8) 100%); }
 
+  /* ===== 터치 조작 (가로 · 양손 엄지) ===== */
+  /* 기본은 숨김. body.touch 일 때만 나온다 — 데스크톱 조작에 손대지 않는다. */
+  #touchUI { display: none; }
+  body.touch #touchUI { display: block; position: fixed; inset: 0; z-index: 45; pointer-events: none; }
+
+  /* 왼쪽 가상 스틱 — 짚는 자리에 생긴다(고정 위치가 아니라 엄지를 따라감) */
+  #stickBase {
+    position: fixed; width: 132px; height: 132px; margin: -66px 0 0 -66px;
+    border-radius: 50%; border: 2px solid rgba(255,255,255,.45);
+    background: rgba(0,0,0,.22); opacity: 0; transition: opacity .12s;
+  }
+  #stickKnob {
+    position: absolute; left: 50%; top: 50%; width: 54px; height: 54px;
+    margin: -27px 0 0 -27px; border-radius: 50%;
+    background: rgba(255,255,255,.5); box-shadow: 0 2px 10px rgba(0,0,0,.5);
+  }
+
+  /* 오른쪽 엄지 버튼들 */
+  .tbtn {
+    position: fixed; border-radius: 50%; pointer-events: auto;
+    display: grid; place-items: center; color: #fff; font: 700 13px/1.1 sans-serif;
+    background: rgba(10,16,26,.5); border: 2px solid rgba(255,255,255,.35);
+    box-shadow: 0 3px 14px rgba(0,0,0,.5); user-select: none;
+    transition: transform .06s, background .06s;
+  }
+  .tbtn .ic { font-size: 26px; line-height: 1; }
+  .tbtn.on { transform: scale(.92); background: rgba(255,210,74,.5); border-color: #ffd24a; }
+  /* 거미줄 = 제일 많이 누르는 버튼이라 제일 크고 엄지에 제일 가깝게 */
+  #btnWeb  { right: 34px;  bottom: 34px;  width: 118px; height: 118px; }
+  #btnJump { right: 168px; bottom: 52px;  width: 84px;  height: 84px; }
+
   #speedlines {
     position: fixed; inset: 0; pointer-events: none; opacity: 0;
     background: radial-gradient(ellipse at center, transparent 52%, rgba(255,255,255,0.22) 100%);
@@ -261,6 +292,12 @@
   <div id="objBar"><div id="objProg"></div></div>
 </div>
 <div id="spiderSense"></div>
+
+<div id="touchUI">
+  <div id="stickBase"><div id="stickKnob"></div></div>
+  <div class="tbtn" id="btnWeb"  data-act="web"><div class="ic">🕸</div>거미줄</div>
+  <div class="tbtn" id="btnJump" data-act="jump"><div class="ic">↑</div>점프</div>
+</div>
 <div id="speedlines"></div>
 <div id="divefx"></div>
 <div id="pumpfx">E 펌핑!</div>
