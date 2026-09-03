@@ -17,8 +17,13 @@ function swingRun(fp, secs) {
     if (cool > 0) cool -= DT;
     if (!T.web) {
       // 사람처럼: 떨어지기 시작하면 한 번 누르고, 실패해도 0.3초는 쉬었다 다시 누른다
-      if (T.player.vel.y < -2 && cool <= 0) { md(0); cool = 0.3; if (T.web) attach++; else { miss++; mu(0); } }
-    } else { held+=DT; if (T.player.vel.y > 2 && held > 0.35) { mu(0); held=0; } }
+      // 옥상에 착지했을 때도 누른다 — 안 그러면 그 자리에 영원히 서 있고,
+      // 그게 통계를 통째로 망친다 (실측: 45초 중 35초를 옥상에 서 있었다).
+      if ((T.player.vel.y < -2 || T.player.grounded) && cool <= 0) {
+        if (T.player.grounded) T.keys["Space"] = true;
+        md(0); cool = 0.3; if (T.web) attach++; else { miss++; mu(0); }
+      } else if (!T.player.grounded) T.keys["Space"] = false;
+    } else { T.keys["Space"] = false; held+=DT; if (T.player.vel.y > 2 && held > 0.35) { mu(0); held=0; } }
     T.keys["KeyE"] = T.web && held > 0.15;   // 줄이 걸리면 가속을 넣는다
     T.update(DT);
     const sp = T.player.vel.length();
@@ -27,7 +32,7 @@ function swingRun(fp, secs) {
     if (T.player.pos.y < 20) low++;
     if (T.player.pos.y < 3) { place(120, 200, -80, 30, 10); }
   }
-  T.keys["KeyW"]=false; T.keys["KeyE"]=false;
+  T.keys["KeyW"]=false; T.keys["KeyE"]=false; T.keys["Space"]=false;
   return { attach, miss, maxSp, avg: sum/ticks, groundPct: ground/ticks*100, lowPct: low/ticks*100 };
 }
 
@@ -53,8 +58,12 @@ for (const fp of [true, false]) {
   T.player.prevPos.copy(T.player.pos); T.player.renderPos.copy(T.player.pos);
   const dx = best.g.position.x - T.player.pos.x, dz = best.g.position.z - T.player.pos.z, dy = best.g.position.y - (T.player.pos.y+1.4);
   T.aimYaw(Math.atan2(dx, dz)); T.setPitch(Math.atan2(dy, Math.hypot(dx,dz)));
-  for(let i=0;i<6;i++) T.updateCamera(DT);
+  // 카메라 lerp가 끝날 때까지 돌린다. 6틱만 돌리면 카메라가 엉뚱한 데 있어
+  // 3인칭 조준 결과가 통째로 거짓말이 된다.
+  for(let i=0;i<400;i++) T.updateCamera(DT);
   T.syncWorld();
+  // 3인칭은 커서가 조준점이다. 사람이 하듯 적 위에 커서를 올린다.
+  if (!fp) { const sc = T.screenOf(best.g.position.clone().setY(best.g.position.y+1.4)); T.setCursor(sc.x, sc.y); }
   const hp0 = best.hp;
   T.setAttack ? T.setAttack(true) : null;
   (W.keydown||[]).forEach(f=>f({code:"Tab",preventDefault(){}}));

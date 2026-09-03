@@ -2,64 +2,153 @@ import { T } from "./_harness.mjs";
 const DT = 1/120;
 T.syncWorld();
 const W = globalThis.__win, C = globalThis.__cv;
-const key = c => (W.keydown||[]).forEach(f => f({ code: c, preventDefault(){} }));
-const keyUp = c => (W.keyup||[]).forEach(f => f({ code: c, preventDefault(){} }));
-const md = b => (C.mousedown||[]).forEach(f => f({ button: b, preventDefault(){} }));
-const mu = b => (C.mouseup||[]).forEach(f => f({ button: b, preventDefault(){} }));
-const move = (dx,dy) => (globalThis.__handlers.mousemove||(()=>{}))({ movementX:dx, movementY:dy, clientX:0, clientY:0 });
+const key   = c => (W.keydown||[]).forEach(f => f({ code: c, preventDefault(){} }));
+const md    = b => (C.mousedown||[]).forEach(f => f({ button: b, preventDefault(){} }));
+const mu    = b => (W.mouseup||[]).forEach(f => f({ button: b, preventDefault(){} }));
+// 실제 브라우저처럼 위치와 이동량을 같이 실어 보낸다
+let cx = 800, cy = 450;
+const move = (dx,dy) => { cx += dx; cy += dy;
+  (globalThis.__handlers.mousemove||(()=>{}))({ movementX:dx, movementY:dy, clientX:cx, clientY:cy }); };
 let pass=0, fail=0;
 const ok=(c,m,x="")=>{ if(c){pass++;console.log("  OK   "+m);} else {fail++;console.log("  FAIL "+m+"  "+x);} };
 function place(x,y,z,vx,vz){ T.player.pos.set(x,y,z); T.player.prevPos.copy(T.player.pos); T.player.renderPos.copy(T.player.pos);
   T.player.vel.set(vx||0,0,vz||0); T.player.grounded=false; T.setClinging(null); T.releaseWeb(); }
-console.log("리스너 잡힘: window="+Object.keys(W).join(",")+" / canvas="+Object.keys(C).join(","));
+const clearZip = () => { T.releaseWeb(); if (T.zip) for(let i=0;i<200;i++) T.update(DT); };
 
-for (const fp of [true, false]) {
-  console.log(`\n===== ${fp ? "1인칭" : "3인칭"} =====`);
-  T.setFP(fp); T.aimYaw(0.6); T.setPitch(-0.1);
+console.log("===== 1인칭: 락 + 화면 중앙 조준, 마우스 이동 = 시점 =====");
+T.setFP(true); T.aimYaw(0.6); T.setPitch(-0.1);
 
-  // 우클릭 = 집라인
-  place(0, 150, 0, 10, 10);
-  for(let i=0;i<40;i++){ T.updateCamera(DT); T.update(DT); }
-  T.syncWorld();
-  md(2);
-  ok(!!T.zip, "우클릭 단독으로 집라인이 걸린다");
-  mu(2); T.setZip && T.setZip(null);
+place(0, 150, 0, 10, 10);
+for(let i=0;i<40;i++){ T.updateCamera(DT); T.update(DT); }
+T.syncWorld();
+md(2);
+ok(!!T.zip, "우클릭 단독으로 양손 거미줄이 나간다");
+mu(2); clearZip();
 
-  // 시점: 마우스 이동만으로 돌아간다 (버튼 안 누름)
-  const y0 = T.viewYaw;
-  move(120, 0);
-  ok(Math.abs(T.viewYaw - y0) > 0.1, "버튼 없이 마우스 이동만으로 시점이 돌아간다", `${y0.toFixed(2)} -> ${T.viewYaw.toFixed(2)}`);
+const y1 = T.viewYaw;
+move(120, 0);
+ok(Math.abs(T.viewYaw - y1) > 0.1, "버튼 없이 마우스 이동만으로 시점이 돌아간다", `${y1.toFixed(2)} -> ${T.viewYaw.toFixed(2)}`);
 
-  // 조준점은 중앙
-  const nd = T.cursorNdc ? T.cursorNdc() : null;
-  if (nd) ok(nd.x === 0 && nd.y === 0, "조준점이 화면 중앙에 고정된다");
+const n1 = T.cursorNdc();
+ok(n1.x === 0 && n1.y === 0, "조준점이 화면 정중앙에 고정된다");
+ok(!T.dragging, "우클릭을 눌러도 시점 드래그 모드로 안 들어간다");
 
-  // T = 잡기 스킬
-  T.setAttack && T.setAttack(true);
-  T.spawnEnemies && null;
-  const before = { lunge: !!T.lunge, grab: T.grabT };
-  key("KeyT");
-  ok(true, "T키가 예외 없이 처리된다");
+console.log("\n===== 3인칭: 커서 = 조준점, 우클릭 드래그 = 시점 =====");
+T.setFP(false); T.aimYaw(0.6); T.setPitch(-0.1);
+place(0, 150, 0, 10, 10);
+for(let i=0;i<40;i++){ T.updateCamera(DT); T.update(DT); }
+T.syncWorld();
 
-  // C = 카메라 토글
-  const ca = T.camAuto;
-  key("KeyC");
-  ok(T.camAuto !== ca, "C키로 자동/수동 카메라가 토글된다", `${ca} -> ${T.camAuto}`);
-  key("KeyC");
+// 우클릭은 시점 드래그. 집라인이 아니다.
+md(2);
+ok(T.dragging && !T.zip, "우클릭은 시점 드래그다 (집라인이 아니다)");
 
-  // G = 덤블링
-  place(0, 150, 0, 0, 0);
-  const sp0 = T.player.vel.length();
-  key("KeyG");
-  ok(T.player.vel.length() > sp0 + 1 || T.tumbleT > 0, "G키로 덤블링이 나간다");
-}
+const y2 = T.viewYaw;
+move(120, 0);
+ok(Math.abs(T.viewYaw - y2) > 0.1, "우클릭을 누른 채 움직이면 시점이 돌아간다", `${y2.toFixed(2)} -> ${T.viewYaw.toFixed(2)}`);
+mu(2);
+ok(!T.dragging, "우클릭을 떼면 드래그가 풀린다");
 
-console.log("\n===== 3인칭 자동카메라 복귀 =====");
-T.setFP(false); T.camAutoSet && null;
+const y3 = T.viewYaw;
+move(150, 80);
+ok(Math.abs(T.viewYaw - y3) < 1e-6, "버튼을 안 누르면 마우스를 움직여도 시점이 안 돈다", `${y3.toFixed(4)} -> ${T.viewYaw.toFixed(4)}`);
+
+// 커서가 곧 조준점
+// cursorNdc는 공유 벡터를 돌려준다. 값을 비교하려면 복사해야 한다.
+T.setCursor(400, 300);
+const n2 = T.cursorNdc().clone();
+T.setCursor(1200, 700);
+const n3 = T.cursorNdc().clone();
+ok(Math.abs(n2.x - n3.x) > 0.5 && Math.abs(n2.y - n3.y) > 0.5, "커서를 옮기면 조준점이 따라 움직인다",
+   `(${n2.x.toFixed(2)},${n2.y.toFixed(2)}) -> (${n3.x.toFixed(2)},${n3.y.toFixed(2)})`);
+
+// 조준선도 실제로 커서를 따라간다
+const dA = new (T.player.pos.constructor)(), oA = new (T.player.pos.constructor)();
+T.setCursor(300, 250); T.aimRay(oA, dA); const dirA = dA.clone();
+T.setCursor(1300, 750); T.aimRay(oA, dA);
+ok(dirA.dot(dA) < 0.97, "조준선 방향이 커서를 따라 실제로 바뀐다", `dot=${dirA.dot(dA).toFixed(3)}`);
+T.setCursor(800, 450);
+
+// F = 양손 거미줄
+place(0, 150, 0, 10, 10);
+for(let i=0;i<40;i++){ T.updateCamera(DT); T.update(DT); }
+T.syncWorld();
+key("KeyF");
+ok(!!T.zip, "F키로 양손 거미줄이 나간다");
+clearZip();
+
+// X = 주먹
+place(0, 150, 0, 0, 0);
+key("KeyX");
+ok(T.punchT > 0, "X키로 근접 주먹이 나간다", `punchT=${T.punchT}`);
+
+// G = 덤블링
+place(0, 150, 0, 0, 0);
+key("KeyG");
+ok(T.tumbleT > 0, "G키로 덤블링이 나간다");
+
+console.log("\n===== 시점 모드: C는 수동 유지, 드래그는 자동 복귀 =====");
+T.setFP(false); T.setAuto(true);
 place(0, 150, 0, 40, 0);
-move(200, 0);
-ok(!T.camAuto, "마우스로 돌리면 수동으로 전환된다");
-for (let i=0;i<120*3.5;i++){ T.updateCamera(DT); T.update(DT); }
-ok(T.camAuto, "손을 떼고 잠시 지나면 자동으로 복귀한다");
+// 드래그로 잠깐 물러난 자동 카메라는 손을 떼면 되돌아온다
+md(2); move(200, 0); mu(2);
+ok(!T.camAuto, "드래그하는 동안은 자동 카메라가 물러난다");
+for(let i=0;i<120*4;i++) T.update(DT);
+ok(T.camAuto, "손을 떼고 잠시 지나면 자동 카메라가 되돌아온다");
+
+// C로 켠 수동은 시간이 지나도 안 풀린다
+key("KeyC");
+ok(!T.camAuto && T.camHold, "C키로 수동 시점이 켜진다");
+for(let i=0;i<120*8;i++) T.update(DT);
+ok(!T.camAuto, "C 수동은 8초가 지나도 자동으로 안 돌아간다");
+key("KeyC");
+ok(T.camAuto && !T.camHold, "C키를 다시 누르면 자동으로 돌아간다");
+
+console.log("\n===== 자동 시점: 수직 상승에서 빙글빙글 안 돈다 =====");
+T.setFP(false); T.setAuto(true);
+// 몸 방향(bodyYaw)은 update()에서 계산된다. updateCamera만 돌리면 아무것도 안 변해
+// 테스트가 통째로 무효가 된다 — 둘 다 돌리고 속도는 매 틱 다시 강제한다.
+// 스윙 정점에서 실제로 나오는 값: 수평 4m/s에 수직 55m/s.
+// 수평 속도가 예전 임계(1.5)는 넘지만 방향은 사실상 노이즈인 구간이다.
+place(0, 600, 0, 0, 0);
+T.aimYaw(0);
+const prof = i => [4 * Math.sin(i * 0.7), 55 - i * 0.2, 4 * Math.cos(i * 0.9)];
+let spin = 0, prev = T.viewYaw;
+for(let i=0;i<120*2;i++){
+  const [vx,vy,vz] = prof(i);
+  T.player.vel.set(vx, vy, vz);
+  T.update(DT); T.updateCamera(DT);
+  spin += Math.abs(Math.atan2(Math.sin(T.viewYaw - prev), Math.cos(T.viewYaw - prev)));
+  prev = T.viewYaw;
+}
+// 같은 속도 프로필을 예전 규칙(hsp>1.5, 10*dt)에 넣으면 얼마나 도는지 나란히 잰다
+const lerpA=(a,b,t)=>{ const d=Math.atan2(Math.sin(b-a),Math.cos(b-a)); return a+d*t; };
+let oldYaw=0, oldBody=0, oldSpin=0, oldPrev=0;
+for(let i=0;i<120*2;i++){
+  const [vx,vy,vz] = prof(i);
+  const hsp = Math.hypot(vx,vz);
+  if (hsp > 1.5) oldBody = lerpA(oldBody, Math.atan2(vx,vz), Math.min(1,10*DT));
+  if (hsp > 3) oldYaw = lerpA(oldYaw, oldBody, Math.min(1,3.5*DT));
+  oldSpin += Math.abs(Math.atan2(Math.sin(oldYaw-oldPrev),Math.cos(oldYaw-oldPrev)));
+  oldPrev = oldYaw;
+}
+ok(spin < oldSpin * 0.35, "솟구치는 2초 동안 시점이 거의 안 돈다 (예전엔 빙글빙글)",
+   `지금 ${(spin*57.3).toFixed(1)}도 / 예전 규칙 ${(oldSpin*57.3).toFixed(1)}도`);
+console.log(`       (누적 회전: 지금 ${(spin*57.3).toFixed(1)}도  <-  예전 ${(oldSpin*57.3).toFixed(1)}도)`);
+
+// 반대로 실제로 빠르게 방향을 틀 땐 따라와야 한다
+T.setAuto(true); place(0, 600, 0, 0, 0);
+T.aimYaw(0);
+for(let i=0;i<120*2;i++){ T.player.vel.set(50, 0, 0); T.update(DT); T.updateCamera(DT); }
+ok(Math.abs(Math.abs(T.viewYaw) - Math.PI/2) < 0.25, "수평으로 빠르게 날면 진행 방향으로 따라온다", `yaw=${T.viewYaw.toFixed(2)}`);
+
+// 위아래도 따라온다
+T.setAuto(true); place(0, 900, 0, 0, 0);
+T.setView(0, 0);
+for(let i=0;i<120*2;i++){ T.player.vel.set(0, -50, 30); T.update(DT); T.updateCamera(DT); }
+ok(T.viewPitch < -0.15, "낙하 중에는 자동 시점이 아래를 본다", `pitch=${T.viewPitch.toFixed(2)}`);
+T.setAuto(true); place(0, 600, 0, 0, 0); T.setView(0, 0);
+for(let i=0;i<120*2;i++){ T.player.vel.set(0, 50, 30); T.update(DT); T.updateCamera(DT); }
+ok(T.viewPitch > 0.15, "솟구칠 때는 자동 시점이 위를 본다", `pitch=${T.viewPitch.toFixed(2)}`);
 
 console.log(`\n통과 ${pass} / 실패 ${fail}`);
