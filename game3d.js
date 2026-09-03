@@ -1954,16 +1954,66 @@ function sfxHit(killed) {
   else ping(1500, 0, 0.17);
 }
 
-function spawnImpact(p, n) {
+// 임팩트 종류별 재질. 무엇에 맞았는지가 색으로 바로 읽혀야 한다.
+const IMPACT = {
+  wall: { mat: new THREE.MeshBasicMaterial({ color: 0xd8d8d8, toneMapped: false }), ring: 0xbfc8d4, spread: 22, size: 1.0 },
+  hit:  { mat: new THREE.MeshBasicMaterial({ color: 0xffd86a, toneMapped: false }), ring: 0xffc23a, spread: 30, size: 1.3 },
+  kill: { mat: new THREE.MeshBasicMaterial({ color: 0xff5a4a, toneMapped: false }), ring: 0xff4433, spread: 40, size: 1.7 },
+  web:  { mat: new THREE.MeshBasicMaterial({ color: 0xf2f6ff, toneMapped: false }), ring: 0xdfe8ff, spread: 26, size: 1.1 },
+};
+
+// 퍼져나가는 충격파 링. 매번 만들면 GC가 튀므로 풀에서 돌려 쓴다.
+const ringGeo = new THREE.RingGeometry(0.55, 1, 20);
+const impactRings = [];
+for (let i = 0; i < 10; i++) {
+  const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide,
+    depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  m.visible = false;
+  m.frustumCulled = false;
+  scene.add(m);
+  impactRings.push({ m, t: 0, size: 1 });
+}
+
+function spawnRing(p, color, size) {
+  const r = impactRings.find(x => !x.m.visible);
+  if (!r) return;
+  r.m.visible = true;
+  r.m.position.copy(p);
+  r.m.material.color.setHex(color);
+  r.t = 1;
+  r.size = size;
+}
+
+function updateRings(dt) {
+  for (const r of impactRings) {
+    if (!r.m.visible) continue;
+    r.t -= dt * 4.5;
+    if (r.t <= 0) { r.m.visible = false; continue; }
+    const k = 1 - r.t;                       // 0 -> 1
+    r.m.scale.setScalar((0.6 + k * 5.5) * r.size);
+    r.m.material.opacity = r.t * 0.85;
+    r.m.lookAt(camera.position);             // 항상 화면을 향하게
+  }
+}
+
+// kind: 'wall' | 'hit' | 'kill' | 'web'
+function spawnImpact(p, n, kind) {
+  const d = IMPACT[kind] || IMPACT.wall;
   for (let i = 0; i < n; i++) {
-    const m = new THREE.Mesh(partGeo, partMat);
+    const m = new THREE.Mesh(partGeo, d.mat);
     m.position.copy(p);
+    // 크기를 흩뿌려야 알갱이가 뭉쳐 보이지 않는다
+    m.scale.setScalar((0.7 + Math.random() * 0.9) * d.size);
     scene.add(m);
     particles.push({
-      m, life: 0.3 + Math.random() * 0.15,
-      v: new THREE.Vector3((Math.random() - 0.5) * 24, (Math.random() - 0.15) * 20, (Math.random() - 0.5) * 24)
+      m, life: 0.28 + Math.random() * 0.22,
+      v: new THREE.Vector3((Math.random() - 0.5) * d.spread,
+                          (Math.random() - 0.15) * d.spread * 0.85,
+                          (Math.random() - 0.5) * d.spread)
     });
   }
+  spawnRing(p, d.ring, d.size);
 }
 
 const _up = new THREE.Vector3(0, 1, 0);
@@ -2087,7 +2137,7 @@ function bindEnemy(e) {
   e.knock.set(0, 0, 0);            // 묶였으니 더는 밀려나지 않는다
   e.cocoon = buildCocoon();
   e.g.add(e.cocoon);
-  spawnImpact(_impV.set(e.g.position.x, e.g.position.y + 2.8, e.g.position.z), 10);
+  spawnImpact(_impV.set(e.g.position.x, e.g.position.y + 2.8, e.g.position.z), 12, 'web');
   hitMark = 0.17; hitKill = false;
   shake = Math.max(shake, 0.35);
   sfxBind();
@@ -2236,7 +2286,7 @@ function updatePunch(dt) {
       best.hp -= PUNCH_DMG;
       best.flash = 0.2;
       best.knock.add(_pv2.copy(_pv).multiplyScalar(PUNCH_KB).setY(PUNCH_KB * 0.3));
-      spawnImpact(gripPoint(best, _impV), killed ? 20 : 12);
+      spawnImpact(gripPoint(best, _impV), killed ? 26 : 14, killed ? 'kill' : 'hit');
       hitStop = killed ? 0.14 : 0.08;
       shake = Math.max(shake, killed ? 1.1 : 0.6);
       hitMark = 0.18;
@@ -2327,7 +2377,7 @@ function startLunge(e) {
   hitMark = 0.2;
   hitKill = false;
   e.flash = 0.3;                      // 잡힌 적이 번쩍인다
-  spawnImpact(gripPoint(e, _impV), 14);
+  spawnImpact(gripPoint(e, _impV), 16, 'web');
   sfxThwip();
   sfxHit(false);
 }
@@ -2344,7 +2394,7 @@ function startPull(e) {
   hitMark = 0.2;
   hitKill = false;
   e.flash = 0.3;
-  spawnImpact(gripPoint(e, _impV), 14);
+  spawnImpact(gripPoint(e, _impV), 16, 'web');
   sfxThwip();
   sfxHit(false);
 }
@@ -2356,7 +2406,7 @@ function doKick(e) {
   e.hp -= KICK_DMG;
   e.flash = 0.2;
   e.knock.add(_lv2.copy(_lv).multiplyScalar(KICK_KB).setY(KICK_KB * 0.42));
-  spawnImpact(gripPoint(e, _impV), 26);
+  spawnImpact(gripPoint(e, _impV), 34, 'kill');
   hitStop = 0.2;
   shake = Math.max(shake, 1.6);
   hitMark = 0.2;
@@ -2386,7 +2436,7 @@ function kickWhiff(e) {
   e.hp -= WHIFF_DMG;
   e.flash = 0.16;
   if (killed && !e.dead) { e.dead = true; e.deadT = 0.5; }
-  spawnImpact(_lv2.copy(gripPoint(e, _impV)), 10);
+  spawnImpact(_lv2.copy(gripPoint(e, _impV)), 14, 'hit');
   damagePlayer(WHIFF_DMG);
   e.grip = 0;
   lunge = null; pull = null; kickOpen = false;
@@ -2482,6 +2532,7 @@ function updateLungePull(dt) {
   updatePunch(dt);
   updateZones(dt);
   updateUlt(dt);
+  updateRings(dt);
   if (pull) airHover(0.2);          // 끌어오는 내내 떠 있는다
   if (kickFx > 0) kickFx -= dt;
 
@@ -2573,7 +2624,7 @@ function onHit(e, vel) {
   const kb = vel.clone().normalize().multiplyScalar(killed ? 30 : 8);
   kb.y = killed ? 9 : 2.2;
   e.knock.add(kb);
-  spawnImpact(_impV.set(e.g.position.x, e.g.position.y + 2.8, e.g.position.z), killed ? 14 : 7);
+  spawnImpact(_impV.set(e.g.position.x, e.g.position.y + 2.8, e.g.position.z), killed ? 22 : 9, killed ? 'kill' : 'hit');
   sfxHit(killed);
   hitKill = killed;
   if (killed && !e.dead) { e.dead = true; e.deadT = 0.5; ultFake = Math.min(1, ultFake + 0.05); }
@@ -2685,7 +2736,7 @@ function updateCombat(dt) {
         else onHit(hit, p.vel);
       }
       else if (wallHit) {
-        spawnImpact(wallHit, 4);
+        spawnImpact(wallHit, 5, 'wall');
         shake = Math.max(shake, 0.12);
         if (p.grab || p.pull) say("빗나감 — 적을 맞춰야 한다");
       } else if (p.life <= 0 && (p.grab || p.pull)) say("빗나감 — 적을 맞춰야 한다");
@@ -2703,10 +2754,10 @@ function updateCombat(dt) {
     let done = false;
     if (deadT <= 0 && invuln <= 0 && segHitsSphere(p.pos, step, _cv, PLAYER_HIT_R)) {
       damagePlayer(p.dmg || E_DMG);
-      spawnImpact(_impV.copy(_cv), 5);
+      spawnImpact(_impV.copy(_cv), 8, 'kill');
       done = true;
     }
-    if (!done && segHitWorld(p.pos, step, _wallP)) { spawnImpact(_wallP, 3); done = true; }
+    if (!done && segHitWorld(p.pos, step, _wallP)) { spawnImpact(_wallP, 4, 'wall'); done = true; }
     p.pos.add(step);
     p.m.position.copy(p.pos);
     p.life -= dt;
@@ -2750,7 +2801,9 @@ function updateCombat(dt) {
     q.life -= dt;
     q.v.y -= 52 * dt;
     q.m.position.addScaledVector(q.v, dt);
-    q.m.scale.setScalar(Math.max(0.05, q.life * 3));
+    // 각자 크기를 갖고 태어났으니 그 비율을 유지하며 줄어들어야 한다
+    if (q.s0 === undefined) q.s0 = q.m.scale.x;
+    q.m.scale.setScalar(Math.max(0.05, q.s0 * Math.min(1, q.life * 3)));
     if (q.life <= 0) { scene.remove(q.m); particles.splice(i, 1); }
   }
 
@@ -2780,7 +2833,7 @@ function updateCombat(dt) {
       if (e.bound <= 0 && e.cocoon) {
         e.g.remove(e.cocoon);
         e.cocoon = null;
-        spawnImpact(_impV.set(e.g.position.x, e.g.position.y + 2.8, e.g.position.z), 6);
+        spawnImpact(_impV.set(e.g.position.x, e.g.position.y + 2.8, e.g.position.z), 8, 'web');
       }
     }
 
@@ -4281,7 +4334,8 @@ function updateCamera(dt) {
     );
   } else {
     const hug = Math.min(sp / MAX_SPEED, 1);
-    const camDist = Math.min(9.5 + hsp * 0.2, 26);
+    // 빠를수록 뒤로 더 빠져야 속도가 읽힌다. 상한도 같이 올린다.
+    const camDist = Math.min(9.5 + hsp * 0.28, 34);
     const desired = _c0.set(
       player.renderPos.x - viewDir.x * camDist,
       player.renderPos.y + (3.0 - hug * 1.4) - viewDir.y * camDist * 0.55,
@@ -4305,11 +4359,21 @@ function updateCamera(dt) {
     const ol = Math.hypot(ox, oz);
     if (ol > 0.5) {
       const lat = (ox / ol) * rightV.x + (oz / ol) * rightV.z;
-      targetRoll = lat * CAM_ROLL * Math.min(1, hsp / 34) * (firstPerson ? 0.65 : 1);
+      targetRoll = lat * CAM_ROLL * Math.min(1.35, hsp / 30) * (firstPerson ? 0.7 : 1);
     }
   }
   camRoll += (targetRoll - camRoll) * Math.min(1, 5 * dt);
   if (Math.abs(camRoll) > 0.0005) camera.rotateZ(camRoll);
+
+  // 고속 진동: 바람에 밀리는 느낌. 피격 흔들림과 겹쳐도 되게 따로 더한다.
+  // 임계 이하에서는 0이라 평상시엔 화면이 흔들리지 않는다.
+  const buffet = Math.max(0, sp - SOFT_SPEED * 0.75) / MAX_SPEED;
+  if (buffet > 0.01) {
+    const b = buffet * buffet * 0.5;
+    camera.position.x += (Math.random() - 0.5) * b;
+    camera.position.y += (Math.random() - 0.5) * b;
+    camera.position.z += (Math.random() - 0.5) * b;
+  }
 
   // 피격 카메라 흔들림 (제곱으로 감쇠시켜 초반만 강하게)
   if (shake > 0) {
@@ -4323,8 +4387,10 @@ function updateCamera(dt) {
   // 1인칭은 몸 모델이 안 보이므로 시야 자체를 넘겨야 덤블링이 보인다. 3인칭과 같은 뒤로 넘기.
   if (firstPerson && tumbleT > 0) camera.rotateX(Math.PI * 2 * (1 - tumbleT / tumbleDur));
 
+  // 속도 구간을 제곱으로 밟아 고속에서 확 벌어지게 한다 (선형이면 밋밋하다)
+  const spN = Math.min(sp / MAX_SPEED, 1.25);
   const targetFov = (firstPerson ? 78 : 70)
-    + Math.min(sp / MAX_SPEED, 1) * (firstPerson ? 14 : 26)
+    + spN * spN * (firstPerson ? 26 : 40)
     + Math.max(dashKick, 0) * 48
     + Math.max(pumpFx, 0) * 30
     + (diving ? 8 + diveFx * 16 : 0);
@@ -4408,8 +4474,10 @@ function updateCamera(dt) {
     let tugY = 0, tugZ = 0;
     if (web) {
       const tension = THREE.MathUtils.clamp((player.pos.distanceTo(web.a) - web.len) / 6 + 0.5, 0, 1);
-      tugY = Math.sin(now * 0.021) * 0.012 * tension;
-      tugZ = -tension * 0.03;
+      // 속도가 붙을수록 장력 떨림이 커진다 — 줄이 버티고 있다는 신호
+      const tShake = tension * (0.6 + Math.min(1, sp / MAX_SPEED) * 1.6);
+      tugY = Math.sin(now * 0.034) * 0.016 * tShake;
+      tugZ = -tension * 0.03 - Math.sin(now * 0.047) * 0.006 * tShake;
     }
     // 고속에서는 바람에 팔이 뒤로 밀리고 손가락이 살짝 벌어진다
     const spd = Math.min(sp / MAX_SPEED, 1);
@@ -4743,8 +4811,10 @@ function frameBody(now) {
   pumpEl.style.opacity = Math.min(1, Math.max(pumpFx, 0) * 6);
   // 급강하 연출: 목표치로 서서히 붙였다 빠진다. 즉시 켜고 끄면 화면이 깜빡인다.
   diveFx += ((diving ? 1 : 0) - diveFx) * Math.min(1, 5 * (1 / 60));
+  // 임계 이하에서는 0으로 눌러 평상시 화면이 뿌옇지 않게 한다
+  const lineSp = Math.max(0, player.vel.length() - SOFT_SPEED * 0.5) / MAX_SPEED;
   linesEl.style.opacity = Math.min(0.95,
-    (player.vel.length() / MAX_SPEED) * 0.45
+    lineSp * lineSp * 1.6
     + (pumpFx > 0 ? 0.35 : 0)
     + (dashKick > 0 ? 0.4 : 0)
     + diveFx * 0.55);
