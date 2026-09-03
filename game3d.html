@@ -117,6 +117,19 @@
     background: radial-gradient(ellipse at center, rgba(255,0,0,0) 42%, rgba(190,0,0,.85) 100%);
     transition: opacity .08s linear;
   }
+  /* 회피 — 가장자리가 파랗게 번쩍인다 (피격 붉은빛과 확실히 구분) */
+  #dodgeFx {
+    position: fixed; inset: 0; pointer-events: none; opacity: 0; z-index: 40;
+    background: radial-gradient(ellipse at center, rgba(110,225,255,0) 46%, rgba(110,225,255,.75) 100%);
+  }
+  /* 완벽 회피 — 화면 가운데 위 */
+  #perfectMsg {
+    position: fixed; left: 50%; top: 27%; transform: translate(-50%,-50%) scale(1);
+    pointer-events: none; opacity: 0; z-index: 42; text-align: center;
+    color: #8ef2ff; font: 800 34px/1.1 sans-serif; letter-spacing: .06em;
+    text-shadow: 0 0 18px rgba(110,225,255,.9), 0 3px 12px #000;
+  }
+  #perfectMsg small { display: block; margin-top: 4px; font: 600 14px/1 sans-serif; color: #cfefff; letter-spacing: .1em; }
   #deadMsg {
     position: fixed; inset: 0; display: none; place-items: center; z-index: 41;
     background: rgba(40,0,0,.45); color: #fff; pointer-events: none;
@@ -374,6 +387,9 @@
         <dl>
           <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>이동</dd>
           <dt><kbd>Space</kbd></dt><dd>점프 (지상)</dd>
+          <dt><kbd>Shift</kbd> (위협 중)</dt><dd><b>회피</b> — 붉은 예고선이 떠 있을 때 대시하면 무적. 예고 끝나기 직전에 맞추면 <b>완벽 회피</b>(슬로우모 + 궁 게이지)</dd>
+          <dt><kbd>X</kbd></dt><dd>덤블링 (예전 휠 아래로 — 휠은 이제 줌)</dd>
+          <dt>휠</dt><dd>3인칭 화면 확대·축소</dd>
           <dt><kbd>Shift</kbd></dt><dd>달리기 (지상) / 대시 (공중, 탭) / 다이빙 (홀드)</dd>
           <dt><kbd>휠 ↓</kbd></dt><dd>백덤블링</dd>
         </dl>
@@ -452,6 +468,8 @@
 <div id="speed">0 km/h</div>
 
 <div id="hurt"></div>
+<div id="dodgeFx"></div>
+<div id="perfectMsg">완벽 회피<small>SLOW MOTION</small></div>
 <div id="kickCue">좌클릭!</div>
 <div id="deadMsg">재배치 중…</div>
 
@@ -488,6 +506,6 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mtl0ajn1"></script>
+<script type="module" src="./game3d.js?v=mtld2bwc"></script>
 </body>
 </html>

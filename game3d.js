@@ -1908,6 +1908,37 @@ function sfxRegen() {
   o.start(t); o.stop(t + 0.17);
 }
 
+// 회피 — 짧게 스치는 바람소리
+function sfxDodge() {
+  if (!actx) return;
+  const t = actx.currentTime;
+  const o = actx.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(900, t);
+  o.frequency.exponentialRampToValueAtTime(1600, t + 0.09);
+  const g = actx.createGain();
+  g.gain.setValueAtTime(0.06, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+  o.connect(g); g.connect(actx.destination);
+  o.start(t); o.stop(t + 0.13);
+}
+// 완벽 회피 — 맑게 울리는 두 음. 잘했다는 신호는 확실해야 한다.
+function sfxPerfect() {
+  if (!actx) return;
+  const t = actx.currentTime;
+  [1320, 1760].forEach((f, i) => {
+    const o = actx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(f, t + i * 0.07);
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, t + i * 0.07);
+    g.gain.exponentialRampToValueAtTime(0.09, t + i * 0.07 + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.07 + 0.3);
+    o.connect(g); g.connect(actx.destination);
+    o.start(t + i * 0.07); o.stop(t + i * 0.07 + 0.32);
+  });
+}
+
 function sfxHurt() {
   if (!actx) return;
   const t = actx.currentTime;
@@ -2369,7 +2400,8 @@ function startLunge(e) {
   releaseWeb(); zip = null; clinging = null;
   lunge = { e, phase: "hold", t: LUNGE_HOLD };
   e.grip = 1;
-  player.vel.set(0, 0, 0);
+  // 완전 정지는 '게임이 멈췄다'로 읽힌다. 관성을 조금 남기고 급감속시킨다.
+  player.vel.multiplyScalar(0.12);
   hoverT = Math.max(hoverT, LUNGE_HOLD + 0.1);
   hitStop = 0.3;                      // 잡는 순간 화면을 확실히 세운다
   shake = Math.max(shake, 0.9);
@@ -2794,6 +2826,8 @@ function updateCombat(dt) {
   // --- 피격/사망 타이머 ---
   if (invuln > 0) invuln -= dt;
   if (hurtFx > 0) hurtFx -= dt * 1.6;
+  if (dodgeFx > 0) dodgeFx -= dt * 2.6;
+  if (perfectFx > 0) perfectFx -= dt * 1.1;
   if (deadT > 0) { deadT -= dt; if (deadT <= 0) respawn(); }
 
   for (let i = particles.length - 1; i >= 0; i--) {
@@ -3230,6 +3264,7 @@ addEventListener("keydown", e => {
     if (attackMode) { releaseWeb(); zip = null; }   // 공격 모드로 들어가면 줄은 놓는다 (잡기는 유지)
   }
   // E = 속박 (공격 모드 전용). 스윙 중 E는 기존 속도 부스트라 서로 겹치지 않는다.
+  if (e.code === "KeyX") tumble();         // 덤블링 (예전 휠 아래로)
   if (e.code === "KeyQ") fireUlt();        // 궁극기 — 광역 속박
   if (e.code === "KeyF") punch();          // 근접 주먹
   if (e.code === "KeyE" && attackMode) fireBind();
@@ -3250,14 +3285,14 @@ const ROPE_MIN = 12;
 // 줄이 걸리자마자 튀어나가면 가볍게 느껴진다. 짧게 힘을 모으는 구간을 두면
 // "당겨진다"는 인과가 눈에 보이고 발사 순간의 가속이 훨씬 세게 체감된다.
 const ZIP_CHARGE = 0.3;   // 시전 딜레이 — 줄을 걸고 힘을 모으는 시간
-const ZIP_SPEED = 200;    // 당겨지는 목표 속도
+const ZIP_SPEED = 150;    // 당겨지는 목표 속도
 const ZIP_GRAB = 11;      // 목표 속도에 붙는 빠르기
 const ZIP_ARRIVE = 10;    // 앵커에 이만큼 가까워지면 종료 (빨라진 만큼 넉넉히)
 const ZIP_MAX_T = 2.4;    // 안전 타임아웃
 // 도착 순간 속도를 깎아버리면 이 이동기가 "순간이동"이 된다.
 // 속도를 거의 그대로 남기고, 상한만 서서히 되돌려 그 속도를 반동으로 쓰게 한다.
-const ZIP_KEEP = 0.72;    // 도착 시 남기는 속도 비율
-const ZIP_MOMENT = 0.9;   // 상한이 MAX_SPEED로 돌아오기까지의 시간(초)
+const ZIP_KEEP = 0.5;     // 도착 시 남기는 속도 비율
+const ZIP_MOMENT = 0.5;   // 상한이 MAX_SPEED로 돌아오기까지의 시간(초)
 let boostT = 0;           // 남은 관성 유예
 let boostCap = 0;         // 유예 시작 시점의 속도 (여기서 MAX_SPEED로 선형 하강)
 let zip = null;
@@ -3344,6 +3379,34 @@ let wasGrounded = true;
 let fallSpeed = 0;
 let landFx = 0;   // 착지 애니메이션(Land) 유지 시간
 let prevShift = false;
+// --- 회피 ---
+// 예고선이 떠 있는 동안 대시하면 회피가 된다. 딱 맞추면 슬로우모로 보상한다.
+const DODGE_IFRAME  = 0.45;   // 회피 성공 시 무적 시간
+const DODGE_PERFECT = 0.35;   // 예고 종료 이 시간 안에 피하면 '완벽'
+const DODGE_SLOWMO  = 0.55;   // 완벽 회피 슬로우모 길이
+let dodgeFx = 0;              // 회피 연출 잔량 (화면 테두리)
+let slowmo = 0;               // 남은 슬로우모 시간
+let perfectFx = 0;            // 완벽 회피 문구 잔량
+let dodgeCount = 0, perfectCount = 0;
+
+// 지금 나를 노리고 있는 적 중 가장 임박한 것의 남은 예고 시간. 없으면 -1.
+function incomingThreat() {
+  let soonest = -1;
+  for (const e of enemies) {
+    if (e.dead || e.aimT <= 0) continue;
+    if (soonest < 0 || e.aimT < soonest) soonest = e.aimT;
+  }
+  // 이미 날아오는 탄도 위협으로 친다 (예고가 끝난 뒤에도 피할 수 있어야 한다)
+  if (soonest < 0) {
+    for (const p of eProjectiles) {
+      const d = Math.hypot(p.pos.x - player.pos.x, p.pos.y - player.pos.y, p.pos.z - player.pos.z);
+      const t = d / Math.max(1, p.vel.length());
+      if (t < 0.6 && (soonest < 0 || t < soonest)) soonest = t;
+    }
+  }
+  return soonest;
+}
+
 let hasDash = true;
 let dashTimer = 0;
 let dashKick = 0;
@@ -3585,8 +3648,9 @@ addEventListener("mouseup", e => {
   if (e.button === 2) { mouseDownR = false; dragging = false; }
 });
 // 휠 아래로 = 덤블링. 지상이면 구르기(전방 추진), 공중이면 공중제비.
-addEventListener("wheel", e => {
-  if (e.deltaY <= 0 || tumbleT > 0 || clinging) return;
+// 덤블링. 예전엔 휠 아래로였는데 휠을 줌에 내주고 X로 옮겼다.
+function tumble() {
+  if (tumbleT > 0 || clinging) return;
   const fwd = new THREE.Vector3();
   camera.getWorldDirection(fwd);
   fwd.y = 0;
@@ -3604,6 +3668,15 @@ addEventListener("wheel", e => {
   }
   tumbleT = tumbleDur;
   sfxDash();
+}
+
+// 3인칭 휠 줌. 기본 거리에 곱해지는 배율이라 속도에 따른 거리 변화와 공존한다.
+const ZOOM_MIN = 0.35, ZOOM_MAX = 1.6;
+let camZoom = 0.62;          // 기본값을 1보다 작게 — 지금 기본이 너무 멀다
+addEventListener("wheel", e => {
+  if (firstPerson) return;
+  camZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, camZoom + (e.deltaY > 0 ? 0.09 : -0.09)));
+  camMsg = 0.9;
 }, { passive: true });
 
 // 포인터 락이 새로 걸릴 때마다 첫 이벤트를 버리도록 표시한다
@@ -3916,9 +3989,15 @@ function update(dt) {
     diving = !web && (keys["ShiftLeft"] || keys["ShiftRight"]);
     // 집라인 중에는 중력을 거의 죽여야 앵커까지 직선으로 시원하게 당겨진다
     // 돌진은 직선으로 꽂혀야 해서 중력을 완전히 끈다.
-    // 스킬 시전 중(hoverT)에도 중력을 끊고 수직 속도를 죽여 공중에 잠깐 멈춰 선다.
+    // 스킬 시전 중에는 중력을 죽이되 완전히 끄지는 않는다.
+    // 딱 멈추면 물리가 사라진 것처럼 느껴진다. 천천히 가라앉아야 무게가 남는다.
     if (lunge) { /* 유도가 속도를 직접 지정한다 */ }
-    else if (hoverT > 0) player.vel.y *= Math.exp(-7 * dt);
+    else if (hoverT > 0) {
+      player.vel.y -= G * 0.16 * dt;               // 약한 중력
+      player.vel.y = Math.max(player.vel.y, -7);   // 천천히 내려오는 속도로 제한
+      // 위로 솟구치던 속도도 서서히 잡아준다 (붕 뜨는 느낌 방지)
+      if (player.vel.y > 0) player.vel.y *= Math.exp(-3.5 * dt);
+    }
     else {
       player.vel.y -= G * dt * (diving ? 3.4 : 1) * (zip ? 0.12 : 1);
       // 중력만으론 종단속도에서 멈춘다. 아래로 직접 밀어야 "내리꽂는" 느낌이 난다.
@@ -4150,6 +4229,27 @@ function update(dt) {
     dashTimer = DASH_CD;
     dashKick = 0.25;
     sfxDash();
+
+    // --- 회피 판정 ---
+    // 위협이 있을 때의 대시는 그냥 이동이 아니라 회피다.
+    const threat = incomingThreat();
+    if (threat >= 0) {
+      invuln = Math.max(invuln, DODGE_IFRAME);
+      dodgeFx = 1;
+      dodgeCount++;
+      // 회피에 성공하면 대시를 돌려준다. 안 그러면 착지 전까지 한 번밖에 못 피한다.
+      hasDash = true;
+      dashTimer = 0.18;                    // 연타 방지용 짧은 회복
+      if (threat <= DODGE_PERFECT) {
+        // 완벽 회피: 시간을 늦춰 되받아칠 틈을 준다
+        slowmo = DODGE_SLOWMO;
+        dashTimer = 0;                     // 완벽 회피는 곧바로 다음 동작으로
+        perfectFx = 1;
+        perfectCount++;
+        ultFake = Math.min(1, ultFake + 0.12);
+        sfxPerfect();
+      } else sfxDodge();
+    }
   }
   prevShift = shiftNow;
   updateCombat(dt);
@@ -4335,7 +4435,8 @@ function updateCamera(dt) {
   } else {
     const hug = Math.min(sp / MAX_SPEED, 1);
     // 빠를수록 뒤로 더 빠져야 속도가 읽힌다. 상한도 같이 올린다.
-    const camDist = Math.min(9.5 + hsp * 0.28, 34);
+    // 휠 줌 배율을 곱한다. 가까이 당기면 캐릭터가 크게, 멀리 밀면 속도가 잘 읽힌다.
+    const camDist = Math.min(9.5 + hsp * 0.28, 34) * camZoom;
     const desired = _c0.set(
       player.renderPos.x - viewDir.x * camDist,
       player.renderPos.y + (3.0 - hug * 1.4) - viewDir.y * camDist * 0.55,
@@ -4667,15 +4768,25 @@ function updateSense(k) {
     const i = senseSector(activeZone.cx - player.pos.x, activeZone.cz - player.pos.z);
     obj[i] = 1;
   }
+  // 나를 조준 중인 방향은 맥동시켜 '지금 피해라'를 알린다
+  const pulse = 0.75 + Math.sin(performance.now() * 0.018) * 0.25;
+  for (const e of enemies) {
+    if (e.dead || e.aimT <= 0) continue;
+    const i = senseSector(e.g.position.x - player.pos.x, e.g.position.z - player.pos.z);
+    foe[i] = Math.max(foe[i], pulse);
+  }
   for (let i = 0; i < SENSE_N; i++) {
     senseFoeLv[i] += (foe[i] - senseFoeLv[i]) * k;
     senseObjLv[i] += (obj[i] - senseObjLv[i]) * k;
-    senseFoe[i].style.opacity = (senseFoeLv[i] * 0.5).toFixed(3);
-    senseObj[i].style.opacity = (senseObjLv[i] * 0.3).toFixed(3);
+    // 옅으면 안 보인다. 특히 '나를 조준 중'은 확실히 눈에 띄어야 회피로 이어진다.
+    senseFoe[i].style.opacity = (senseFoeLv[i] * 0.9).toFixed(3);
+    senseObj[i].style.opacity = (senseObjLv[i] * 0.5).toFixed(3);
   }
 }
 const stamWrapEl = document.getElementById("stamBar");
 const hurtEl = document.getElementById("hurt");
+const dodgeEl = document.getElementById("dodgeFx");
+const perfectEl = document.getElementById("perfectMsg");
 const deadEl = document.getElementById("deadMsg");
 
 // 쿨타임을 버튼 아래에서 차오르는 게이지로. left=남은비율(1이면 꽉 참=사용 불가)
@@ -4710,6 +4821,11 @@ function updateHud(dtReal) {
   updateSense(Math.min(1, 6 * dtReal));
 
   hurtEl.style.opacity = Math.max(0, Math.min(1, hurtFx)) * 0.85;
+  dodgeEl.style.opacity = Math.max(0, Math.min(1, dodgeFx)) * 0.7;
+  // 완벽 회피 문구는 커졌다 사라진다
+  const pf = Math.max(0, Math.min(1, perfectFx));
+  perfectEl.style.opacity = pf;
+  if (pf > 0) perfectEl.style.transform = "translate(-50%,-50%) scale(" + (1.35 - pf * 0.35).toFixed(3) + ")";
   deadEl.classList.toggle("show", deadT > 0);
 
   // 탄창
@@ -4779,7 +4895,9 @@ function frameBody(now) {
   if (hitStop > 0) {
     hitStop -= realDt;
   } else {
-    acc += realDt;
+    // 완벽 회피 슬로우모 — 시뮬레이션만 늦춘다 (렌더는 그대로라 부드럽다)
+    if (slowmo > 0) { slowmo -= realDt; acc += realDt * 0.32; }
+    else acc += realDt;
     while (acc >= DT) {
       update(DT);
       acc -= DT;
@@ -4804,6 +4922,7 @@ function frameBody(now) {
   speedEl.textContent =
     `${Math.round(player.vel.length() * 3.6)} km/h · DASH ${hasDash ? "READY" : `${Math.max(dashTimer, 0).toFixed(1)}s`}`
     + ` · ${camLabel}${camMsg > 0 ? " ←" : ""}`
+    + (!firstPerson ? `  줌 ${(1 / camZoom).toFixed(1)}x` : "")
     + (attackMode ? `  ⚔ 공격모드 · 적 ${enemies.length}` : `  적 ${enemies.length} (TAB=공격모드)`)
     + (combo > 1 ? `  ${combo} COMBO` : "")
     + (toastT > 0 ? `   ▸ ${toast}` : "")
@@ -5087,4 +5206,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, get lampCount(){ return lampCount; } };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, get lampCount(){ return lampCount; } };
