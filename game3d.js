@@ -2561,6 +2561,11 @@ function updateLungePull(dt) {
   if (pullCd > 0) pullCd -= dt;
   if (kickBuf > 0) kickBuf -= dt;
   if (hoverT > 0) hoverT -= dt;
+  if (glideCd > 0) glideCd -= dt;
+  if (noGrabT > 0) noGrabT -= dt;
+  if (jumpLockT > 0) jumpLockT -= dt;
+  // 빠르게 움직이는 동안에도 계속 갱신 — 느려진 지 한참 됐을 때만 붙는다
+  if (player.vel.lengthSq() > 25 * 25) noGrabT = Math.max(noGrabT, 0.5);
   updatePunch(dt);
   updateZones(dt);
   updateUlt(dt);
@@ -3761,20 +3766,80 @@ function lerpAngle(a, b, t) {
 }
 
 // 튕겨내지 않고 벽을 따라 미끄러진다. 스치듯 맞으면 속도를 거의 그대로 유지
+// 한 프레임에 여러 박스를 해결할 때 마찰이 겹쳐 곱해지면 속도가 순식간에 죽는다.
+// 프레임마다 한 번만 깎는다.
+let wallFrictionUsed = false;
+// 이번 틱에 이미 걸린 축. 모서리에 박으면 두 축이 연달아 걸리는데,
+// 그러면 첫 축에서 살려둔 속도를 두 번째 축이 도로 0으로 만들어 완전히 선다.
+let wallAxisHit = null;
+const GLIDE_MIN_SPEED = 16;    // 이보다 느리면 굳이 흘려보내지 않는다
+const GLIDE_KEEP = 0.78;       // 정면 충돌에서 벽을 따라 남기는 속도 비율
+let glideCd = 0;               // 연속 활강으로 속도가 갈려나가지 않게 하는 쿨타임
+// 빠르게 날던 직후에는 벽에 자동으로 달라붙지 않는다.
+// 스치면서 순간 느려진 걸 '멈춰 섰다'로 오해해 붙여버리면 스윙이 통째로 끊긴다.
+let noGrabT = 0;
+// 벽점프 직후 잠깐. 오르기 키를 잡은 채로 점프하면 그 자리에서 다시 붙어버려
+// 점프가 통째로 무효가 된다. 튀어나갈 시간을 준다.
+let jumpLockT = 0;
+
 function resolveAxis(axis, bound, dirIn, b) {
-  player.pos[axis] = bound;
+  // 표면에서 살짝 띄운다. 딱 붙여두면 다음 틱에도 닿아 있어 충돌이 반복된다.
+  player.pos[axis] = bound + dirIn * 0.06;
   const v = player.vel[axis];
-  if ((dirIn < 0 && v < 0) || (dirIn > 0 && v > 0)) {
+  if ((dirIn < 0 && v > 0) || (dirIn > 0 && v < 0)) {
     const sp = player.vel.length();
-    // 벽을 파고드는 성분만 지운다. 남는 건 벽을 따라가는 성분뿐이라
-    // 스치면 그대로 흘러가고, 정면이면 남는 게 없어 선다. 에너지를 되돌려주지 않는다.
+    // 벽을 파고드는 성분을 지운다
     player.vel[axis] = 0;
-    // 정면에 가까울수록 벽에 긁히는 느낌으로 접선 속도도 조금 깎는다
     const headOn = sp > 0.01 ? Math.min(1, Math.abs(v) / sp) : 0;
-    player.vel.multiplyScalar(1 - 0.35 * headOn * headOn);
+
+    // 긁히는 마찰. 프레임당 한 번만, 그리고 약하게.
+    if (!wallFrictionUsed) {
+      wallFrictionUsed = true;
+      player.vel.multiplyScalar(1 - 0.16 * headOn * headOn);
+    }
+
+    // --- 벽 타고 미끄러지기 ---
+    // 정면으로 박아 남은 속도가 거의 없으면 그대로 서버린다. 그게 '탁 걸리는' 느낌이다.
+    // 벽면 안에서 내가 가려던 쪽을 찾아 그리로 흘려보낸다.
+    const after = player.vel.length();
+    // 쿨타임은 '잘 흐르고 있는데 또 꺾이는' 걸 막는 용도다.
+    // 거의 멈춰버리는 경우(모서리에 낀 경우)는 쿨타임을 무시하고 구제한다.
+    const nearStop = after < sp * 0.4;
+
+    // 모서리: 이번 틱에 다른 축이 이미 걸렸다면 가로로 나갈 길이 없다.
+    // 남은 속도를 아래로 돌려 벽을 타고 미끄러지게 한다. 서는 것보단 훨씬 낫다.
+    if (wallAxisHit && wallAxisHit !== axis) {
+      if (sp > GLIDE_MIN_SPEED) {
+        const down = -sp * 0.55;
+        if (player.vel.y > down) player.vel.y = down;
+        noGrabT = 0.9;
+      }
+      lastWall = { axis, dir: dirIn, b, bound };
+      return;
+    }
+    wallAxisHit = axis;
+
+    if (!clinging && (glideCd <= 0 || nearStop) && sp > GLIDE_MIN_SPEED && after < sp * 0.5) {
+      const other = axis === 'x' ? 'z' : 'x';
+      // 벽면 위에서 방향을 고른다: 이미 그쪽으로 흐르고 있었으면 그 방향,
+      // 아니면 지금 보고 있는 쪽. 둘 다 없으면 임의로 한쪽.
+      let side = player.vel[other];
+      if (Math.abs(side) < 2) side = other === 'x' ? Math.sin(viewYaw) : Math.cos(viewYaw);
+      if (Math.abs(side) < 0.05) side = 1;
+      const dirS = Math.sign(side);
+      // 잃은 속도의 일부를 벽을 따라가는 방향으로 되돌린다
+      const glide = sp * GLIDE_KEEP;
+      const wantH = Math.sqrt(Math.max(0, glide * glide - player.vel.y * player.vel.y));
+      if (Math.abs(player.vel[other]) < wantH) player.vel[other] = dirS * wantH;
+      // 아래로 살짝 흘려 벽을 타고 내려가는 모양이 되게 한다
+      if (player.vel.y > -4) player.vel.y -= 3;
+      glideCd = 0.3;
+      noGrabT = 0.9;             // 흘려보낸 직후엔 자동으로 붙지 않는다
+    }
+
     if (headOn > 0.55 && sp > 26) {
       wallBump = Math.min(1, (sp - 26) / 60);   // 세게 박으면 화면에 알린다
-      shake = Math.max(shake, wallBump * 0.5);
+      shake = Math.max(shake, wallBump * 0.4);
     }
   }
   lastWall = { axis, dir: dirIn, b, bound };
@@ -3868,6 +3933,7 @@ function wallJump() {
     viewPitch = Math.max(viewPitch, -0.1);
   }
   clinging = null;
+  jumpLockT = 0.35;
   sfxDash();
 }
 
@@ -4100,6 +4166,8 @@ function update(dt) {
 
   if (!clinging) {
     const steps = Math.min(8, Math.max(1, Math.ceil((sp * dt) / (player.r * 0.7))));
+    wallFrictionUsed = false;          // 이번 틱의 마찰은 한 번만
+    wallAxisHit = null;
     for (let s = 0; s < steps; s++) {
       const px0 = player.pos.x, pz0 = player.pos.z;
       player.pos.addScaledVector(player.vel, dt / steps);
@@ -4180,10 +4248,10 @@ function update(dt) {
   // 벽 붙기
   // 1) 그냥 부딪혔을 때: 느릴 때만 붙는다 (빠르면 스쳐 지나가야 흐름이 안 끊긴다)
   // 2) 벽타기 키를 누르고 있을 때: 공중에서 속도와 무관하게 근처 벽을 즉시 잡는다
-  if (!clinging && !web && !zip && !lunge && !pull && !player.grounded) {
+  if (!clinging && !web && !zip && !lunge && !pull && !player.grounded && jumpLockT <= 0) {
     let grab = null;
     if (climbHeld()) grab = lastWall || findNearbyWall(WALL_GRAB_REACH);
-    else if (lastWall && player.vel.length() < 14) grab = lastWall;   // 34는 너무 헐거웠다
+    else if (lastWall && noGrabT <= 0 && player.vel.length() < 14) grab = lastWall;
     if (grab) {
       clinging = { axis: grab.axis, dir: grab.dir, b: grab.b, bound: grab.bound };
       // 잡는 순간 벽면에 정확히 붙인다 (공중에서 잡으면 살짝 떨어져 있을 수 있다)
