@@ -40,7 +40,7 @@ console.log(` 그중 사실상 정지(10m/s 미만): ${dead}회 / 절반 이하�
 const small = stalls.filter(s => s.box && Math.min(s.box.w, s.box.d) < 20).length;
 const big = stalls.filter(s => s.box && Math.min(s.box.w, s.box.d) >= 20).length;
 console.log(` 작은 돌출물(한 변 20m 미만)에 걸림: ${small}회 / 큰 건물: ${big}회`);
-console.log(" 최근 5건:");
-for (const s of stalls.slice(-5)) {
+console.log(" 사실상 정지 목록:");
+for (const s of stalls.filter(s=>s.after<10).slice(0,10)) {
   console.log(`   ${s.before}->${s.after} m/s @ y=${s.y}  박스 ${s.box ? s.box.w+"x"+s.box.d+"x"+s.box.h+" (y0="+s.box.y0+")" : "?"}`);
 }

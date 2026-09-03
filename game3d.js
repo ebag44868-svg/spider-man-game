@@ -2079,19 +2079,16 @@ function fireWeb() {
   if (ammo === 0) startReload();
   attackCd = ATTACK_CD;
 
-  // 조준점(=커서)이 실제로 가리키는 지점을 먼저 구한다.
-  // 3인칭 조준점은 커서를 따라가므로 카메라 정면으로 쏘면 조준과 탄도가 어긋난다.
-  raycaster.setFromCamera(cursorNdc(), camera);
-  raycaster.far = Infinity;
-  const hits = raycaster.intersectObjects(aimTargets, false);
-  const target = hits.length
-    ? hits[0].point.clone()
-    : raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction, PROJ_RANGE);
+  // 조준선 안에 적이 있으면 그 적을 정확히 겨눈다.
+  // 3인칭은 카메라가 뒤에 있는데 총구는 플레이어라, 카메라 정면의 먼 점을 향해 쏘면
+  // 총구에서 본 각도가 어긋나 전 거리에서 빗나갔다. 잡기/끌어오기가 안 빗나간 건
+  // 그쪽만 적을 직접 겨누고 있었기 때문이다.
+  const lockOn = pickEnemy(0.97, PROJ_RANGE);   // 약 14도 원뿔
+  const target = lockOn ? gripPoint(lockOn, _lv).clone() : aimPointOrFar(PROJ_RANGE);
 
   // 총구는 눈/가슴 높이에서. 방향은 총구 -> 조준지점.
-  const muzzle = firstPerson
-    ? camera.position.clone().addScaledVector(raycaster.ray.direction, 0.6)
-    : new THREE.Vector3(player.pos.x, player.pos.y + 1.7, player.pos.z);
+  const muzzle = aimOrigin(new THREE.Vector3());
+  if (firstPerson) muzzle.addScaledVector(aimDir(_aimD), 0.6);
   const dir = target.sub(muzzle);
   if (dir.lengthSq() < 1e-6) return;
   dir.normalize();
@@ -2486,12 +2483,41 @@ function tryKick() {
 // 조준점에 가장 가까운 적을 고른다. 반경 3.1m 표적을 200m 밖에서 정확히 맞추라는 건
 // 콤보의 시작 기술로는 너무 가혹하다 — 원뿔 안에 들어오면 그 적을 노린다.
 const _pk = new THREE.Vector3(), _pk2 = new THREE.Vector3();
+
+// 조준선의 출발점. 1인칭은 눈, 3인칭은 거미줄이 실제로 나가는 가슴 높이.
+const _aimO = new THREE.Vector3(), _aimD = new THREE.Vector3();
+const _aimStep = new THREE.Vector3(), _aimHit = new THREE.Vector3();
+function aimOrigin(out) {
+  if (firstPerson) return out.copy(camera.position);
+  return out.set(player.pos.x, player.pos.y + 1.7, player.pos.z);
+}
+// 조준 방향. 카메라 방향이 아니라 시선각 그대로다 —
+// 3인칭 카메라는 플레이어를 내려다보므로 카메라 정면과 시선이 다르다.
+function aimDir(out) {
+  const cp = Math.cos(viewPitch);
+  return out.set(Math.sin(viewYaw) * cp, Math.sin(viewPitch), Math.cos(viewYaw) * cp);
+}
+// 조준선이 실제로 닿는 지점. 아무것도 없으면 range만큼 나간 허공을 돌려준다.
+function aimHit(range, minDist) {
+  aimOrigin(_aimO); aimDir(_aimD);
+  _aimStep.copy(_aimD).multiplyScalar(range);
+  if (segHitWorld(_aimO, _aimStep, _aimHit, (minDist || 0) / range)) return _aimHit.clone();
+  return null;
+}
+function aimPointOrFar(range) {
+  const p = aimHit(range, 0);
+  if (p) return p;
+  return aimOrigin(_aimO).clone().addScaledVector(aimDir(_aimD), range);
+}
 function pickEnemy(cosCone, maxDist) {
-  camera.getWorldDirection(_pk);
+  // 카메라가 아니라 조준선 기준. 3인칭 카메라는 플레이어를 내려다보고 있어서
+  // 카메라 정면으로 재면 정면의 적도 원뿔 밖으로 밀려났다.
+  aimDir(_pk);
+  aimOrigin(_aimO);
   let best = null, bestDot = cosCone;
   for (const e of enemies) {
     if (e.dead || e.grip || e.bound > 0) continue;
-    gripPoint(e, _pk2).sub(camera.position);
+    gripPoint(e, _pk2).sub(_aimO);
     const d = _pk2.length();
     if (d > maxDist || d < 1) continue;
     const dot = _pk2.divideScalar(d).dot(_pk);
@@ -2502,13 +2528,8 @@ function pickEnemy(cosCone, maxDist) {
 
 // 투사체 하나를 쏜다. 적을 지정하면 그 적의 가슴을 정확히 겨눈다.
 function shootAt(target, mat, speed, flag) {
-  const muzzle = firstPerson
-    ? camera.position.clone().addScaledVector(_pk.set(0,0,0) || _pk, 0)
-    : new THREE.Vector3(player.pos.x, player.pos.y + 1.7, player.pos.z);
-  if (firstPerson) {
-    camera.getWorldDirection(_pk);
-    muzzle.copy(camera.position).addScaledVector(_pk, 0.6);
-  }
+  const muzzle = aimOrigin(new THREE.Vector3());
+  if (firstPerson) muzzle.addScaledVector(aimDir(_aimD), 0.6);
   const dir = target.clone().sub(muzzle);
   if (dir.lengthSq() < 1e-6) return false;
   dir.normalize();
@@ -2525,14 +2546,7 @@ function shootAt(target, mat, speed, flag) {
 }
 
 // 조준점이 가리키는 지점 (적이 없을 때의 대체 목표)
-function aimFallback() {
-  raycaster.setFromCamera(cursorNdc(), camera);
-  raycaster.far = Infinity;
-  const hits = raycaster.intersectObjects(aimTargets, false);
-  return hits.length
-    ? hits[0].point.clone()
-    : raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction, PROJ_RANGE);
-}
+function aimFallback() { return aimPointOrFar(PROJ_RANGE); }
 
 // 잡기 투사체 (C 준비 후 좌클릭)
 function fireGrab() {
@@ -2562,10 +2576,18 @@ function updateLungePull(dt) {
   if (kickBuf > 0) kickBuf -= dt;
   if (hoverT > 0) hoverT -= dt;
   if (glideCd > 0) glideCd -= dt;
+  // 시점에서 손을 뗀 뒤 잠시 지나면 자동 카메라가 다시 붙는다
+  if (!firstPerson) {
+    lookIdle += dt;
+    if (lookIdle > CAM_RETURN && !camAuto) { camAuto = true; camMsg = 1.2; }
+  }
   if (noGrabT > 0) noGrabT -= dt;
   if (jumpLockT > 0) jumpLockT -= dt;
   // 빠르게 움직이는 동안에도 계속 갱신 — 느려진 지 한참 됐을 때만 붙는다
   if (player.vel.lengthSq() > 25 * 25) noGrabT = Math.max(noGrabT, 0.5);
+  // 줄을 잡고 있는 동안에도 계속 갱신 — 스윙이 벽에 막혀 느려졌다고
+  // 달라붙어버리면 그 자리에서 스윙이 끝난다
+  if (web) noGrabT = Math.max(noGrabT, 0.6);
   updatePunch(dt);
   updateZones(dt);
   updateUlt(dt);
@@ -3240,20 +3262,19 @@ addEventListener("keydown", e => {
   if (e.code === "KeyP") {
     firstPerson = !firstPerson;
     spiderGroup.visible = !firstPerson;
-    if (firstPerson) {
-      camAuto = false;
-      requestLook();
-      crosshairEl.style.left = "50%";
-      crosshairEl.style.top = "50%";
-    } else {
-      document.exitPointerLock();
-    }
+    // 조준점은 두 시점 모두 화면 중앙이다
+    crosshairEl.style.left = "50%";
+    crosshairEl.style.top = "50%";
+    camAuto = !firstPerson;      // 3인칭으로 돌아오면 자동 카메라부터
+    lookIdle = 0;
+    requestLook();               // 3인칭도 마우스 이동이 시점이라 락이 필요하다
   }
-  // C = 돌진. 1인칭·3인칭 모두 동작한다 (3인칭에서 카메라 토글이던 걸 Z로 옮겼다).
-  if (e.code === "KeyC") fireGrab();
-  if (e.code === "KeyZ") { camAuto = !camAuto; camMsg = 1.6; }
+  // C = 시점 자동/수동. 원래 자리로 되돌렸다.
+  if (e.code === "KeyC" || e.code === "KeyZ") { camAuto = !camAuto; camMsg = 1.6; lookIdle = 0; }
+  // T = 잡기 돌진. C에 있던 걸 옮겼다 (C는 시점 토글과 겹쳤다).
+  if (e.code === "KeyT") fireGrab();
   // R = 적을 눈앞으로 끌어온다. 끌려오는 동안 좌클릭 타이밍을 맞추면 발차기.
-  if (e.code === "KeyR" && firstPerson) firePull();
+  if (e.code === "KeyR") firePull();
   // + = 야간/주간 전환. 자판마다 + 자리가 달라 = 키와 넘패드 +를 모두 받는다.
   if (e.code === "Equal" || e.code === "NumpadAdd") setNight(!night);
   // F1 = 조작법 패널. 브라우저 기본 도움말이 뜨는 걸 막는다.
@@ -3269,7 +3290,7 @@ addEventListener("keydown", e => {
     if (attackMode) { releaseWeb(); zip = null; }   // 공격 모드로 들어가면 줄은 놓는다 (잡기는 유지)
   }
   // E = 속박 (공격 모드 전용). 스윙 중 E는 기존 속도 부스트라 서로 겹치지 않는다.
-  if (e.code === "KeyX") tumble();         // 덤블링 (예전 휠 아래로)
+  if (e.code === "KeyG") tumble();         // 덤블링 (예전 X, 그 전엔 휠 아래로)
   if (e.code === "KeyQ") fireUlt();        // 궁극기 — 광역 속박
   if (e.code === "KeyF") punch();          // 근접 주먹
   if (e.code === "KeyE" && attackMode) fireBind();
@@ -3286,6 +3307,8 @@ const ACCEL = 90;
 const AIR_ACCEL = 30;
 const PUMP_ACCEL = 44;   // E 홀드 속도 증강
 const ROPE_MIN = 12;
+// 이보다 가까운 곳에 걸면 그네가 되지 않는다. 자동·수동 앵커가 같은 값을 쓴다.
+const SWING_MIN_LEN = 18;
 // 집라인(우클릭): 양손 거미줄로 앵커를 잡고 자신을 끌어당기는 이동기.
 // 줄이 걸리자마자 튀어나가면 가볍게 느껴진다. 짧게 힘을 모으는 구간을 두면
 // "당겨진다"는 인과가 눈에 보이고 발사 순간의 가속이 훨씬 세게 체감된다.
@@ -3458,10 +3481,9 @@ crosshairEl.style.left = `${mx}px`;
 crosshairEl.style.top = `${my}px`;
 
 // 1인칭은 항상 화면 정중앙. 포인터락이 풀려도 조준 기준이 흔들리면 안 된다.
-function cursorNdc() {
-  if (firstPerson) return _ndc.set(0, 0);
-  return _ndc.set((mx / innerWidth) * 2 - 1, -(my / innerHeight) * 2 + 1);
-}
+// 조준은 1인칭·3인칭 모두 화면 중앙이다. 커서를 따라다니던 예전 방식은
+// 시점 조작과 조준이 한 손에 겹쳐서 어디를 노리는지 읽히지 않았다.
+function cursorNdc() { return _ndc.set(0, 0); }
 
 // 조준 대상. 나중에 장애물/적을 추가하면 addAimTarget()으로 여기 넣으면 된다.
 // 건물 종류마다 메시가 따로라 전부 조준 표적에 넣어야 어느 건물에든 거미줄이 걸린다
@@ -3471,13 +3493,16 @@ function addAimTarget(obj) { if (!aimTargets.includes(obj)) aimTargets.push(obj)
 // 조준선이 맞은 지점을 그대로 돌려준다. 보정도, 스냅도, 자동 탐색도 없다.
 // 화면에 보이는 그 점에 정확히 붙는 것이 유일한 규칙.
 function resolveAnchor() {
-  raycaster.setFromCamera(cursorNdc(), camera);
-  raycaster.far = Infinity;
-  const hits = raycaster.intersectObjects(aimTargets, false);
-  if (!hits.length) return null;
-  const p = hits[0].point;
-  // 사거리는 카메라가 아니라 플레이어(거미줄이 나가는 곳) 기준으로 잰다
-  if (player.pos.distanceTo(p) > ROPE_MAX) return null;
+  // 조준선 기준. 최소 길이는 여기서 바로 걸러 코앞 벽에 붙는 걸 막는다.
+  const p = aimHit(ROPE_MAX, SWING_MIN_LEN);
+  if (!p) return null;
+  const d = player.pos.distanceTo(p);
+  if (d > ROPE_MAX) return null;
+  // 자동 앵커와 같은 최소 조건. 코앞 벽에 걸면 줄이 ROPE_MIN으로 잘려
+  // 그네가 아니라 벽에 그대로 처박힌다. 실제로 여기서 스윙이 죽었다.
+  if (d < SWING_MIN_LEN) return null;
+  // 발밑을 조준하면 그네가 아니라 추락이다
+  if (p.y - player.pos.y < -14) return null;
   return p.clone();
 }
 
@@ -3503,7 +3528,7 @@ const _aStep = new THREE.Vector3(), _aHit = new THREE.Vector3();
 function scoreAnchor(p, fx, fz) {
   const dx = p.x - player.pos.x, dy = p.y - player.pos.y, dz = p.z - player.pos.z;
   const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-  if (len < 18 || len > ROPE_MAX) return -1;        // 너무 짧으면 덜컹, 길면 안 당겨짐
+  if (len < SWING_MIN_LEN || len > ROPE_MAX) return -1;   // 너무 짧으면 덜컹, 길면 안 당겨짐
   if (dy < -14) return -1;                          // 너무 아래면 그네가 아니라 추락이다
   const h = Math.hypot(dx, dz) || 1;
   const fwd = (dx / h) * fx + (dz / h) * fz;        // 진행 방향과의 일치도 (-1..1)
@@ -3585,8 +3610,13 @@ function tryAttach() {
   if (!canAct()) return false;
   if (stamEmpty) { say("스태미나 부족"); sfxMiss(); stamFx = 1; return false; }
   initAudio();
-  const point = resolveAnchor();
-  if (!point) return false;      // 빈 발. 조준한 곳에 걸 수 없으면 그냥 실패한다.
+  // 먼저 조준한 곳에 건다. 정확히 노린 앵커가 있으면 그게 우선이다.
+  let point = resolveAnchor();
+  // 조준선이 하늘이나 먼 곳을 향하면 그대로 헛방이었다. 실측 성공률이 2%였다.
+  // 스파이더맨 게임들은 스윙에 조준을 요구하지 않는다 — 헛치면 흐름이 통째로 끊긴다.
+  // 노린 데가 비면 근처에서 스윙하기 좋은 앵커를 자동으로 골라준다.
+  if (!point) point = findSwingAnchor();
+  if (!point) { say("걸 곳 없음"); sfxMiss(); return false; }
   attachWeb(point);
   return true;
 }
@@ -3610,29 +3640,20 @@ renderer.domElement.addEventListener("mousedown", e => {
   if (e.button === 3 || e.button === 4) return;
   const nowS = performance.now() / 1000;
   if (e.button === 2) {
+    // 우클릭은 1인칭·3인칭 모두 오직 집라인이다. 시점은 마우스 이동이 맡는다.
     mouseDownR = true;
     rClickT = nowS;
-    // 1인칭: 우클릭만으로 바로 집라인. 3인칭: 우드래그가 시점이라 좌우 동시일 때만.
-    if (firstPerson || mouseDownL || nowS - lClickT < ZIP_CHORD) {
-      releaseWeb();          // 좌클릭이 먼저 걸어둔 줄이 있으면 취소
-      if (tryZip()) return;
-      // 1인칭에서는 실패해도 시점 드래그로 넘기지 않는다 (넘기면 "먹통"으로 읽힌다)
-      if (firstPerson) return;
-    }
-    dragging = true;
+    requestLook();
+    releaseWeb();            // 좌클릭이 먼저 걸어둔 줄이 있으면 취소
+    tryZip();
     return;
   }
   if (e.button !== 0) return;
   mouseDownL = true;
   lClickT = nowS;
-  // 우클릭이 이미 눌려 있으면 = 동시 클릭 -> 양손 집라인
-  if (mouseDownR || nowS - rClickT < ZIP_CHORD) {
-    dragging = false;
-    if (tryZip()) return;
-  }
-  // 1인칭에서 락이 안 걸려 있으면 이 클릭으로 다시 시도한다.
+  // 락이 안 걸려 있으면 이 클릭으로 다시 시도한다. 3인칭도 마찬가지다.
   // (락 여부와 무관하게 시점은 돌아가므로 클릭을 삼키지 않고 그대로 진행한다)
-  if (firstPerson && document.pointerLockElement !== renderer.domElement) requestLook();
+  if (document.pointerLockElement !== renderer.domElement) requestLook();
   // 잡거나 끌어오는 중이면 좌클릭은 오직 발차기 입력이다
   if (lunge || pull) { tryKick(); return; }
   // 공격 모드에서는 좌클릭이 거미줄 발사 (클릭 한 번 = 한 발)
@@ -3650,7 +3671,7 @@ renderer.domElement.addEventListener("mousedown", e => {
 });
 addEventListener("mouseup", e => {
   if (e.button === 0) { mouseDownL = false; if (!lunge && !pull) releaseWeb(); }   // 떼면 즉시 손 놓기
-  if (e.button === 2) { mouseDownR = false; dragging = false; }
+  if (e.button === 2) mouseDownR = false;
 });
 // 휠 아래로 = 덤블링. 지상이면 구르기(전방 추진), 공중이면 공중제비.
 // 덤블링. 예전엔 휠 아래로였는데 휠을 줌에 내주고 X로 옮겼다.
@@ -3702,7 +3723,7 @@ function requestLook() {
 }
 
 addEventListener("contextmenu", e => e.preventDefault());
-addEventListener("blur", () => { dragging = false; mouseDownL = false; mouseDownR = false; releaseWeb(); });
+addEventListener("blur", () => { mouseDownL = false; mouseDownR = false; releaseWeb(); });
 
 document.addEventListener("mousemove", e => {
   // 1인칭은 포인터 락 성공 여부와 관계없이 이동량으로 시점을 돌린다.
@@ -3719,15 +3740,17 @@ document.addEventListener("mousemove", e => {
     viewPitch = Math.min(Math.max(viewPitch, -1.2), 1.35);
     return;
   }
-  mx = e.clientX;
-  my = e.clientY;
-  crosshairEl.style.left = `${mx}px`;
-  crosshairEl.style.top = `${my}px`;
-  if (dragging) {
-    viewYaw -= e.movementX * 0.005;
-    viewPitch -= e.movementY * 0.004;
-    viewPitch = Math.min(Math.max(viewPitch, -1.0), 1.2);
-  }
+  // 3인칭도 1인칭과 똑같이 마우스 이동 = 시점. 조준점은 화면 중앙에 고정된다.
+  // 버튼을 눌러야 시점이 돌던 예전 방식은 집라인(우클릭)과 계속 부딪혔다.
+  const dx = Math.max(-140, Math.min(140, e.movementX || 0));
+  const dy = Math.max(-140, Math.min(140, e.movementY || 0));
+  if (dx === 0 && dy === 0) return;
+  viewYaw -= dx * 0.0026;
+  viewPitch -= dy * 0.0021;
+  viewPitch = Math.min(Math.max(viewPitch, -1.0), 1.2);
+  // 직접 돌리는 동안은 자동 카메라가 물러나고, 손을 떼면 잠시 뒤 되돌아온다
+  camAuto = false;
+  lookIdle = 0;
 });
 
 // fromY를 주면 "그 높이 이하에 있는 가장 높은 바닥"만 고른다.
@@ -4477,7 +4500,7 @@ function updateCamera(dt) {
   sun.target.updateMatrixWorld();
   // 자동 모드: 진행 방향(또는 붙어 있는 벽)으로 계속 정렬.
   // 수동 모드(C)에서는 이 블록이 통째로 꺼져서 시점은 우클릭 드래그로만 움직인다.
-  if (camAuto && !dragging && !firstPerson && (hsp > 3 || clinging)) {
+  if (camAuto && !firstPerson && (hsp > 3 || clinging)) {
     viewYaw = lerpAngle(viewYaw, bodyYaw, Math.min(1, 3.5 * dt));
   }
 
