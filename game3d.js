@@ -1,6 +1,7 @@
 ﻿import * as THREE from "three";
 import { GLTFLoader } from "./lib/loaders/GLTFLoader.js";
 import { mergeGeometries } from "./lib/utils/BufferGeometryUtils.js";
+import { RGBELoader } from "./lib/loaders/RGBELoader.js";
 
 // preserveDrawingBuffer: 개발 중 화면을 캡처해서 확인하기 위해 켜둔다
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -86,13 +87,55 @@ skyMesh.frustumCulled = false;
 scene.add(skyMesh);
 
 // 하늘을 환경맵으로 구워 넣는다. 유리 파사드가 하늘을 반사해야 유리처럼 읽힌다.
-if (renderer.compile) {   // 헤드리스 테스트 환경에는 실제 WebGL 컨텍스트가 없다
+// 절차적 하늘로 한 번 구워두고, HDRI 파일이 있으면 아래에서 덮어쓴다.
+function bakeProceduralEnv() {
+  if (!renderer.compile) return;   // 헤드리스 테스트 환경에는 실제 WebGL 컨텍스트가 없다
   const pmrem = new THREE.PMREMGenerator(renderer);
   const skyScene = new THREE.Scene();
   skyScene.add(new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), skyMat));
   scene.environment = pmrem.fromScene(skyScene, 0.04).texture;
   pmrem.dispose();
 }
+bakeProceduralEnv();
+
+// ══════════════ HDRI 하늘 슬롯 ══════════════
+// assets/hdri/day.hdr 를 넣으면 하늘이 그걸로 바뀐다. 없으면 지금 셰이더 하늘 그대로.
+// 야간 모드용은 night.hdr. 없으면 낮 것을 어둡게 써서 대체한다.
+// 하늘만 바뀌는 게 아니라 유리 반사가 전부 같이 좋아진다.
+const HDRI = { day: null, night: null, on: false };
+
+function applyHdri(which) {
+  const tex = HDRI[which] || HDRI.day;
+  if (!tex || !renderer.compile) return false;
+  scene.environment = tex;
+  scene.background = tex;
+  // 사진 하늘을 쓰면 셰이더 하늘은 가려버린다 (둘 다 그리면 겹친다)
+  skyMesh.visible = false;
+  HDRI.on = true;
+  // 밤인데 night.hdr이 없으면 낮 것을 어둡게 눌러 쓴다
+  scene.backgroundIntensity = (which === 'night' && !HDRI.night) ? 0.12 : 1;
+  scene.environmentIntensity = (which === 'night' && !HDRI.night) ? 0.2 : 1;
+  return true;
+}
+
+// 파일이 없으면 조용히 넘어간다 — 슬롯만 파두고 나중에 채우기 위한 구조.
+function tryLoadHdri(name, key) {
+  if (!renderer.compile) return;
+  new RGBELoader().load(`assets/hdri/${name}.hdr`,
+    (tex) => {
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      HDRI[key] = pmrem.fromEquirectangular(tex).texture;
+      pmrem.dispose();
+      tex.dispose();
+      console.log(`[HDRI] ${name}.hdr 적용`);
+      applyHdri(night ? 'night' : 'day');
+    },
+    undefined,
+    () => { /* 파일 없음 — 셰이더 하늘을 그대로 쓴다 */ });
+}
+tryLoadHdri('day', 'day');
+tryLoadHdri('night', 'night');
 
 // ===================== 도시 생성 (맨해튼 비례) =====================
 // 실제 뉴욕의 느낌은 "정사각 격자"가 아니라 비대칭 격자에서 나온다.
@@ -115,11 +158,43 @@ const WORLD_SIZE = Math.max(N_AVE * AVE_SPACING, N_ST * ST_SPACING);
 const CELL = 100;
 const CELLS = Math.ceil(WORLD_SIZE / CELL) + 2;
 
-const KIND_BRICK = 0;   // 브라운스톤 (저층, 붉은 벽돌)
-const KIND_GLASS = 1;   // 유리 타워 (고층)
-const KIND_CONC  = 2;   // 콘크리트 오피스 (중층)
-const KIND_IND   = 3;   // 산업·창고 (저층, 골강판)
-const KIND_COUNT = 4;
+// 파사드 '계열'. 게임 로직이 보는 값이다 (야간 창문 = 유리, 비상계단 = 벽돌·산업).
+// 생김새 변종은 아래 FACADES에서 얼마든지 늘릴 수 있고, 계열만 맞으면 로직이 따라온다.
+const FAM_BRICK = 0, FAM_GLASS = 1, FAM_CONC = 2, FAM_IND = 3;
+
+// ══════════════ 파사드 슬롯 ══════════════
+// 텍스처를 받아오면 여기에 한 줄만 추가하면 도시에 섞인다. 다른 코드는 안 건드려도 된다.
+//
+//   file : assets/textures/<file>_diff.jpg / _nor.jpg / _rough.jpg  (1K JPG 권장)
+//   fam  : 계열. 야간에 창문이 켜지려면 FAM_GLASS, 비상계단이 붙으려면 FAM_BRICK/FAM_IND
+//   tile : 텍스처 한 장이 덮는 실제 길이(m). 작을수록 무늬가 촘촘해진다
+//   hue/sat/lig : 건물마다 [기준, 흔들림] 만큼 색을 흩뿌린다 (같은 텍스처도 다르게 보이게)
+//
+// 파일이 아직 없으면 같은 계열의 기본 텍스처로 조용히 대체된다. 넣는 순간 자동으로 바뀐다.
+const FACADES = [
+  { file: 'brick',    fam: FAM_BRICK, tile: 4,  rough: 1,    hue: [0.04, 0.05], sat: [0.10, 0.12], lig: [0.62, 0.16] },
+  { proc: 'glass',    fam: FAM_GLASS, tile: 6,  rough: 0.18, metal: 0.35, hue: [0.53, 0.10], sat: [0.10, 0.14], lig: [0.70, 0.16] },
+  { file: 'concrete', fam: FAM_CONC,  tile: 6,  rough: 1,    hue: [0.09, 0.06], sat: [0.02, 0.05], lig: [0.74, 0.16] },
+  { proc: 'industrial', fam: FAM_IND, tile: 5,  rough: 0.7,  hue: [0.55, 0.08], sat: [0.04, 0.06], lig: [0.62, 0.14] },
+
+  // ───── 여기부터 추가 (주석만 풀거나 새로 쓰면 된다) ─────
+  // { file: 'facade1', fam: FAM_GLASS, tile: 6, rough: 0.25, metal: 0.30, hue: [0.55, 0.08], sat: [0.08, 0.10], lig: [0.66, 0.14] },
+  // { file: 'facade2', fam: FAM_CONC,  tile: 7, rough: 0.95, hue: [0.08, 0.05], sat: [0.03, 0.05], lig: [0.70, 0.14] },
+  // { file: 'facade3', fam: FAM_BRICK, tile: 4, rough: 1.0,  hue: [0.02, 0.04], sat: [0.14, 0.10], lig: [0.52, 0.14] },
+];
+
+const KIND_COUNT = FACADES.length;
+const famOf = k => FACADES[k].fam;
+// 계열별로 어떤 변종이 있는지 미리 모아둔다 (건물마다 무작위로 하나 고른다)
+const BY_FAM = [[], [], [], []];
+FACADES.forEach((f, i) => BY_FAM[f.fam].push(i));
+// 계열 안에 변종이 하나도 없으면 0번으로 떨어뜨린다 (설정 실수로 도시가 비지 않게)
+function pickKind(fam) {
+  const list = BY_FAM[fam];
+  if (!list || !list.length) return 0;
+  return list[(Math.random() * list.length) | 0];
+}
+const KIND_DEF = FACADES;
 
 const buildings = [];
 const dummy = new THREE.Object3D();
@@ -178,10 +253,11 @@ for (let ai = 0; ai < N_AVE; ai++) {
       if (landmark) h *= 1.9 + Math.random() * 1.0;
 
       let kind;
-      if (h > 300) kind = Math.random() < 0.72 ? KIND_GLASS : KIND_CONC;
-      else if (h > 130) kind = Math.random() < 0.5 ? KIND_CONC : KIND_GLASS;
-      else if (h < 50 && Math.random() < 0.3) kind = KIND_IND;
-      else kind = Math.random() < 0.72 ? KIND_BRICK : KIND_CONC;
+      // 높이로 계열을 정하고, 그 계열의 변종 중 하나를 뽑는다
+      if (h > 300) kind = pickKind(Math.random() < 0.72 ? FAM_GLASS : FAM_CONC);
+      else if (h > 130) kind = pickKind(Math.random() < 0.5 ? FAM_CONC : FAM_GLASS);
+      else if (h < 50 && Math.random() < 0.3) kind = pickKind(FAM_IND);
+      else kind = pickKind(Math.random() < 0.72 ? FAM_BRICK : FAM_CONC);
 
       const bx = x + w / 2;
       // 블록 깊이를 그대로 쓰되 살짝 물러나게 해 안뜰 느낌을 만든다
@@ -226,7 +302,7 @@ for (let ai = 0; ai < N_AVE; ai++) {
       const y0 = top * (0.3 + Math.random() * 0.5);
       const z0 = a.z + a.d / 2, z1 = nb.z - nb.d / 2;
       if (z1 - z0 < 6) continue;
-      addBox((a.x + nb.x) / 2, (z0 + z1) / 2, 8 + Math.random() * 8, z1 - z0, 4.5, KIND_CONC, y0);
+      addBox((a.x + nb.x) / 2, (z0 + z1) / 2, 8 + Math.random() * 8, z1 - z0, 4.5, pickKind(FAM_CONC), y0);
     }
   }
 }
@@ -414,21 +490,32 @@ function makeIndustrialTexture() {
 // 캔버스로 그린 그림 대신 사진 기반 albedo/normal/roughness를 쓴다.
 // normal map이 있어야 1인칭에서 벽에 붙었을 때 표면 요철이 빛을 받아 살아난다.
 const texLoader = new THREE.TextureLoader();
-function loadPbr(name, srgb = true) {
-  const t = texLoader.load(`assets/textures/${name}.jpg`);
+// 파일이 없으면 fallback 텍스처의 이미지를 같은 텍스처 객체에 밀어넣는다.
+// 슬롯만 등록해 두고 파일은 나중에 넣어도 화면이 깨지지 않게 하기 위한 장치다.
+function loadPbr(name, srgb = true, fallback) {
+  const t = texLoader.load(`assets/textures/${name}.jpg`, undefined, undefined, () => {
+    if (!fallback) return;
+    console.warn(`[텍스처 없음] ${name}.jpg → ${fallback}.jpg 로 대체`);
+    texLoader.load(`assets/textures/${fallback}.jpg`, (f) => {
+      t.image = f.image;
+      t.needsUpdate = true;
+    });
+  });
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = renderer.capabilities ? renderer.capabilities.getMaxAnisotropy() : 1;
   return t;
 }
 // 같은 재질을 여러 번 만들지 않도록 한 번만 읽어 캐시한다
-function pbrSet(base) {
+function pbrSet(base, fallback) {
   return {
-    map: loadPbr(`${base}_diff`),
-    normalMap: loadPbr(`${base}_nor`, false),
-    roughnessMap: loadPbr(`${base}_rough`, false),
+    map: loadPbr(`${base}_diff`, true, fallback && `${fallback}_diff`),
+    normalMap: loadPbr(`${base}_nor`, false, fallback && `${fallback}_nor`),
+    roughnessMap: loadPbr(`${base}_rough`, false, fallback && `${fallback}_rough`),
   };
 }
+// 계열별 대체 텍스처 — 새 슬롯의 파일이 아직 없을 때 이걸로 버틴다
+const FAM_FALLBACK = ['brick', 'concrete', 'concrete', 'concrete'];
 const PBR = {
   brick: pbrSet("brick"),
   concrete: pbrSet("concrete"),
@@ -442,12 +529,12 @@ const roofMat = new THREE.MeshStandardMaterial({ color: 0x40454b, roughness: 1, 
 // 종류마다 재질 + 타일 크기 + 색조 범위를 따로 준다
 // 유리 커튼월만 절차적으로 남긴다 — 창틀 격자와 불 켜진 칸은 사진 텍스처로 대체가 안 된다.
 // 나머지는 Poly Haven PBR.
-const KIND_DEF = [
-  { pbr: PBR.brick,    tile: 4,  rough: 1,    hue: [0.04, 0.05], sat: [0.10, 0.12], lig: [0.62, 0.16] }, // 벽돌
-  { tex: makeGlassTexture(), tile: 6, rough: 0.18, metal: 0.35, hue: [0.53, 0.10], sat: [0.10, 0.14], lig: [0.70, 0.16] }, // 유리
-  { pbr: PBR.concrete, tile: 6,  rough: 1,    hue: [0.09, 0.06], sat: [0.02, 0.05], lig: [0.74, 0.16] }, // 콘크리트
-  { tex: makeIndustrialTexture(), tile: 5, rough: 0.7, hue: [0.55, 0.08], sat: [0.04, 0.06], lig: [0.62, 0.14] }, // 산업
-];
+
+// 코드로 그리는 텍스처들. FACADES에서 proc: '이름' 으로 참조한다.
+const PROC_TEX = {
+  glass: makeGlassTexture(),
+  industrial: makeIndustrialTexture(),
+};
 
 const cityMeshes = [];
 {
@@ -458,11 +545,13 @@ const cityMeshes = [];
   KIND_DEF.forEach((def, k) => {
     const list = byKind[k];
     if (!list.length) return;
-    const mat = def.pbr
-      ? new THREE.MeshStandardMaterial({ ...def.pbr, color: 0xffffff, roughness: def.rough,
+    // file 슬롯은 PBR 3종 세트, proc 슬롯은 코드로 그린 텍스처를 쓴다
+    const mat = def.file
+      ? new THREE.MeshStandardMaterial({ ...pbrSet(def.file, FAM_FALLBACK[def.fam]),
+          color: 0xffffff, roughness: def.rough, metalness: def.metal || 0,
           normalScale: new THREE.Vector2(1.4, 1.4), envMapIntensity: 0.75 })
-      : new THREE.MeshStandardMaterial({ map: def.tex, color: 0xffffff, roughness: def.rough,
-          metalness: def.metal || 0, envMapIntensity: 0.85 });
+      : new THREE.MeshStandardMaterial({ map: PROC_TEX[def.proc], color: 0xffffff,
+          roughness: def.rough, metalness: def.metal || 0, envMapIntensity: 0.85 });
     worldScaleUv(mat, def.tile);
     const mesh = new THREE.InstancedMesh(boxGeo, [mat, mat, roofMat, roofMat, mat, mat], list.length);
     list.forEach((b, i) => {
@@ -521,7 +610,7 @@ let lampCount = 0;
     if (b.y0 !== 0) continue;
     // 저·중층 벽돌/콘크리트 옥상에 주로 올라간다 (초고층 유리타워엔 없다)
     if (b.h < 34 || b.h > 190) continue;
-    if (b.kind === KIND_GLASS) continue;
+    if (famOf(b.kind) === FAM_GLASS) continue;   // 유리 타워엔 물탱크를 안 올린다
     if (Math.min(b.w, b.d) < 14) continue;
     if (Math.random() > 0.42) continue;
     const r = 2.4 + Math.random() * 1.3;
@@ -911,7 +1000,8 @@ const NEON_COLORS = [0xff2d78, 0x22e0ff, 0xffd21e, 0x8b5cff, 0x2bff88, 0xff6a1e,
       const uHalf = Math.max(1, Math.min(f.len, 26) / 2 - 2);
 
       // 비상계단: 벽돌·산업 건물의 전형. 층마다 발판 + 위아래를 잇는 세로 난간.
-      if ((b.kind === KIND_BRICK || b.kind === KIND_IND) && b.h > 22 && Math.random() < 0.3) {
+      const fam = famOf(b.kind);
+      if ((fam === FAM_BRICK || fam === FAM_IND) && b.h > 22 && Math.random() < 0.3) {
         const top = Math.min(b.h - 4, 46);
         const u = (Math.random() - 0.5) * uHalf;
         for (let y = 8; y < top; y += 5.4) {
@@ -1042,7 +1132,7 @@ function setNight(on) {
 
   for (const m of cityMeshes) {
     const mat = Array.isArray(m.material) ? m.material[0] : m.material;
-    if (m.userData.kind === KIND_GLASS) {
+    if (famOf(m.userData.kind) === FAM_GLASS) {
       // 유리 텍스처에 이미 불 켜진 칸이 그려져 있으니 그대로 emissiveMap으로 쓴다
       mat.emissiveMap = on ? mat.map : null;
       mat.emissive.setHex(on ? 0xffd9a0 : 0x000000);
@@ -1059,6 +1149,8 @@ function setNight(on) {
   if (signalMat) { signalMat.emissive.setHex(on ? 0xff5a1e : 0x220800); signalMat.emissiveIntensity = on ? 2.4 : 1; }
   if (lampHeadMat) { lampHeadMat.emissive.setHex(on ? 0xffd79a : 0x2a2415); lampHeadMat.emissiveIntensity = on ? 3.2 : 1; }
   if (lampGlowMesh) lampGlowMesh.visible = on;
+  // HDRI를 쓰는 중이면 하늘도 같이 갈아끼운다
+  if (HDRI.on || HDRI.day || HDRI.night) applyHdri(on ? 'night' : 'day');
   camMsg = 1.6;
 }
 
@@ -4925,4 +5017,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, get lampCount(){ return lampCount; } };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, get lampCount(){ return lampCount; } };
