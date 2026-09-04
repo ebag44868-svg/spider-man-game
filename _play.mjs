@@ -65,10 +65,13 @@ for (const fp of [true, false]) {
   // 3인칭은 커서가 조준점이다. 사람이 하듯 적 위에 커서를 올린다.
   if (!fp) { const sc = T.screenOf(best.g.position.clone().setY(best.g.position.y+1.4)); T.setCursor(sc.x, sc.y); }
   const hp0 = best.hp;
-  T.setAttack ? T.setAttack(true) : null;
-  (W.keydown||[]).forEach(f=>f({code:"Tab",preventDefault(){}}));
+  // TAB은 이제 3단 순환(웹스윙 -> 거미줄 격투 -> 근접 격투)이다.
+  // 한 번만 누르면 근접 모드로 들어가 60m 적을 주먹으로 치게 된다.
+  const tab = () => (W.keydown||[]).forEach(f=>f({code:"Tab",repeat:false,preventDefault(){}}));
+  for (let k=0; k<4 && !T.attackMode; k++) tab();
   md(0); mu(0);
   for(let i=0;i<120*2;i++) T.update(DT);
-  console.log(`  ${fp?"1인칭":"3인칭"} 정면 ${bd.toFixed(0)}m 적: hp ${hp0} -> ${best.hp} ${best.hp<hp0?"(명중)":"(빗나감)"}`);
-  (W.keydown||[]).forEach(f=>f({code:"Tab",preventDefault(){}}));
+  const shotD = T.player.pos.distanceTo(best.g.position);
+  console.log(`  ${fp?"1인칭":"3인칭"} 정면 ${shotD.toFixed(0)}m 적: hp ${hp0} -> ${best.hp} ${best.hp<hp0?"(명중)":"(빗나감)"}`);
+  for (let k=0; k<4 && (T.attackMode || T.meleeMode); k++) tab();   // 웹스윙으로 되돌린다
 }

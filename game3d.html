@@ -405,7 +405,7 @@
           <dt><kbd>T</kbd></dt><dd>적을 잡고 날아감 · 누르면 즉시 발사 (1·3인칭)</dd>
           <dt><kbd>R</kbd></dt><dd>적을 눈앞으로 끌어옴 (1·3인칭)</dd>
           <dt><kbd>좌클릭</kbd></dt><dd>돌진·끌어오기 중 적이 가까워지면 발차기. 놓치면 부딪혀 서로 피해</dd>
-          <dt><kbd>X</kbd></dt><dd>근접 주먹 (마우스 앞쪽 사이드 버튼도 동일) · 쿨타임 없음, 팔이 돌아와야 다시 나감</dd>
+          <dt><kbd>X</kbd></dt><dd>근접 주먹 (마우스 앞쪽 사이드 버튼도 동일) · 쿨타임 없음, 팔이 돌아와야 다시 나감<br>근접 격투 모드의 약/강공격과는 별개다</dd>
           <dt><kbd>E</kbd></dt><dd>속도 부스트</dd>
           <dt><kbd>Q</kbd></dt><dd>궁극기 — 반경 75m의 적을 한 번에 거미줄로 속박 + 피해 (게이지 100%)</dd>
           <dt><kbd>F</kbd></dt><dd>양손 거미줄(집라인) — 힘을 모았다 앵커로 끌려감. 도착 속도는 반동으로 유지<br><b>1인칭은 우클릭으로도</b> 나간다 (1인칭엔 커서가 없어 우클릭이 비어 있다)</dd>
@@ -436,19 +436,39 @@
       <div class="hs">
         <h3>벽</h3>
         <dl>
-          <dt><kbd>Ctrl</kbd></dt><dd>벽 잡기 · 홀드로 벽타기 (마우스 사이드 버튼도 동일)</dd>
-          <dt><kbd>Ctrl</kbd>+<kbd>WASD</kbd></dt><dd>벽면 상하좌우 이동</dd>
+          <dt>마우스 <b>뒤쪽</b> 사이드 버튼</dt><dd>벽 잡기 · 홀드로 벽타기 <b>(Ctrl은 락온으로 옮겼다)</b></dd>
+          <dt>사이드 버튼+<kbd>WASD</kbd></dt><dd>벽면 상하좌우 이동</dd>
           <dt><kbd>좌클릭</kbd></dt><dd>벽 점프</dd>
         </dl>
       </div>
 
       <div class="hs">
-        <h3>전투</h3>
+        <h3>전투 모드</h3>
         <dl>
-          <dt><kbd>TAB</kbd></dt><dd>공격 모드 전환</dd>
+          <dt><kbd>TAB</kbd></dt><dd><b>웹스윙 → 거미줄 격투 → 근접 격투 → 웹스윙</b></dd>
+          <dt><kbd>Ctrl</kbd></dt><dd><b>락온</b> — 시야 안의 적을 물면 카메라가 알아서 따라간다.<br>물어둔 적은 조준점이 어디에 있든 공격 대상이 된다. 다시 누르면 해제</dd>
+        </dl>
+      </div>
+
+      <div class="hs">
+        <h3>거미줄 격투</h3>
+        <dl>
           <dt><kbd>좌클릭</kbd></dt><dd>거미줄 발사 (탄창 80발)</dd>
           <dt><kbd>E</kbd></dt><dd>적 속박 — 고치로 5초간 묶음</dd>
           <dt><kbd>V</kbd></dt><dd>재장전</dd>
+        </dl>
+      </div>
+
+      <div class="hs">
+        <h3>근접 격투</h3>
+        <dl>
+          <dt><kbd>좌클릭</kbd></dt><dd><b>약공격</b> — 3타 체인. 3타째가 크게 들어간다</dd>
+          <dt><kbd>우클릭</kbd></dt><dd><b>강공격</b> — 느리지만 <b>체간</b>을 크게 무너뜨린다</dd>
+          <dt><kbd>E</kbd></dt><dd><b>쳐내기(패링)</b> — 0.2초 창. 적의 공격과 탄을 튕겨내고 체간을 크게 깎는다.<br>헛치면 그 사이에 그대로 맞는다. <b>붉은 공격은 못 막는다 — 굴러야 한다</b></dd>
+          <dt><kbd>Shift</kbd></dt><dd><b>구르기</b> — 앞부분만 무적. 스태미나를 먹는다 (방향은 WASD, 없으면 백스텝)</dd>
+          <dt><kbd>F</kbd></dt><dd><b>거미줄 접근</b> — 락온한 적에게 순식간에 붙는다</dd>
+          <dt>—</dt><dd><b>체간</b>이 다 차면 적이 무너진다. 그때 <kbd>우클릭</kbd>으로 <b>처형</b>(HP 무관 즉사, 연출 중 무적).<br>몰아치지 않으면 체간은 도로 회복된다</dd>
+          <dt>—</dt><dd>근접 모드에서는 휘두르거나 구르는 동안 발이 묶인다. Shift 달리기·공중 대시는 꺼진다</dd>
         </dl>
       </div>
 
@@ -507,6 +527,6 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mtm86xza"></script>
+<script type="module" src="./game3d.js?v=mtm8ky81"></script>
 </body>
 </html>

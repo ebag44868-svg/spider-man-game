@@ -1474,6 +1474,9 @@ function makeEnemy(x, y, z, type) {
   enemies.push({
     g, mat, type: E_TYPES.indexOf(ty), ty, hp: ty.hp, flash: 0, dead: false, deadT: 0,
     bound: 0, cocoon: null,
+    // 체간: HP와 별개로 쌓이고, 다 차면 stag(붕괴) 상태가 되어 처형당한다
+    post: 0, postMax: ty.post || 45, postHold: 0, stag: 0,
+    swing: null,                        // 휘두르는 중인 근접 공격
     knock: new THREE.Vector3(),
     yaw: Math.random() * 6.283, wob: Math.random() * 6.283,
     zone: null,
@@ -1492,11 +1495,11 @@ function makeEnemy(x, y, z, type) {
 // 종류별 성격표. 여기 숫자만 만지면 적 성향이 바뀐다.
 const E_TYPES = [
   { name: '사수',   color: 0xd41f2b, hp: 3, sight: 150, range: 130, aim: 0.95, cd: 2.2,
-    dmg: 1, spd: 5.5, chase: 1.5, strafe: 7,  proj: 117, melee: false },
+    dmg: 1, spd: 5.5, chase: 1.5, strafe: 7,  proj: 117, melee: false, post: 70 },
   { name: '돌격병', color: 0xff7a18, hp: 2, sight: 200, range: 7,   aim: 0.45, cd: 1.2,
-    dmg: 1, spd: 8,   chase: 2.6, strafe: 0,  proj: 0,   melee: true  },
+    dmg: 1, spd: 8,   chase: 2.6, strafe: 0,  proj: 0,   melee: true,  post: 90 },
   { name: '저격수', color: 0x9b4dff, hp: 2, sight: 300, range: 280, aim: 1.9,  cd: 3.4,
-    dmg: 2, spd: 3,   chase: 0.7, strafe: 3,  proj: 190, melee: false },
+    dmg: 2, spd: 3,   chase: 0.7, strafe: 3,  proj: 190, melee: false, post: 60 },
 ];
 // 사수를 기본으로 두고 돌격병·저격수를 섞는다
 function rollEnemyType() {
@@ -1597,7 +1600,7 @@ function enemyFire(e) {
   m.position.copy(from);
   m.frustumCulled = false;
   scene.add(m);
-  eProjectiles.push({ m, pos: from.clone(), vel: dir.clone().multiplyScalar(ty.proj), life: E_LIFE, dmg: ty.dmg });
+  eProjectiles.push({ m, pos: from.clone(), vel: dir.clone().multiplyScalar(ty.proj), life: E_LIFE, dmg: ty.dmg, from: e });
   sfxEnemyShot();
 }
 
@@ -1700,7 +1703,10 @@ function updateEnemyAI(e, dt, dist) {
         e.fireCd = ty.cd * 0.4;              // 곧 다시 노린다
       } else if (ty.melee) {
         // 돌격병은 탄이 없다. 붙어 있으면 그 자리에서 후려친다.
-        if (dist < ty.range + 3) { damagePlayer(ty.dmg); sfxEnemyShot(); }
+        // 쳐내기(E)가 들어와 있으면 피해 대신 적 체간이 무너진다.
+        if (dist < ty.range + 3) {
+          if (!tryParry(e, true)) { damagePlayer(ty.dmg); sfxEnemyShot(); }
+        }
       } else enemyFire(e);
       if (e.fireCd <= 0) e.fireCd = ty.cd * (0.7 + Math.random() * 0.6);
     }
@@ -2330,6 +2336,403 @@ function updatePunch(dt) {
   }
 }
 
+// ================== 근접 격투 ==================
+// 소울류 문법 그대로. 약공격 3타 체인 / 강공격 / 패링(E) / 구르기(Shift).
+// 적은 HP와 별개로 '체간'을 갖는다. 체간이 무너지면 처형으로 즉사한다 —
+// 그래서 강공격과 패링이 "딜을 넣는 수단"이 아니라 "무너뜨리는 수단"이 된다.
+
+// 한 방의 사양. hit은 사이클 시작으로부터 판정이 나가는 시각(초).
+// cancel 이후에는 다음 입력을 선입력으로 받아 이어친다.
+const M_LIGHT = [
+  { dur: 0.34, hit: 0.13, dmg: 1, post: 10, kb: 6,  r: 6.2, cone: 0.42, cancel: 0.21 },
+  { dur: 0.32, hit: 0.12, dmg: 1, post: 10, kb: 6,  r: 6.2, cone: 0.42, cancel: 0.20 },
+  { dur: 0.54, hit: 0.21, dmg: 2, post: 22, kb: 15, r: 6.8, cone: 0.48, cancel: 0.40 },
+];
+// 강공격은 느리고 크게 무너뜨린다. 체간 44면 세 방에 붕괴한다.
+const M_HEAVY  = { dur: 0.74, hit: 0.35, dmg: 2, post: 44, kb: 22, r: 7.4, cone: 0.52, cancel: 0.58 };
+const M_CHAIN_T = 0.65;   // 이 안에 다음 약공격을 넣어야 체인이 이어진다
+const M_BUF_T   = 0.28;   // 선입력 유지 시간
+const M_STEP    = 26;     // 휘두르며 앞으로 파고드는 속도
+
+let mAtk = null;          // { spec, t, hit, heavy, idx }
+let mChain = 0, mChainT = 0;
+let mBuf = 0, mBufT = 0;  // 선입력: 1 = 약, 2 = 강
+
+// --- 패링 ---
+// 세키로의 쳐내기. 창이 좁고, 헛치면 그 사이에 그대로 맞는다.
+const PARRY_WIN  = 0.20;  // 판정 창
+const PARRY_REC  = 0.32;  // 헛쳤을 때 굳는 시간
+const PARRY_CD   = 0.38;
+const PARRY_POST = 34;    // 쳐내면 적 체간이 이만큼 무너진다
+let parryT = 0, parryRec = 0, parryCd = 0, parryFx = 0;
+let parryCount = 0;
+
+// --- 구르기 ---
+const ROLL_TIME  = 0.42;
+const ROLL_IFR   = 0.26;  // 앞쪽 이 구간만 무적. 끝까지 무적이면 구르기가 답이 된다.
+const ROLL_SPEED = 30;
+const ROLL_STAM  = 20;
+let rollT = 0;
+const rollDir = new THREE.Vector3();
+
+// --- 체간 · 처형 ---
+const POST_DECAY = 14;    // 초당 회복. 몰아치지 않으면 도로 차오른다.
+const POST_HOLD  = 0.7;   // 마지막 타격 후 이만큼은 회복이 멈춘다
+const STAG_TIME  = 4.0;   // 붕괴 지속
+const EXEC_TIME  = 0.9;   // 처형 연출 (이 동안 무적)
+const EXEC_REACH = 9;
+let execT = 0, execTarget = null;
+
+// --- 거미줄 접근 ---
+// 지상 고정 모드라 거리 좁히는 수단이 없으면 원거리 적을 영영 못 잡는다.
+// F로 락온 대상에게 양손 거미줄을 걸고 순식간에 붙는다.
+const DASH_IN_SPEED = 62;
+const DASH_IN_MIN = 7, DASH_IN_MAX = 75, DASH_IN_STAM = 12;
+let dashIn = 0, dashInE = null;
+
+const _mDir = new THREE.Vector3(), _mh = new THREE.Vector3(), _mImp = new THREE.Vector3();
+
+// 근접 공격이 향하는 방향. 락온 중이면 대상 쪽, 아니면 시선 쪽.
+function meleeFacing(out) {
+  if (lockOn && !lockOn.dead) {
+    out.set(lockOn.g.position.x - player.pos.x, 0, lockOn.g.position.z - player.pos.z);
+    if (out.lengthSq() > 1e-4) return out.normalize();
+  }
+  return out.set(Math.sin(viewYaw), 0, Math.cos(viewYaw));
+}
+
+// WASD가 가리키는 월드 방향. 아무것도 안 눌렀으면 null.
+function moveDirWorld(out) {
+  let ix = 0, iz = 0;
+  if (keys["KeyW"]) iz -= 1;
+  if (keys["KeyS"]) iz += 1;
+  if (keys["KeyA"]) ix -= 1;
+  if (keys["KeyD"]) ix += 1;
+  if (ix === 0 && iz === 0) return null;
+  const fx = Math.sin(viewYaw), fz = Math.cos(viewYaw);
+  // rightV = fwd x up
+  const rx = -fz, rz = fx;
+  return out.set(fx * -iz + rx * ix, 0, fz * -iz + rz * ix).normalize();
+}
+
+// 지금 다른 동작에 묶여 있는가
+function meleeBusy() { return !!mAtk || rollT > 0 || execT > 0 || parryRec > 0; }
+
+// ---------- 체간 ----------
+function addPosture(e, amt) {
+  if (e.dead || e.bound > 0) return;
+  if (e.stag > 0) return;                 // 이미 무너진 적은 더 무너지지 않는다
+  e.post = Math.min(e.postMax, (e.post || 0) + amt);
+  e.postHold = POST_HOLD;
+  if (e.post >= e.postMax) {
+    e.post = e.postMax;
+    e.stag = STAG_TIME;
+    e.aimT = 0; e.swing = null;           // 준비 중이던 공격은 그대로 끊긴다
+    freeBeam(e);
+    hitStop = Math.max(hitStop, 0.2);
+    shake = Math.max(shake, 0.7);
+    say("체간 붕괴 · 우클릭으로 처형", 1.6);
+    sfxPerfect();
+  }
+}
+
+function updatePosture(e, dt) {
+  if (e.stag > 0) {
+    e.stag -= dt;
+    if (e.stag <= 0) { e.stag = 0; e.post = 0; }
+    return;
+  }
+  if (e.postHold > 0) { e.postHold -= dt; return; }
+  if (e.post > 0) e.post = Math.max(0, e.post - POST_DECAY * dt);
+}
+
+// ---------- 공격 ----------
+function startMelee(heavy) {
+  if (!canAct() || !meleeMode) return;
+  // 무너진 대상에게 강공격을 넣으면 공격이 아니라 처형이다
+  if (heavy) {
+    const t = execTargetNear();
+    if (t) { startExecute(t); return; }
+  }
+  const spec = heavy ? M_HEAVY : M_LIGHT[Math.min(mChain, M_LIGHT.length - 1)];
+  mAtk = { spec, t: 0, hit: false, heavy, idx: heavy ? -1 : mChain };
+  if (heavy) { mChain = 0; mChainT = 0; }
+  else { mChain = (mChain + 1) % M_LIGHT.length; mChainT = M_CHAIN_T; }
+  // 몸이 목표를 본다. 안 돌리면 옆구리를 치는 그림이 나온다.
+  meleeFacing(_mDir);
+  bodyYaw = Math.atan2(_mDir.x, _mDir.z);
+  // 살짝 파고든다. 제자리에서 휘두르면 거리가 영영 안 좁혀진다.
+  const d = lockOn && !lockOn.dead ? player.pos.distanceTo(lockOn.g.position) : 99;
+  if (d > 4.5) {
+    const push = M_STEP * (heavy ? 0.75 : 1);
+    player.vel.x = _mDir.x * push;
+    player.vel.z = _mDir.z * push;
+  }
+  armPulse = 0.3;
+  airHover(0.2);              // 공중에서 쳐도 잠깐 버틴다
+  sfxWhoosh();
+}
+
+// 붕괴한 채로 코앞에 있는 적
+function execTargetNear() {
+  if (lockOn && !lockOn.dead && lockOn.stag > 0
+      && player.pos.distanceTo(lockOn.g.position) < EXEC_REACH) return lockOn;
+  for (const e of enemies) {
+    if (e.dead || e.stag <= 0) continue;
+    if (player.pos.distanceTo(e.g.position) < EXEC_REACH) return e;
+  }
+  return null;
+}
+
+// 좌/우클릭이 들어왔을 때의 입구. 회수 구간이면 선입력으로 저장한다.
+function meleeInput(heavy) {
+  if (!meleeMode || !canAct() || execT > 0) return;
+  if (meleeBusy()) {
+    if (mAtk && mAtk.t >= mAtk.spec.cancel) { mBuf = heavy ? 2 : 1; mBufT = M_BUF_T; }
+    else if (rollT > 0 && rollT < 0.2)      { mBuf = heavy ? 2 : 1; mBufT = M_BUF_T; }
+    return;
+  }
+  startMelee(heavy);
+}
+
+function doMeleeHit(a) {
+  a.hit = true;
+  const spec = a.spec;
+  meleeFacing(_mDir);
+  // 락온 대상이 사거리 안이면 무조건 그 적이다
+  let best = null;
+  if (lockOn && !lockOn.dead && !lockOn.grip
+      && player.pos.distanceTo(lockOn.g.position) <= spec.r + 1.5) best = lockOn;
+  if (!best) {
+    let bestD = spec.r;
+    for (const e of enemies) {
+      if (e.dead || e.grip) continue;
+      _mh.set(e.g.position.x - player.pos.x, 0, e.g.position.z - player.pos.z);
+      const d = _mh.length();
+      if (d > spec.r || Math.abs(e.g.position.y - player.pos.y) > 6) continue;
+      if (d > 0.1 && _mh.divideScalar(d).dot(_mDir) < spec.cone) continue;
+      if (d < bestD) { bestD = d; best = e; }
+    }
+  }
+  if (!best) return;
+
+  addPosture(best, spec.post);
+  const killed = best.hp - spec.dmg <= 0;
+  best.hp -= spec.dmg;
+  best.flash = 0.25;
+  _mh.set(best.g.position.x - player.pos.x, 0, best.g.position.z - player.pos.z);
+  if (_mh.lengthSq() > 1e-4) _mh.normalize(); else _mh.copy(_mDir);
+  // 무너진 적은 밀지 않는다. 밀어내면 처형하러 가는 사이에 사거리를 벗어난다.
+  if (best.stag <= 0) {
+    best.knock.add(_mh.multiplyScalar(spec.kb).setY(spec.kb * (a.heavy ? 0.42 : 0.2)));
+  }
+  spawnImpact(gripPoint(best, _mImp), killed ? 26 : a.heavy ? 20 : 12, killed ? 'kill' : 'hit');
+  hitStop = a.heavy ? (killed ? 0.17 : 0.12) : (killed ? 0.14 : 0.07);
+  shake = Math.max(shake, a.heavy ? 0.85 : 0.5);
+  hitMark = 0.18; hitKill = killed;
+  combo++; comboT = 1.8;
+  sfxHit(killed);
+  if (killed && !best.dead) { best.dead = true; best.deadT = 0.5; ultFake = Math.min(1, ultFake + 0.04); }
+}
+
+// ---------- 패링 ----------
+function parry() {
+  if (!meleeMode || !canAct()) return;
+  if (parryCd > 0 || execT > 0 || rollT > 0) return;
+  if (mAtk && mAtk.t < mAtk.spec.cancel) return;   // 휘두르는 도중엔 못 바꾼다
+  mAtk = null;
+  parryT = PARRY_WIN;
+  parryCd = PARRY_CD;
+  meleeFacing(_mDir);
+  bodyYaw = Math.atan2(_mDir.x, _mDir.z);
+  sfxWhoosh();
+}
+
+// 들어오는 공격을 쳐냈는가. 막았으면 true — 피해는 없던 일이 된다.
+// from은 때린 적(없으면 null). parryable=false면 아무리 잘 맞춰도 못 막는다.
+function tryParry(from, parryable) {
+  if (parryT <= 0 || !parryable) return false;
+  parryT = 0;
+  parryCd = 0.12;              // 쳐냈으면 곧바로 다음 쳐내기가 가능하다
+  parryFx = 1;
+  parryCount++;
+  hitStop = Math.max(hitStop, 0.16);
+  shake = Math.max(shake, 0.45);
+  if (from && !from.dead) {
+    addPosture(from, PARRY_POST);
+    from.flash = 0.4;
+    from.swing = null;         // 휘두르던 동작이 튕겨나간다
+    from.aimT = 0;
+    freeBeam(from);
+    spawnImpact(gripPoint(from, _mImp), 14, 'hit');
+  }
+  ultFake = Math.min(1, ultFake + 0.05);
+  combo++; comboT = 1.8;
+  sfxPerfect();
+  say("쳐냄", 0.7);
+  return true;
+}
+
+// ---------- 구르기 ----------
+function meleeRoll() {
+  if (!meleeMode || !canAct()) return;
+  if (rollT > 0 || execT > 0) return;
+  if (mAtk && mAtk.t < mAtk.spec.cancel) return;
+  if (stamEmpty || stam < ROLL_STAM) { say("스태미나 부족"); sfxMiss(); stamFx = 1; return; }
+  stam -= ROLL_STAM;
+  if (stam <= 0) { stam = 0; stamEmpty = true; }
+  mAtk = null; parryT = 0; parryRec = 0;
+  const d = moveDirWorld(rollDir);
+  if (!d) {
+    // 방향 입력이 없으면 대상 반대쪽으로 물러난다 — 소울류의 기본 백스텝
+    meleeFacing(_mDir);
+    rollDir.set(-_mDir.x, 0, -_mDir.z);
+  }
+  rollT = ROLL_TIME;
+  invuln = Math.max(invuln, ROLL_IFR);
+  player.vel.x = rollDir.x * ROLL_SPEED;
+  player.vel.z = rollDir.z * ROLL_SPEED;
+  if (!player.grounded && player.vel.y < 0) player.vel.y *= 0.35;
+  bodyYaw = Math.atan2(rollDir.x, rollDir.z);
+  tumbleT = ROLL_TIME; tumbleDur = ROLL_TIME;    // 구르는 그림은 덤블링 회전을 그대로 쓴다
+  dodgeFx = 1;
+  sfxDodge();
+}
+
+// ---------- 처형 ----------
+function startExecute(e) {
+  execT = EXEC_TIME;
+  execTarget = e;
+  invuln = Math.max(invuln, EXEC_TIME + 0.15);   // 연출 중에는 아무도 못 건드린다
+  mAtk = null; rollT = 0; parryT = 0; mBuf = 0;
+  e.grip = 1;                                     // 연출 동안 적은 움직이지 않는다
+  e.aimT = 0; e.swing = null;
+  freeBeam(e);
+  // 적 앞으로 붙는다
+  _mDir.set(e.g.position.x - player.pos.x, 0, e.g.position.z - player.pos.z);
+  const d = _mDir.length();
+  if (d > 0.1) {
+    _mDir.divideScalar(d);
+    bodyYaw = Math.atan2(_mDir.x, _mDir.z);
+    if (d > 3) player.pos.addScaledVector(_mDir, d - 3);
+  }
+  player.vel.set(0, 0, 0);
+  hitStop = 0.34;
+  slowmo = Math.max(slowmo, 0.55);
+  shake = Math.max(shake, 1.0);
+  say("처형", 1.2);
+  sfxUlt();
+}
+
+function updateExecute(dt) {
+  execT -= dt;
+  const e = execTarget;
+  if (e && !e.dead) {
+    e.flash = 1;
+    // 연출 중에는 그 자리에 붙잡아 둔다
+    e.knock.set(0, 0, 0);
+    if (execT <= EXEC_TIME * 0.45 && e.hp > 0) {
+      e.hp = 0; e.dead = true; e.deadT = 0.5;
+      e.grip = 0;
+      spawnImpact(gripPoint(e, _mImp), 34, 'kill');
+      hitStop = 0.2;
+      shake = Math.max(shake, 1.2);
+      hitMark = 0.2; hitKill = true;
+      combo++; comboT = 1.8;
+      ultFake = Math.min(1, ultFake + 0.2);
+      sfxHit(true);
+    }
+  }
+  if (execT <= 0) {
+    execT = 0;
+    if (execTarget && !execTarget.dead) execTarget.grip = 0;
+    execTarget = null;
+  }
+}
+
+// ---------- 매 틱 ----------
+function updateMelee(dt) {
+  if (parryFx > 0) parryFx -= dt * 2.4;
+  updateDashIn(dt);
+  if (parryCd > 0) parryCd -= dt;
+  if (mChainT > 0) { mChainT -= dt; if (mChainT <= 0) mChain = 0; }
+  if (mBufT > 0) { mBufT -= dt; if (mBufT <= 0) mBuf = 0; }
+
+  if (execT > 0) { updateExecute(dt); return; }
+
+  if (parryT > 0) {
+    parryT -= dt;
+    if (parryT <= 0) { parryT = 0; parryRec = PARRY_REC; }   // 헛쳤으면 그만큼 굳는다
+  } else if (parryRec > 0) parryRec -= dt;
+
+  if (rollT > 0) {
+    rollT -= dt;
+    // 굴러가는 동안 마찰. 끝에 가면 자연히 선다.
+    if (player.grounded) {
+      const k = Math.exp(-3.4 * dt);
+      player.vel.x *= k; player.vel.z *= k;
+    }
+    if (rollT <= 0) { rollT = 0; tumbleT = 0; }
+    return;
+  }
+
+  if (mAtk) {
+    const prev = mAtk.t;
+    mAtk.t += dt;
+    if (!mAtk.hit && prev < mAtk.spec.hit && mAtk.t >= mAtk.spec.hit) doMeleeHit(mAtk);
+    // 휘두르는 동안 발이 미끄러지지 않게 잡아준다
+    if (player.grounded) {
+      const k = Math.exp(-6 * dt);
+      player.vel.x *= k; player.vel.z *= k;
+    }
+    if (mAtk.t >= mAtk.spec.dur) mAtk = null;
+  }
+  if (!mAtk && mBuf) { const b = mBuf; mBuf = 0; mBufT = 0; startMelee(b === 2); }
+}
+
+function meleeDashIn() {
+  if (!meleeMode || !canAct()) return;
+  if (execT > 0 || rollT > 0) return;
+  const e = lockOn && !lockOn.dead && !lockOn.grip ? lockOn : null;
+  if (!e) { say("락온부터 (Ctrl)", 0.9); sfxMiss(); return; }
+  const d = player.pos.distanceTo(e.g.position);
+  if (d < DASH_IN_MIN) { say("이미 붙어 있다", 0.7); return; }
+  if (d > DASH_IN_MAX) { say("너무 멀다", 0.8); sfxMiss(); return; }
+  if (stamEmpty || stam < DASH_IN_STAM) { say("스태미나 부족"); sfxMiss(); stamFx = 1; return; }
+  stam -= DASH_IN_STAM;
+  mAtk = null; parryT = 0; parryRec = 0;
+  _mDir.set(e.g.position.x - player.pos.x, 0, e.g.position.z - player.pos.z).normalize();
+  bodyYaw = Math.atan2(_mDir.x, _mDir.z);
+  player.vel.set(_mDir.x * DASH_IN_SPEED, Math.max(player.vel.y, 5), _mDir.z * DASH_IN_SPEED);
+  // 목표 앞 4m에서 멈추도록 시간을 잡는다
+  dashIn = Math.min(0.9, Math.max(0.08, (d - 4) / DASH_IN_SPEED));
+  dashInE = e;
+  airHover(dashIn + 0.2);
+  armPulse = 0.45;
+  sfxThwip();
+}
+
+function updateDashIn(dt) {
+  if (dashIn <= 0) return;
+  dashIn -= dt;
+  const e = dashInE;
+  // 목표에 붙었거나 대상이 사라지면 즉시 멈춘다
+  if (!e || e.dead || player.pos.distanceTo(e.g.position) < 4.5) dashIn = 0;
+  if (dashIn <= 0) {
+    dashIn = 0; dashInE = null;
+    player.vel.x *= 0.15; player.vel.z *= 0.15;
+  }
+}
+
+// 근접 모드에서 빠져나올 때 진행 중이던 동작을 전부 정리한다
+function clearMelee() {
+  mAtk = null; mBuf = 0; mBufT = 0; mChain = 0; mChainT = 0;
+  parryT = 0; parryRec = 0; parryCd = 0; parryFx = 0; rollT = 0;
+  dashIn = 0; dashInE = null;
+  if (execTarget && !execTarget.dead) execTarget.grip = 0;
+  execT = 0; execTarget = null;
+}
+
 // 헛치는 소리 — 맞았을 때와 구분되게 바람 소리만
 function sfxWhoosh() {
   if (!actx) return;
@@ -2851,6 +3254,8 @@ function updateCombat(dt) {
   if (hitMark > 0) hitMark -= dt;
   if (comboT > 0) { comboT -= dt; if (comboT <= 0) combo = 0; }
   updateLock(dt);
+  updateMelee(dt);
+  for (const e of enemies) if (!e.dead) updatePosture(e, dt);
 
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const p = projectiles[i];
@@ -2894,6 +3299,14 @@ function updateCombat(dt) {
     const step = _stepV.copy(p.vel).multiplyScalar(dt);
     _cv.set(player.pos.x, player.pos.y + 1.0, player.pos.z);
     let done = false;
+    // 쳐내기 창이 열려 있으면 탄도 튕겨낸다. 쏜 적의 체간이 무너진다.
+    if (deadT <= 0 && parryT > 0 && segHitsSphere(p.pos, step, _cv, PLAYER_HIT_R + 1.2)) {
+      if (tryParry(p.from || null, true)) {
+        spawnImpact(_impV.copy(_cv), 10, 'hit');
+        scene.remove(p.m); eProjectiles.splice(i, 1);
+        continue;
+      }
+    }
     if (deadT <= 0 && invuln <= 0 && segHitsSphere(p.pos, step, _cv, PLAYER_HIT_R)) {
       damagePlayer(p.dmg || E_DMG);
       spawnImpact(_impV.copy(_cv), 8, 'kill');
@@ -3123,7 +3536,17 @@ function updateLockMark() {
   lockMark.visible = true;
   gripPoint(lockOn, lockMark.position);
   lockMark.lookAt(camera.position);
-  lockMark.scale.setScalar(1 + Math.sin(performance.now() * 0.005) * 0.09);
+  // 체간이 보이지 않으면 체간 시스템은 없는 것과 같다.
+  // 고리가 노랑 -> 주황 -> 빨강으로 차오르고, 무너지면 하얗게 크게 뛴다.
+  const r = lockOn.postMax ? Math.min(1, (lockOn.post || 0) / lockOn.postMax) : 0;
+  if (lockOn.stag > 0) {
+    const b = 0.75 + Math.sin(performance.now() * 0.02) * 0.25;
+    lockMark.material.color.setRGB(b, b, b);
+    lockMark.scale.setScalar(1.5 + Math.sin(performance.now() * 0.02) * 0.16);
+  } else {
+    lockMark.material.color.setRGB(1, 0.82 - r * 0.62, 0.29 - r * 0.29);
+    lockMark.scale.setScalar(1 + r * 0.3 + Math.sin(performance.now() * 0.005) * 0.09);
+  }
 }
 
 // 장갑에 새길 거미줄 무늬 (방사선 + 늘어진 호)
@@ -3361,6 +3784,8 @@ addEventListener("keydown", e => {
     e.preventDefault();
     if (!e.repeat) toggleLock();
   }
+  // Shift = 구르기 (근접 모드 전용). 다른 모드에서는 달리기/대시 그대로다.
+  if (meleeMode && (e.code === "ShiftLeft" || e.code === "ShiftRight") && !e.repeat) meleeRoll();
   if (e.code === "KeyP") {
     firstPerson = !firstPerson;
     spiderGroup.visible = !firstPerson;
@@ -3408,6 +3833,7 @@ addEventListener("keydown", e => {
     camMsg = 1.6;
     // 격투 모드로 들어가면 줄은 놓는다 (잡기는 유지)
     if (attackMode || meleeMode) { releaseWeb(); zip = null; }
+    if (!meleeMode) clearMelee();      // 근접에서 나오면 진행 중이던 동작을 전부 끊는다
     say(meleeMode ? "근접 격투" : attackMode ? "거미줄 격투" : "웹스윙", 1.3);
   }
   // E = 속박 (공격 모드 전용). 스윙 중 E는 기존 속도 부스트라 서로 겹치지 않는다.
@@ -3415,10 +3841,17 @@ addEventListener("keydown", e => {
   if (e.code === "KeyQ") fireUlt();        // 궁극기 — 광역 속박
   // F = 양손 거미줄(집라인). 3인칭 우클릭이 시점 드래그로 돌아가면서 여기로 옮겼다.
   // 1인칭은 우클릭으로도 나간다.
-  if (e.code === "KeyF") { initAudio(); releaseWeb(); tryZip(); }
+  // F = 양손 거미줄. 근접 격투에서는 락온 대상에게 붙는 접근 대시가 된다.
+  if (e.code === "KeyF") {
+    initAudio();
+    if (meleeMode) meleeDashIn();
+    else { releaseWeb(); tryZip(); }
+  }
   // X = 근접 주먹. 마우스 앞쪽 사이드 버튼으로도 나간다.
   if (e.code === "KeyX") punch();
-  if (e.code === "KeyE" && attackMode) fireBind();
+  // E = 패링(쳐내기). 근접 모드 전용 — 다른 모드의 E는 속박/가속 그대로다.
+  if (e.code === "KeyE" && meleeMode) { if (!e.repeat) parry(); }
+  else if (e.code === "KeyE" && attackMode) fireBind();
   // 수동 재장전
   if (e.code === "KeyV" && attackMode) startReload();
 });
@@ -3774,6 +4207,9 @@ renderer.domElement.addEventListener("mousedown", e => {
   if (e.button === 2) {
     mouseDownR = true;
     rClickT = nowS;
+    // 근접 격투에서는 우클릭이 강공격이다. 락온이 시점을 대신 잡아주므로
+    // 우클릭을 시점에서 떼어낼 수 있다 — 락온이 이 모드의 전제인 이유다.
+    if (meleeMode) { meleeInput(true); return; }
     // 1인칭에는 커서가 없다. 우클릭 드래그 시점이 의미가 없으니 곧바로 양손 거미줄.
     // 3인칭은 커서가 조준점이라 시점을 돌릴 손이 따로 필요하다 — 우클릭이 그 손이다.
     // (3인칭 양손 거미줄은 F)
@@ -3793,7 +4229,9 @@ renderer.domElement.addEventListener("mousedown", e => {
   if (firstPerson && document.pointerLockElement !== renderer.domElement) requestLook();
   // 잡거나 끌어오는 중이면 좌클릭은 오직 발차기 입력이다
   if (lunge || pull) { tryKick(); return; }
-  // 공격 모드에서는 좌클릭이 거미줄 발사 (클릭 한 번 = 한 발)
+  // 근접 격투: 좌클릭 = 약공격 (3타 체인)
+  if (meleeMode) { meleeInput(false); return; }
+  // 거미줄 격투: 좌클릭이 거미줄 발사 (클릭 한 번 = 한 발)
   if (attackMode) {
     fireWeb();
     return;
@@ -4157,6 +4595,9 @@ function update(dt) {
   fwdFlat.set(Math.sin(viewYaw), 0, Math.cos(viewYaw));
   rightV.crossVectors(fwdFlat, new THREE.Vector3(0, 1, 0));
 
+  // 근접 격투에서 휘두르거나 구르는 중에는 발이 묶인다. 때리면서 자유 이동이 되면
+  // 소울류의 "한 방을 거는 결단"이 사라진다.
+  if (meleeMode && (mAtk || rollT > 0 || execT > 0 || parryT > 0 || parryRec > 0)) { ix = 0; iz = 0; }
   let wx = fwdFlat.x * -iz + rightV.x * ix;
   let wz = fwdFlat.z * -iz + rightV.z * ix;
   const wl = Math.hypot(wx, wz);
@@ -4239,7 +4680,7 @@ function update(dt) {
 
   if (player.grounded) {
     // 지상에서 Shift 홀드 = 달리기 (공중 Shift는 아래쪽 대시 로직이 따로 처리)
-    const sprinting = wl > 0 && !!(keys["ShiftLeft"] || keys["ShiftRight"]);
+    const sprinting = !meleeMode && wl > 0 && !!(keys["ShiftLeft"] || keys["ShiftRight"]);
     const spd = sprinting ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED;
     const tx = wx * spd;
     const tz = wz * spd;
@@ -4454,7 +4895,7 @@ function update(dt) {
   prevSpace = !!keys["Space"];
 
   const shiftNow = !!(keys["ShiftLeft"] || keys["ShiftRight"]);
-  if (shiftNow && !prevShift && !player.grounded && !clinging && hasDash && dashTimer <= 0) {
+  if (!meleeMode && shiftNow && !prevShift && !player.grounded && !clinging && hasDash && dashTimer <= 0) {
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
     player.vel.copy(dir).multiplyScalar(DASH_SPEED);
@@ -4573,6 +5014,8 @@ function fillRibbon(rb, s, a, sag, radius) {
 const _dualT = new THREE.Vector3();
 function dualWebTarget() {
   if (zip) return _dualT.copy(zip.a);
+  // 근접 접근 대시도 양손에서 두 가닥이 뻗는다
+  if (dashIn > 0 && dashInE && !dashInE.dead) return gripPoint(dashInE, _dualT);
   const e = (lunge && lunge.e) || (pull && pull.e);
   if (e && !e.dead) return gripPoint(e, _dualT);
   return null;
@@ -5185,7 +5628,7 @@ function frameBody(now) {
     + (!firstPerson ? `  줌 ${(1 / camZoom).toFixed(1)}x` : "")
     + (meleeMode ? "  ✊ 근접 격투" : attackMode ? "  ⚔ 거미줄 격투" : "  (TAB=격투)")
     + `  적 ${enemies.length}`
-    + (lockOn ? `  ◎ 락온 ${lockOn.ty.name}` : "")
+    + (lockOn ? `  ◎ ${lockOn.ty.name} ${lockOn.stag > 0 ? "◆ 붕괴! 우클릭 처형" : "체간 " + Math.round((lockOn.post||0) / lockOn.postMax * 100) + "%"}` : "")
     + (combo > 1 ? `  ${combo} COMBO` : "")
     + (toastT > 0 ? `   ▸ ${toast}` : "")
     + (clinging ? (sliding ? "  [벽: 미끄러지는 중 · Ctrl로 붙잡기]" : "  [벽타기: WASD로 이동]") : "");
