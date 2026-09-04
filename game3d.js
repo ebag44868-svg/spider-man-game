@@ -3,6 +3,11 @@ import { GLTFLoader } from "./lib/loaders/GLTFLoader.js";
 import { mergeGeometries } from "./lib/utils/BufferGeometryUtils.js";
 import { RGBELoader } from "./lib/loaders/RGBELoader.js";
 import {
+  initHpBars, updateHpBars, mkBar, putBar,
+  HPBAR_MAX, HPBAR_RANGE, HPBAR_W, HPBAR_H, POSTBAR_H,
+  hpBarBg, hpBarFill, psBarBg, psBarFill,
+} from "./src/hud-bars.js";
+import {
   initRigs, RIG_POOL, RIG_RANGE, RIG_DROP,
   rigPool, makeRig, rigAttach, rigDetach, assignRigs, poseRig, updateRigs,
 } from "./src/enemy-rig.js";
@@ -3501,84 +3506,9 @@ function updateSwingArc() {
   }
 }
 
-// 적 머리 위 체력바. 적이 200명이 넘으므로 개별 메시로 만들면 드로우콜이 터진다.
-// 인스턴스 두 장(바탕 + 채움)으로 가까운 적만 그린다.
-const HPBAR_MAX = 48;        // 동시에 그릴 최대 개수 (상시 표시라 늘렸다)
-const HPBAR_RANGE = 110;     // 이 거리 안의 적만
-const HPBAR_W = 3.2, HPBAR_H = 0.34;
-const POSTBAR_H = 0.20;      // 체간바는 체력바보다 얇게 — 한눈에 구분된다
-const _hbGeo = new THREE.PlaneGeometry(1, 1);
-function mkBar(color, opacity) {
-  const m = new THREE.InstancedMesh(_hbGeo,
-    new THREE.MeshBasicMaterial(color === null
-      ? { transparent: true, opacity, depthWrite: false }
-      : { color, transparent: true, opacity, depthWrite: false }), HPBAR_MAX);
-  m.frustumCulled = false; m.count = 0;
-  scene.add(m);
-  return m;
-}
-// 바탕 -> 체력(붉은) -> 체간 바탕 -> 체간(노란) 순으로 겹쳐 그린다
-const hpBarBg   = mkBar(0x0a0d12, 0.62); hpBarBg.renderOrder = 5;
-const hpBarFill = mkBar(null,     0.95); hpBarFill.renderOrder = 6;
-const psBarBg   = mkBar(0x0a0d12, 0.5);  psBarBg.renderOrder = 5;
-const psBarFill = mkBar(null,     0.95); psBarFill.renderOrder = 6;
-const _hbM = new THREE.Matrix4(), _hbP = new THREE.Vector3(), _hbP2 = new THREE.Vector3();
-const _hbQ = new THREE.Quaternion(), _hbS = new THREE.Vector3(), _hbR = new THREE.Vector3();
-const _hbC = new THREE.Color();
-// 한 줄(바탕 + 채움)을 인스턴스에 써 넣는다. 채움은 왼쪽 정렬이라
-// 줄어든 만큼 카메라 기준 왼쪽으로 밀어야 가운데서 줄지 않는다.
-function putBar(bg, fill, i, cx, cy, cz, w, h, ratio, col) {
-  _hbP.set(cx, cy, cz);
-  _hbM.compose(_hbP, _hbQ, _hbS.set(w, h, 1));
-  bg.setMatrixAt(i, _hbM);
-  const r = Math.max(0, Math.min(1, ratio));
-  _hbP2.copy(_hbP).addScaledVector(_hbR, -w * (1 - r) * 0.5);
-  _hbM.compose(_hbP2, _hbQ, _hbS.set(Math.max(0.001, w * r), h * 0.66, 1));
-  fill.setMatrixAt(i, _hbM);
-  fill.setColorAt(i, col);
-}
-
-function updateHpBars() {
-  let n = 0;
-  _hbQ.copy(camera.quaternion);
-  _hbR.set(1, 0, 0).applyQuaternion(_hbQ);          // 카메라 기준 오른쪽 — 왼쪽 정렬에 쓴다
-  for (const e of enemies) {
-    if (n >= HPBAR_MAX) break;
-    if (e.dead) continue;
-    if (e.g.position.distanceTo(player.pos) > HPBAR_RANGE) continue;
-    const maxHp = e.ty.hp || 1;
-    const hr = Math.max(0, Math.min(1, e.hp / maxHp));
-    const pr = e.postMax ? Math.max(0, Math.min(1, (e.post || 0) / e.postMax)) : 0;
-
-    // 적마다 덩치가 다르다(격투병 1.3배). 그만큼 위로 올려야 머리 위에 뜬다 —
-    // 고정값이었을 때는 큰 적일수록 바가 몸 속에 파묻혀 안 보였다.
-    const sc = e.g.scale.x || 1;
-    const barY = e.g.position.y + 8.4 * sc;
-    // 멀어지면 화면에서 작아져 안 읽힌다. 거리에 따라 조금 키운다.
-    const dCam = camera.position.distanceTo(e.g.position);
-    const gz = 1 + Math.min(1.1, dCam / 90);
-
-    // 체력바 — 상시 붉은색. 체간이 무너지면 하얗게 (지금 처형 가능하다는 신호)
-    if (e.stag > 0) _hbC.setRGB(1, 1, 1);
-    else _hbC.setRGB(0.95, 0.13, 0.15);
-    putBar(hpBarBg, hpBarFill, n, e.g.position.x, barY, e.g.position.z,
-           HPBAR_W * gz, HPBAR_H * gz, hr, _hbC);
-
-    // 체간바 — 체력바 바로 아래, 더 얇게. 노랑에서 붕괴가 가까울수록 하얘진다.
-    if (e.stag > 0) _hbC.setRGB(1, 1, 1);
-    else _hbC.setRGB(1, 0.78 + pr * 0.2, 0.25 + pr * 0.6);
-    putBar(psBarBg, psBarFill, n, e.g.position.x, barY - (HPBAR_H + POSTBAR_H) * 0.75 * gz, e.g.position.z,
-           HPBAR_W * 0.86 * gz, POSTBAR_H * gz, e.stag > 0 ? 1 : pr, _hbC);
-    n++;
-  }
-  for (const m of [hpBarBg, hpBarFill, psBarBg, psBarFill]) {
-    m.count = n;
-    if (n > 0) {
-      m.instanceMatrix.needsUpdate = true;
-      if (m.instanceColor) m.instanceColor.needsUpdate = true;
-    }
-  }
-}
+// 적 머리 위 체력바/체간바. 실제 구현은 src/hud-bars.js 로 옮겼다.
+// 여기서 부르는 이유는 생성 순서 때문이다 — 그쪽 파일 머리말 참고.
+initHpBars(scene, camera, enemies, player);
 
 // 락온 표시. 대상 가슴에 띄우고 항상 카메라를 향하게 눕힌다.
 const lockMark = new THREE.Mesh(
