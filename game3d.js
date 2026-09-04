@@ -3,6 +3,9 @@ import { GLTFLoader } from "./lib/loaders/GLTFLoader.js";
 import { mergeGeometries } from "./lib/utils/BufferGeometryUtils.js";
 import { RGBELoader } from "./lib/loaders/RGBELoader.js";
 import {
+  spawnRing, updateRings, spawnImpact, initVfx, impactRings,
+} from "./src/vfx.js";
+import {
   makeFinger, makeHand, poseHand, initHands,
 } from "./src/fp-hands.js";
 import {
@@ -1881,59 +1884,11 @@ const IMPACT = {
   web:  { mat: new THREE.MeshBasicMaterial({ color: 0xf2f6ff, toneMapped: false }), ring: 0xdfe8ff, spread: 26, size: 1.1 },
 };
 
-// 퍼져나가는 충격파 링. 매번 만들면 GC가 튀므로 풀에서 돌려 쓴다.
-const ringGeo = new THREE.RingGeometry(0.55, 1, 20);
-const impactRings = [];
-for (let i = 0; i < 10; i++) {
-  const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
-    color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide,
-    depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
-  m.visible = false;
-  m.frustumCulled = false;
-  scene.add(m);
-  impactRings.push({ m, t: 0, size: 1 });
-}
+// 충격 링 풀 생성. 원래 이 자리에서 만들던 것을 그대로 유지한다 (src/vfx.js).
+initVfx(scene, camera, IMPACT, partGeo, particles);
 
-function spawnRing(p, color, size) {
-  const r = impactRings.find(x => !x.m.visible);
-  if (!r) return;
-  r.m.visible = true;
-  r.m.position.copy(p);
-  r.m.material.color.setHex(color);
-  r.t = 1;
-  r.size = size;
-}
 
-function updateRings(dt) {
-  for (const r of impactRings) {
-    if (!r.m.visible) continue;
-    r.t -= dt * 4.5;
-    if (r.t <= 0) { r.m.visible = false; continue; }
-    const k = 1 - r.t;                       // 0 -> 1
-    r.m.scale.setScalar((0.6 + k * 5.5) * r.size);
-    r.m.material.opacity = r.t * 0.85;
-    r.m.lookAt(camera.position);             // 항상 화면을 향하게
-  }
-}
 
-// kind: 'wall' | 'hit' | 'kill' | 'web'
-function spawnImpact(p, n, kind) {
-  const d = IMPACT[kind] || IMPACT.wall;
-  for (let i = 0; i < n; i++) {
-    const m = new THREE.Mesh(partGeo, d.mat);
-    m.position.copy(p);
-    // 크기를 흩뿌려야 알갱이가 뭉쳐 보이지 않는다
-    m.scale.setScalar((0.7 + Math.random() * 0.9) * d.size);
-    scene.add(m);
-    particles.push({
-      m, life: 0.28 + Math.random() * 0.22,
-      v: new THREE.Vector3((Math.random() - 0.5) * d.spread,
-                          (Math.random() - 0.15) * d.spread * 0.85,
-                          (Math.random() - 0.5) * d.spread)
-    });
-  }
-  spawnRing(p, d.ring, d.size);
-}
 
 const _up = new THREE.Vector3(0, 1, 0);
 function startReload() {
