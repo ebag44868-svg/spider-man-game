@@ -1747,12 +1747,14 @@ function brawlerAI(e, dt, dist) {
 // 적 한 명의 사고. dist는 플레이어까지 거리(제곱근 이미 계산됨).
 const _eBoxes = [];
 // 그 지점이 건물 안인가. 발밑에서 어깨높이 사이를 막는 박스가 있으면 못 간다.
+// 적 몸통 반경만큼 벽에서 띄운다. 0.8이었을 때는 몸이 벽에 절반쯤 박혀 보였다.
+const E_WALL_PAD = 1.7;
 function blockedAt(x, z, y) {
   nearbyBuildings(x, z, 2, _eBoxes);
   for (let i = 0; i < _eBoxes.length; i++) {
     const b = _eBoxes[i];
     if (y + 3.5 < b.y0 || y + 0.5 > b.y0 + b.h) continue;
-    if (Math.abs(x - b.x) < b.w / 2 + 0.8 && Math.abs(z - b.z) < b.d / 2 + 0.8) return true;
+    if (Math.abs(x - b.x) < b.w / 2 + E_WALL_PAD && Math.abs(z - b.z) < b.d / 2 + E_WALL_PAD) return true;
   }
   return false;
 }
@@ -3820,7 +3822,17 @@ function updateCombat(dt) {
       }
     }
 
-    e.g.position.addScaledVector(e.knock, dt);
+    // 넉백도 벽을 봐야 한다. 예전엔 그냥 더해서, 때려 밀면 건물 안으로 들어갔다.
+    // 축별로 나눠 미는 건 플레이어 충돌과 같은 방식이다 — 모서리에서 안 낀다.
+    const kx = e.knock.x * dt, kz = e.knock.z * dt;
+    if (kx !== 0 || kz !== 0) {
+      const ox = e.g.position.x, oz = e.g.position.z;
+      e.g.position.x += kx;
+      if (blockedAt(e.g.position.x, oz, e.g.position.y)) { e.g.position.x = ox; e.knock.x = 0; }
+      e.g.position.z += kz;
+      if (blockedAt(e.g.position.x, e.g.position.z, e.g.position.y)) { e.g.position.z = oz; e.knock.z = 0; }
+    }
+    e.g.position.y += e.knock.y * dt;
     e.knock.multiplyScalar(Math.exp(-5.5 * dt));
     if (e.grip !== 2) {
       const gy = groundHeightAt(e.g.position.x, e.g.position.z, e.g.position.y);
