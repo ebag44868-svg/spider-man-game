@@ -119,6 +119,7 @@ export const T = {
   get lastWall(){ return lastWall; }, collideWalls, resolveAxis, get wallBump(){ return wallBump; },
   get perfectCount(){ return perfectCount; }, DODGE_PERFECT, DODGE_IFRAME, get invuln2(){ return invuln; },
   get camZoom(){ return camZoom; }, ZIP_SPEED, ZIP_KEEP, ZIP_MOMENT, get hoverT(){ return hoverT; }, airHover,
+  get camBlocked(){ return camBlocked; }, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, segHitWorld, nearbyBuildings, spiderGroup,
   AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, N_AVE, N_ST, WORLD_SIZE,
   get waterTowerCount(){ return waterTowerCount; },
   get lampCount(){ return lampCount; },

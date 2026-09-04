@@ -3592,6 +3592,23 @@ const REEL_MANUAL = 26;     // Space 홀드 시 줄을 감는 속도 (m/s)
 const PUMP_DEPTH = 0.12;    // 호 바닥에서 로프가 줄어드는 비율 = 자동 펌핑 강도
 const SWING_CONVERT = 0.985; // 낙하(반경) 속도를 접선 속도로 되돌리는 비율. 1이면 무손실
 const CAM_ROLL = 0.5;       // 뱅킹 롤 강도
+// 3인칭 카메라 충돌. 지금까지 아무 검사가 없어서 벽을 끼고 돌면 카메라가
+// 건물 안으로 들어가 화면이 통째로 벽면으로 덮였다.
+const CAM_WALL_PAD = 0.55;  // 벽에서 이만큼 앞에 서고 싶다
+const CAM_MIN_DIST = 1.25;  // 머리에서 이만큼은 떨어지고 싶다
+const CAM_NEAR_SKIN = 0.15; // 벽까지 최소한 이만큼은 남긴다. near 평면이 0.1이다
+const CAM_HIDE_DIST = 1.1;  // 이보다 붙으면 몸 안이 보이므로 캐릭터를 숨긴다
+const CAM_PIVOT_Y = 1.7;    // 선분을 쏘는 기준점 높이 = 시선 높이
+let camBlocked = false;     // 지금 벽에 막혀 있나 (테스트/디버그용)
+
+// hitD에서 막혔을 때 카메라가 설 거리.
+// 두 요구(벽에서 떨어지기 / 머리에서 떨어지기)가 부딪히면 벽이 이긴다 —
+// 벽을 뚫는 것보다 캐릭터에 붙는 쪽이 훨씬 낫다. 벽에 등을 붙이고 서면
+// 벽까지가 1m도 안 되므로 이 양보가 없으면 매번 벽을 뚫는다.
+function camStandDist(hitD) {
+  return Math.min(Math.max(CAM_MIN_DIST, hitD - CAM_WALL_PAD),
+                  Math.max(0, hitD - CAM_NEAR_SKIN));
+}
 
 let camAuto = true;
 // 직접 돌린 직후 자동 정렬이 곧바로 되당기면 "돌려놨는데 혼자 돌아간다"가 된다.
@@ -4216,6 +4233,8 @@ const _w3 = new THREE.Vector3();
 const _w4 = new THREE.Vector3();
 const _c0 = new THREE.Vector3();
 const _c1 = new THREE.Vector3();
+// 카메라 충돌 전용 임시 벡터. _c0(desired)와 겹치면 안 된다.
+const _cPiv = new THREE.Vector3(), _cSeg = new THREE.Vector3(), _cHit = new THREE.Vector3();
 
 function update(dt) {
   // 고정 스텝 물리와 가변 렌더를 잇기 위해 직전 위치를 남긴다.
@@ -4851,8 +4870,41 @@ function updateCamera(dt) {
       player.renderPos.y + (3.0 - hug * 1.4) - viewDir.y * camDist * 0.55,
       player.renderPos.z - viewDir.z * camDist
     );
+    // 카메라 충돌. 머리에서 desired까지 선분을 한 번 쏴서 막혔으면 벽 앞으로 당긴다.
+    // 기존 공간해시(nearbyBuildings)와 선분 검사(segHitWorld)를 그대로 쓴다 —
+    // 지면과 인도 턱까지 같은 함수가 봐주므로 아래를 볼 때 땅을 뚫는 것도 같이 막힌다.
+    const pivot = _cPiv.set(player.renderPos.x, player.renderPos.y + CAM_PIVOT_Y, player.renderPos.z);
+    const seg = _cSeg.copy(desired).sub(pivot);
+    const dFree = seg.length();
+    let dLimit = dFree;
+    if (dFree > 1e-4 && segHitWorld(pivot, seg, _cHit, 0)) {
+      dLimit = Math.min(dFree, camStandDist(_cHit.distanceTo(pivot)));
+      if (dLimit < dFree) desired.copy(pivot).addScaledVector(seg, dLimit / dFree);
+    }
+    camBlocked = dLimit < dFree - 1e-4;
+
     const cl = 1 - Math.exp(-(6.5 + hug * 5.5) * dt);
     camera.position.lerp(desired, cl);
+
+    // 위 검사는 "가려던 곳"만 본다. 그런데 보간은 한 프레임 늦어서, 빠르게 달릴 때
+    // 카메라는 머리-desired 선분에서 한참 벗어난 곳에 뒤처져 있다. 그 지연 위치가
+    // 하필 다른 건물 안일 수 있다 — 도시 횡단 시험에서 실제로 21프레임이 그랬다.
+    // 그래서 "지금 있는 곳"까지 한 번 더 쏜다. 막히지 않았으면 아무 일도 안 일어난다.
+    // 들어올 때만 즉시 당기고, 나갈 때는 위 보간이 알아서 부드럽게 밀어낸다.
+    const back = _cSeg.copy(camera.position).sub(pivot);
+    const dBack = back.length();
+    if (dBack > 1e-4 && segHitWorld(pivot, back, _cHit, 0)) {
+      const dOk = camStandDist(_cHit.distanceTo(pivot));
+      if (dOk < dBack) {
+        camera.position.copy(pivot).addScaledVector(back, dOk / dBack);
+        camBlocked = true;
+        dLimit = Math.min(dLimit, dOk);
+      }
+    }
+
+    // 벽에 밀려 카메라가 몸 안까지 들어오면 캐릭터 내부가 화면을 덮는다.
+    // 그럴 때만 숨긴다 — 평상시(dLimit이 기본 거리)에는 항상 보인다.
+    spiderGroup.visible = dLimit > CAM_HIDE_DIST;
     if (camAuto) {
       // 자동: 진행 방향을 살짝 앞서 본다. 속도감이 여기서 나온다.
       lookTarget.lerp(_c1.set(
@@ -5662,4 +5714,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
