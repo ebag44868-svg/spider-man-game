@@ -26,14 +26,14 @@ console.log("2. 벽타기");
   const b = T.buildings.find(b => b.w > 40 && b.h > 80);
   place(b.x - b.w/2 - 1.2, b.y0 + 20, b.z);
   T.player.vel.set(-4, 0, 0);        // 벽 쪽으로 살살
-  T.keys["ControlLeft"] = true;
+  T.setClimbMouse(true);
   run(30);
   const clung = !!T.clinging;
   const y0 = T.player.pos.y;
   T.keys["KeyW"] = true; run(120); T.keys["KeyW"] = false;
   ok(clung, "천천히 벽에 닿으면 붙는다");
   ok(T.player.pos.y > y0 + 3, "붙은 채로 W를 누르면 올라간다", `y ${y0.toFixed(1)} -> ${T.player.pos.y.toFixed(1)}`);
-  T.keys["ControlLeft"] = false;
+  T.setClimbMouse(false);
 }
 
 // 3) 빠르게 스치면 붙지 않고 흘러간다
@@ -66,12 +66,12 @@ console.log("5. 벽점프");
     !T.buildings.some(o => o !== b && Math.abs(o.z - b.z) < 40 &&
       o.x + o.w/2 > b.x - b.w/2 - 25 && o.x + o.w/2 < b.x - b.w/2));
   place(b.x - b.w/2 - 1.2, b.y0 + 30, b.z);
-  T.player.vel.set(-4,0,0); T.keys["ControlLeft"] = true; run(90);
+  T.player.vel.set(-4,0,0); T.setClimbMouse(true); run(90);
   const was = !!T.clinging;
   T.wallJump(); run(20);
   ok(was && !T.clinging, "벽점프하면 벽에서 떨어진다");
   ok(T.player.vel.length() > 8, "벽점프에 속도가 실린다", `${T.player.vel.length().toFixed(0)} m/s`);
-  T.keys["ControlLeft"] = false;
+  T.setClimbMouse(false);
 }
 
 // 6) 스윙이 실제로 성립한다

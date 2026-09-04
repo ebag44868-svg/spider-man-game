@@ -1427,6 +1427,8 @@ const projectiles = [];
 const particles = [];
 
 let attackMode = false;
+// 근접 격투 모드. attackMode(거미줄 격투)와 동시에 켜지지 않는다.
+let meleeMode = false;
 let attackCd = 0;
 // 탄창: 공격 모드에서만 소모. 비면 자동 재장전
 // (지금은 손이 화면 밖으로 내려갔다 올라오는 정도. 나중에 카트리지 교체 모션으로 구체화)
@@ -2385,6 +2387,64 @@ function gripPoint(e, out) { return out.set(e.g.position.x, e.g.position.y + 2.8
 // 리스폰 대기 중에는 입력이 전부 무시돼야 한다. 스킬마다 따로 검사하면 반드시 하나를 빠뜨린다.
 function canAct() { return deadT <= 0; }
 
+// ================== 락온 ==================
+// 3인칭에서 커서로 적을 계속 따라가며 맞추는 건 사실상 무리다. 엘든링처럼
+// 대상을 하나 물면 카메라가 알아서 그 적을 본다. 근접 격투의 전제이기도 하다 —
+// 락온이 없으면 우클릭이 시점 드래그에 묶여 강공격을 걸 자리가 없다.
+let lockOn = null;
+let lockLost = 0;              // 대상이 안 보인 채로 흐른 시간
+const LOCK_RANGE = 130;        // 새로 물 수 있는 거리
+const LOCK_BREAK = 190;        // 이보다 멀어지면 저절로 풀린다
+const LOCK_BLIND = 1.2;        // 이만큼 계속 안 보이면 놓친다
+const _lkO = new THREE.Vector3(), _lkD = new THREE.Vector3(), _lkT = new THREE.Vector3();
+const _lkA = new THREE.Vector3(), _lkB = new THREE.Vector3(), _lkH = new THREE.Vector3();
+
+// 벽 너머의 적은 물지 않는다. 눈높이에서 적 가슴으로 선을 그어 본다.
+function canSeeEnemy(e) {
+  _lkA.set(player.pos.x, player.pos.y + 1.6, player.pos.z);
+  gripPoint(e, _lkB).sub(_lkA);
+  return !segHitWorld(_lkA, _lkB, _lkH);
+}
+
+// 조준선에 가장 가까운 적. 거리는 살짝만 감점한다 — 코앞의 적이 우선이다.
+function pickLockTarget() {
+  aimRay(_lkO, _lkD);
+  let best = null, bestScore = 0.2;
+  for (const e of enemies) {
+    if (e.dead || e.grip) continue;
+    const pd = player.pos.distanceTo(e.g.position);
+    if (pd > LOCK_RANGE) continue;
+    gripPoint(e, _lkT).sub(_lkO);
+    const d = _lkT.length();
+    if (d < 1) continue;
+    const dot = _lkT.divideScalar(d).dot(_lkD);
+    if (dot < 0.2) continue;                    // 등 뒤는 안 문다
+    if (!canSeeEnemy(e)) continue;
+    const score = dot - (pd / LOCK_RANGE) * 0.2;
+    if (score > bestScore) { bestScore = score; best = e; }
+  }
+  return best;
+}
+
+function toggleLock() {
+  if (!canAct()) return;
+  if (lockOn) { lockOn = null; say("락온 해제", 0.8); return; }
+  const t = pickLockTarget();
+  if (!t) { say("걸 대상 없음", 0.9); sfxMiss(); return; }
+  lockOn = t; lockLost = 0;
+  say(`락온 · ${t.ty.name}`, 1.0);
+}
+
+function updateLock(dt) {
+  if (!lockOn) return;
+  if (lockOn.dead || lockOn.grip || player.pos.distanceTo(lockOn.g.position) > LOCK_BREAK) {
+    lockOn = null; lockLost = 0; return;
+  }
+  // 잠깐 기둥에 가려지는 건 봐준다. 계속 안 보이면 놓는다.
+  if (canSeeEnemy(lockOn)) lockLost = 0;
+  else { lockLost += dt; if (lockLost > LOCK_BLIND) { lockOn = null; say("락온 놓침", 0.8); } }
+}
+
 function clearGrip() {
   if (lunge && lunge.e) lunge.e.grip = 0;
   if (pull && pull.e) pull.e.grip = 0;
@@ -2531,6 +2591,9 @@ function aimPointOrFar(range) {
   return _aimO.clone().addScaledVector(_aimD, range + (firstPerson ? 0 : AIM_BACK));
 }
 function pickEnemy(cosCone, maxDist) {
+  // 락온한 대상이 사거리 안이면 무조건 그 적이다. 물어놓고 딴 데를 때리면 안 된다.
+  if (lockOn && !lockOn.dead && !lockOn.grip && lockOn.bound <= 0
+      && player.pos.distanceTo(lockOn.g.position) <= maxDist) return lockOn;
   // 조준선 기준 원뿔. 1인칭은 화면 중앙, 3인칭은 커서 위치가 기준이다.
   aimRay(_aimO, _pk);
   let best = null, bestDot = cosCone;
@@ -2787,6 +2850,7 @@ function updateCombat(dt) {
   }
   if (hitMark > 0) hitMark -= dt;
   if (comboT > 0) { comboT -= dt; if (comboT <= 0) combo = 0; }
+  updateLock(dt);
 
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const p = projectiles[i];
@@ -3046,6 +3110,22 @@ aimMark.renderOrder = 5;
 aimMark.visible = false;
 scene.add(aimMark);
 
+// 락온 표시. 대상 가슴에 띄우고 항상 카메라를 향하게 눕힌다.
+const lockMark = new THREE.Mesh(
+  new THREE.TorusGeometry(1.6, 0.16, 6, 22),
+  new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.9, depthTest: false })
+);
+lockMark.renderOrder = 6;
+lockMark.visible = false;
+scene.add(lockMark);
+function updateLockMark() {
+  if (!lockOn || lockOn.dead) { lockMark.visible = false; return; }
+  lockMark.visible = true;
+  gripPoint(lockOn, lockMark.position);
+  lockMark.lookAt(camera.position);
+  lockMark.scale.setScalar(1 + Math.sin(performance.now() * 0.005) * 0.09);
+}
+
 // 장갑에 새길 거미줄 무늬 (방사선 + 늘어진 호)
 function makeWebGloveTexture() {
   const c = document.createElement("canvas");
@@ -3276,8 +3356,11 @@ function sfxDash() {
 const keys = {};
 addEventListener("keydown", e => {
   keys[e.code] = true;
-  // 벽타기 키(로지텍 사이드 버튼 = F4). 브라우저 기본 동작을 막아야 홀드가 끊기지 않는다.
-  if (e.code === "ControlLeft" || e.code === "ControlRight") e.preventDefault();
+  // Ctrl = 락온 토글. 브라우저 기본 단축키가 끼어들지 않게 막는다.
+  if (e.code === "ControlLeft" || e.code === "ControlRight") {
+    e.preventDefault();
+    if (!e.repeat) toggleLock();
+  }
   if (e.code === "KeyP") {
     firstPerson = !firstPerson;
     spiderGroup.visible = !firstPerson;
@@ -3318,9 +3401,14 @@ addEventListener("keydown", e => {
   if (e.code === "Escape") hudEl.classList.remove("show");
   if (e.code === "Tab") {
     e.preventDefault();          // 안 막으면 브라우저가 포커스를 옮겨버린다
-    attackMode = !attackMode;
+    // 웹스윙 -> 거미줄 격투 -> 근접 격투 -> 웹스윙
+    if (!attackMode && !meleeMode) { attackMode = true; }
+    else if (attackMode) { attackMode = false; meleeMode = true; }
+    else { meleeMode = false; }
     camMsg = 1.6;
-    if (attackMode) { releaseWeb(); zip = null; }   // 공격 모드로 들어가면 줄은 놓는다 (잡기는 유지)
+    // 격투 모드로 들어가면 줄은 놓는다 (잡기는 유지)
+    if (attackMode || meleeMode) { releaseWeb(); zip = null; }
+    say(meleeMode ? "근접 격투" : attackMode ? "거미줄 격투" : "웹스윙", 1.3);
   }
   // E = 속박 (공격 모드 전용). 스윙 중 E는 기존 속도 부스트라 서로 겹치지 않는다.
   if (e.code === "KeyG") tumble();         // 덤블링 (예전 X, 그 전엔 휠 아래로)
@@ -3487,7 +3575,8 @@ let fireKick = 0;        // 발사 반동 0..1
 let climbMouse = false;  // 마우스 사이드 버튼(뒤로/앞으로)을 누르고 있는지
 // 벽타기 입력: Ctrl 또는 마우스 좌측 사이드 버튼
 function climbHeld() {
-  return !!(keys["ControlLeft"] || keys["ControlRight"] || climbMouse);
+  // Ctrl은 락온으로 갔다. 벽타기는 마우스 뒤쪽 사이드 버튼 전담이다.
+  return climbMouse;
 }
 let swayX = 0, swayY = 0;
 let swayPrevYaw = 0, swayPrevPitch = 0;
@@ -4559,7 +4648,18 @@ function updateCamera(dt) {
   sun.target.updateMatrixWorld();
   // 자동 모드: 진행 방향(또는 붙어 있는 벽)으로 계속 정렬.
   // 수동 모드(C)에서는 이 블록이 통째로 꺼져서 시점은 우클릭 드래그로만 움직인다.
-  if (camAuto && !firstPerson && (hsp > 3 || clinging)) {
+  // 락온: 카메라가 대상을 계속 본다. 자동/수동 정렬보다 우선한다.
+  if (lockOn && !firstPerson) {
+    const dx = lockOn.g.position.x - player.renderPos.x;
+    const dz = lockOn.g.position.z - player.renderPos.z;
+    const dy = (lockOn.g.position.y + 2.4) - (player.renderPos.y + 1.6);
+    const h = Math.hypot(dx, dz);
+    if (h > 0.5) {
+      viewYaw = lerpAngle(viewYaw, Math.atan2(dx, dz), Math.min(1, 9 * dt));
+      const wantP = Math.max(-0.8, Math.min(0.5, Math.atan2(dy, h)));
+      viewPitch += (wantP - viewPitch) * Math.min(1, 9 * dt);
+    }
+  } else if (camAuto && !firstPerson && (hsp > 3 || clinging)) {
     // 좌우: 느릴수록 천천히. 저속에서 급하게 붙이면 방향이 조금만 흔들려도 같이 흔들린다.
     const k = clinging ? 4 : Math.min(3.5, 0.9 + hsp * 0.07);
     viewYaw = lerpAngle(viewYaw, bodyYaw, Math.min(1, k * dt));
@@ -4821,6 +4921,7 @@ function updateCrosshair() {
 
   // 부착과 완전히 같은 함수로 미리보기를 뽑는다. 마커가 거짓말하지 않는다.
   // resolveAnchor는 전체 레이캐스트라 한 번에 0.88ms다. 마커는 몇 프레임 늦어도 안 보인다.
+  updateLockMark();
   if (web) aimPreview = null;
   else if (--aimTick <= 0) { aimTick = 5; aimPreview = resolveAnchor(); }
   if (aimPreview && !web) {
@@ -5082,7 +5183,9 @@ function frameBody(now) {
     `${Math.round(player.vel.length() * 3.6)} km/h · DASH ${hasDash ? "READY" : `${Math.max(dashTimer, 0).toFixed(1)}s`}`
     + ` · ${camLabel}${camMsg > 0 ? " ←" : ""}`
     + (!firstPerson ? `  줌 ${(1 / camZoom).toFixed(1)}x` : "")
-    + (attackMode ? `  ⚔ 공격모드 · 적 ${enemies.length}` : `  적 ${enemies.length} (TAB=공격모드)`)
+    + (meleeMode ? "  ✊ 근접 격투" : attackMode ? "  ⚔ 거미줄 격투" : "  (TAB=격투)")
+    + `  적 ${enemies.length}`
+    + (lockOn ? `  ◎ 락온 ${lockOn.ty.name}` : "")
     + (combo > 1 ? `  ${combo} COMBO` : "")
     + (toastT > 0 ? `   ▸ ${toast}` : "")
     + (clinging ? (sliding ? "  [벽: 미끄러지는 중 · Ctrl로 붙잡기]" : "  [벽타기: WASD로 이동]") : "");
