@@ -1359,10 +1359,16 @@ const ANIM_ONLY_FILES = {
   WallRun: "assets/models/player/anims/WallRun.glb",
   WallHang: "assets/models/player/anims/WallHang.glb",
   Swing: "assets/models/player/anims/Swing.glb",
+  // --- 근접 격투 (아직 안 받은 파일은 조용히 무시되고 기존 절차적 동작으로 돌아간다) ---
+  Punch:   "assets/models/player/anims/Punch.glb",     // 약공격
+  Heavy:   "assets/models/player/anims/Heavy.glb",     // 차징 강공격
+  Parry:   "assets/models/player/anims/Parry.glb",     // 쳐내기
+  Roll:    "assets/models/player/anims/Roll.glb",      // 구르기
+  Takedown:"assets/models/player/anims/Takedown.glb",  // 처형
 };
 // 한 번만 재생하고 마지막 포즈로 멈춰야 자연스러운 클립들.
 // (스윙은 "한 번 크게 휘두르는" 동작이라 루프시키면 계속 되감기는 것처럼 보인다)
-const CLIP_ONCE = new Set(["Swing", "Land"]);
+const CLIP_ONCE = new Set(["Swing", "Land", "Punch", "Heavy", "Parry", "Roll", "Takedown"]);
 
 new GLTFLoader().load(
   "assets/models/player/HeroPlaceholder.glb",
@@ -2412,8 +2418,10 @@ function fireBind() {
 // 다만 216명 전부에 달면 한 명당 메시 5개 = 1,000개가 넘는 드로우콜이 된다.
 // 근접 격투는 코앞에서만 벌어지므로, 가까운 몇 명에게만 돌려 쓰는 풀을 둔다.
 // 멀리 있는 적은 지금까지처럼 캡슐 하나로 그린다.
-const RIG_POOL  = 10;      // 동시에 팔다리를 붙일 최대 인원
-const RIG_RANGE = 75;      // 이 거리 안에서만
+const RIG_POOL  = 20;      // 동시에 팔다리를 붙일 최대 인원
+const RIG_RANGE = 150;     // 이 거리 안에서만
+// 경계에서 붙었다 떨어졌다 깜빡이지 않도록, 뗄 때는 더 멀리 나가야 뗀다.
+const RIG_DROP  = RIG_RANGE * 1.25;
 
 const _rigTorsoGeo = (() => {
   const b = new THREE.BoxGeometry(2.3, 3.1, 1.5); b.translate(0, 4.3, 0);
@@ -2480,7 +2488,14 @@ function assignRigs() {
   _rigCand.sort((a, b) => a.d - b.d);
   const want = _rigCand.slice(0, RIG_POOL).map(c => c.e);
   // 더 이상 대상이 아닌 리그부터 뗀다
-  for (const r of rigPool) if (r.owner && (r.owner.dead || want.indexOf(r.owner) < 0)) rigDetach(r);
+  // 이미 붙어 있는 적은 RIG_DROP까지는 봐준다. 경계에서 팔다리가 깜빡이면
+  // "중간에 팔다리가 생기는" 것처럼 보인다.
+  for (const r of rigPool) {
+    if (!r.owner) continue;
+    const keep = !r.owner.dead
+      && r.owner.g.position.distanceTo(player.pos) <= RIG_DROP;
+    if (!keep) rigDetach(r);
+  }
   for (const e of want) {
     if (e.rig) continue;
     const free = rigPool.find(r => !r.owner);
@@ -2661,6 +2676,7 @@ const ROLL_IFR   = 0.26;  // 앞쪽 이 구간만 무적. 끝까지 무적이면
 const ROLL_SPEED = 30;
 const ROLL_STAM  = 20;
 let rollT = 0;
+let rollFx = 0;                 // 구르기 잔상 연출 잔량 (회전 대신 쓰는 것)
 const rollDir = new THREE.Vector3();
 
 // --- 체간 · 처형 ---
@@ -2945,8 +2961,11 @@ function meleeRoll() {
   player.vel.z = rollDir.z * ROLL_SPEED;
   if (!player.grounded && player.vel.y < 0) player.vel.y *= 0.35;
   bodyYaw = Math.atan2(rollDir.x, rollDir.z);
-  tumbleT = ROLL_TIME; tumbleDur = ROLL_TIME;    // 구르는 그림은 덤블링 회전을 그대로 쓴다
+  // 한 바퀴 도는 그림은 뺐다. 3인칭에서 캐릭터가 빙글 돌면 화면이 어지럽다.
+  // 대신 진행 방향으로 몸을 기울이고 잔상을 남겨 "빠르게 빠졌다"만 읽히게 한다.
+  rollFx = 1;
   dodgeFx = 1;
+  spawnImpact(_impV.set(player.pos.x, player.pos.y + 0.3, player.pos.z), 8, 'wall');
   sfxDodge();
 }
 
@@ -3004,6 +3023,7 @@ function updateExecute(dt) {
 // ---------- 매 틱 ----------
 function updateMelee(dt) {
   if (parryFx > 0) parryFx -= dt * 2.4;
+  if (rollFx > 0) rollFx -= dt * 2.6;
   if (swingFx > 0) swingFx = Math.max(0, swingFx - dt);
   if (charging) chargeT = Math.min(CHARGE_FULL + 0.6, chargeT + dt);
   updateDashIn(dt);
@@ -3082,6 +3102,7 @@ function clearMelee() {
   mAtk = null; mBuf = 0; mBufT = 0; mChain = 0; mChainT = 0;
   parryT = 0; parryRec = 0; parryCd = 0; parryFx = 0; rollT = 0;
   charging = false; chargeT = 0;
+  rollFx = 0;
   dashIn = 0; dashInE = null;
   swingFx = 0;
   if (execTarget && !execTarget.dead) execTarget.grip = 0;
@@ -5496,8 +5517,15 @@ function update(dt) {
   }
   spiderGroup.position.copy(player.renderPos);
   spiderGroup.rotation.y = bodyYaw;
+  // 구르기: 진행 방향으로 몸을 눕혔다 세운다. 한 바퀴 돌리지 않는다.
+  if (rollT > 0) {
+    const k = 1 - rollT / ROLL_TIME;            // 0 -> 1
+    const lean = Math.sin(k * Math.PI);          // 눕혔다 돌아옴
+    spiderGroup.rotation.y = bodyYaw;
+    if (tumbleT <= 0) spiderGroup.rotation.x = lean * 0.85;
+  }
   // 차징: 몸을 뒤로 감으며 힘을 모은다
-  if (charging && chargeT > 0.05) {
+  else if (charging && chargeT > 0.05) {
     const c = Math.min(1, chargeT / CHARGE_FULL);
     spiderGroup.rotation.y = bodyYaw - c * 0.75;
     if (tumbleT <= 0) spiderGroup.rotation.x = -c * 0.18;
@@ -5530,7 +5558,13 @@ function update(dt) {
   if (heroMixer) {
     heroMixer.update(dt);
     let state = "Idle";
-    if (landFx > 0) state = "Land";
+    // 근접 격투 동작이 가장 우선한다. 해당 클립이 아직 없으면 crossfadeTo가
+    // 조용히 무시하고, 지금처럼 몸통을 절차적으로 돌리는 그림이 그대로 남는다.
+    if (execT > 0) state = "Takedown";
+    else if (rollT > 0) state = "Roll";
+    else if (parryT > 0 || parryRec > 0) state = "Parry";
+    else if (mAtk) state = mAtk.heavy ? "Heavy" : "Punch";
+    else if (landFx > 0) state = "Land";
     // 벽: 실제로 오를 때만 등반 모션, 붙어만 있으면 매달린 자세
     else if (clinging) state = climbHeld() ? "WallRun" : "WallHang";
     else if (web || zip) state = "Swing";
@@ -6221,7 +6255,7 @@ function frameBody(now) {
   diveFx += ((diving ? 1 : 0) - diveFx) * Math.min(1, 5 * (1 / 60));
   // 임계 이하에서는 0으로 눌러 평상시 화면이 뿌옇지 않게 한다
   const lineSp = Math.max(0, player.vel.length() - SOFT_SPEED * 0.5) / MAX_SPEED;
-  linesEl.style.opacity = Math.min(0.95,
+  linesEl.style.opacity = Math.max(rollFx * 0.75, 0) + Math.min(0.95,
     lineSp * lineSp * 1.6
     + (pumpFx > 0 ? 0.35 : 0)
     + (dashKick > 0 ? 0.4 : 0)

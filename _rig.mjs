@@ -71,8 +71,40 @@ ok(br.rig.armR.piv.rotation.x > 0.3 && br.rig.torso.rotation.x > 0.3, "체간이
 br.stag = 0;
 
 console.log("\n===== 드로우콜 예산 =====");
+// 리그가 붙으면 캡슐 1개가 꺼지므로 순증가는 (5 - 1)개다.
 const meshPerRig = 5;
-console.log(`       리그 ${T.RIG_POOL}개 x 메시 ${meshPerRig} = 최대 ${T.RIG_POOL * meshPerRig} 드로우콜 추가`);
-ok(T.RIG_POOL * meshPerRig <= 60, "추가 드로우콜이 60 이하");
+const net = T.RIG_POOL * (meshPerRig - 1);
+console.log(`       리그 ${T.RIG_POOL}개 x (메시 ${meshPerRig} - 캡슐 1) = 순증가 ${net} 드로우콜`);
+ok(net <= 100, "순증가 드로우콜이 100 이하");
 
 console.log(`\n통과 ${pass} / 실패 ${fail}`);
+
+console.log("\n===== 구르기: 회전 대신 이동 연출 =====");
+for (let i=0;i<4 && !T.meleeMode; i++) (globalThis.__win.keydown||[]).forEach(f=>f({code:"Tab",repeat:false,preventDefault(){}}));
+const gy2 = T.groundHeightAt(0,0);
+T.player.pos.set(0, gy2, 0); T.player.prevPos.copy(T.player.pos); T.player.renderPos.copy(T.player.pos);
+T.player.vel.set(0,0,0); T.setClinging(null); T.releaseWeb(); T.clearMelee(); T.setStam(100);
+run(30);
+T.keys["KeyA"] = true;
+(globalThis.__win.keydown||[]).forEach(f=>f({code:"ShiftLeft",repeat:false,preventDefault(){}}));
+T.keys["KeyA"] = false;
+ok(T.rollT > 0, "구르기가 나간다");
+ok(T.tumbleT === 0, "한 바퀴 도는 회전(tumble)이 안 걸린다", `tumbleT=${T.tumbleT}`);
+ok(T.rollFx > 0, "대신 이동 연출이 켜진다", `rollFx=${T.rollFx.toFixed(2)}`);
+let maxLean = 0;
+for (let i=0;i<Math.ceil(T.ROLL_TIME*120);i++){ T.update(DT); T.updateCamera(DT); maxLean = Math.max(maxLean, Math.abs(T.spiderRotX)); }
+ok(maxLean > 0.2 && maxLean < Math.PI, "몸을 기울이기만 하고 한 바퀴 돌지 않는다", `최대 기울기 ${(maxLean*57.3).toFixed(0)}도`);
+ok(Math.abs(T.spiderRotX) < 0.2, "끝나면 똑바로 선다", `${(T.spiderRotX*57.3).toFixed(0)}도`);
+
+console.log("\n===== 리그 범위 =====");
+ok(T.RIG_RANGE >= 140, "팔다리가 보이는 거리가 늘었다", `${T.RIG_RANGE}m`);
+ok(T.RIG_DROP > T.RIG_RANGE, "붙었다 떨어지는 경계가 달라 깜빡이지 않는다", `붙기 ${T.RIG_RANGE}m / 떼기 ${T.RIG_DROP}m`);
+ok(T.RIG_POOL * 4 <= 90, "늘어난 순수 드로우콜이 90 이하", `${T.RIG_POOL}명 x 4 = ${T.RIG_POOL*4}`);
+
+console.log("\n===== 근접 애니메이션 슬롯 =====");
+for (const n of ["Punch","Heavy","Parry","Roll","Takedown"]) {
+  ok(!!T.ANIM_ONLY_FILES[n], `${n} 클립 자리가 있다`, T.ANIM_ONLY_FILES[n]);
+  ok(T.CLIP_ONCE.has(n), `${n}은 한 번만 재생된다`);
+}
+
+console.log(`\n최종  통과 ${pass} / 실패 ${fail}`);
