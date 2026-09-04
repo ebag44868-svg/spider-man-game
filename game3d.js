@@ -4398,6 +4398,8 @@ addEventListener("keydown", e => {
   if (e.code === "F1") {
     e.preventDefault();
     hudEl.classList.toggle("show");
+    // 조작법을 읽는 동안 커서가 갇혀 있으면 못 읽는다 (1인칭은 포인터 락이 걸려 있다)
+    if (hudEl.classList.contains("show")) document.exitPointerLock();
   }
   if (e.code === "Escape") hudEl.classList.remove("show");
   if (e.code === "Tab") {
@@ -6277,6 +6279,13 @@ function frameBody(now) {
   const realDt = Math.min(0.05, (now - last) / 1000);
   adaptRes((now - last) || 16);
   last = now;
+  // F1 조작법이 열려 있으면 게임을 멈춘다. 화면은 계속 그린다.
+  // acc를 비워야 닫는 순간 밀린 물리 스텝이 한꺼번에 터지지 않는다.
+  if (hudEl.classList.contains("show")) {
+    acc = 0;
+    renderer.render(scene, camera);
+    return;
+  }
   // 히트스톱: 명중 순간 시뮬레이션만 멈춘다 (렌더는 계속 -> 타격이 "박히는" 느낌)
   if (hitStop > 0) {
     hitStop -= realDt;

@@ -33,11 +33,43 @@
     display: flex; align-items: baseline; gap: 10px;
   }
   #hudCard h2 small { font-size: 12px; font-weight: 400; opacity: .55; }
-  #hudGrid {
-    margin-top: 16px; display: grid; gap: 14px 26px;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  /* 카드가 휠에 반응해야 스크롤이 된다. #hud는 pointer-events:none 이라
+     여기서 다시 켜주지 않으면 내용이 넘쳐도 못 내린다 — 실제로 못 내렸다. */
+  #hudCard { pointer-events: auto; scrollbar-width: thin; }
+  #hudTop {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    position: sticky; top: -22px; margin: -22px -26px 14px; padding: 18px 26px 12px;
+    background: linear-gradient(rgba(16,19,26,.99) 78%, rgba(16,19,26,0));
+    z-index: 2;
   }
-  .hs { border-top: 1px solid rgba(255,255,255,.12); padding-top: 9px; }
+  #hudTop .hint { font-size: 12px; opacity: .6; }
+
+  /* 모드별 버튼 표 — 같은 버튼이 모드마다 다른 일을 한다는 걸 한눈에 */
+  table.modes { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.modes th, table.modes td {
+    padding: 7px 9px; text-align: left; vertical-align: top;
+    border-top: 1px solid rgba(255,255,255,.09);
+  }
+  table.modes thead th { border-top: 0; font-size: 11.5px; letter-spacing: .04em; padding-bottom: 9px; }
+  table.modes tbody th { width: 92px; font-weight: 400; }
+  table.modes td { opacity: .92; line-height: 1.4; }
+  table.modes td.same { opacity: .75; font-style: normal; }
+  th.m1 { color: #7dffa0; } th.m2 { color: #ffd24a; } th.m3 { color: #ff9a6a; }
+
+  .cols2 { display: grid; gap: 14px 26px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .s { font-size: 11.5px; opacity: .6; }
+  .tag {
+    display: inline-block; width: 18px; height: 18px; line-height: 18px; text-align: center;
+    border-radius: 5px; font-size: 11px; margin-right: 5px; color: #10131a;
+  }
+  .t1 { background: #7dffa0; } .t2 { background: #ffd24a; } .t3 { background: #ff9a6a; }
+  .m1box { border-left: 3px solid #7dffa0; padding-left: 12px; }
+  .m2box { border-left: 3px solid #ffd24a; padding-left: 12px; }
+  .m3box { border-left: 3px solid #ff9a6a; padding-left: 12px; }
+  .m1box h3 { color: #7dffa0; } .m2box h3 { color: #ffd24a; } .m3box h3 { color: #ff9a6a; }
+  .hs dt.warn { color: #ff9a6a; }
+  .hs { border-top: 1px solid rgba(255,255,255,.12); padding-top: 10px; margin-top: 14px; }
+  .m1box, .m2box, .m3box { border-top: 0; padding-top: 4px; }
   .hs h3 {
     margin: 0 0 7px; font-size: 12px; letter-spacing: .1em;
     text-transform: uppercase; color: #ffd24a; font-weight: 700;
@@ -379,117 +411,120 @@
 <div id="hudHint">F1 · 조작법</div>
 <div id="hud">
   <div id="hudCard">
-    <h2>조작법 <small>F1 또는 ESC로 닫기</small></h2>
-    <div id="hudGrid">
+    <div id="hudTop">
+      <h2>조작법</h2>
+      <span class="hint"><kbd>F1</kbd> 또는 <kbd>ESC</kbd>로 닫기 · 열려 있는 동안 게임은 <b>멈춰 있다</b></span>
+    </div>
 
+    <!-- 모드별로 같은 버튼이 다른 일을 한다. 그게 한눈에 보여야 한다. -->
+    <div class="hs">
+      <h3>모드 — <kbd>TAB</kbd>으로 순환</h3>
+      <table class="modes">
+        <thead>
+          <tr><th></th><th class="m1">① 웹스윙</th><th class="m2">② 거미줄 격투</th><th class="m3">③ 근접 격투</th></tr>
+        </thead>
+        <tbody>
+          <tr><th><kbd>좌클릭</kbd></th>
+            <td>거미줄 걸기 <span class="s">(누르는 동안 유지)</span></td>
+            <td>거미줄 발사 <span class="s">(1클릭 1발)</span></td>
+            <td><b>탭</b> = 약공격<br><b>홀드</b> = 강공격</td></tr>
+          <tr><th><kbd>우클릭</kbd></th>
+            <td colspan="3" class="same">시점 돌리기 — <b>세 모드 모두 똑같다</b></td></tr>
+          <tr><th><kbd>E</kbd></th>
+            <td>줄 감는 동안 가속</td><td>적 속박 <span class="s">(고치 5초)</span></td><td><b>쳐내기(패링)</b></td></tr>
+          <tr><th><kbd>Shift</kbd></th>
+            <td>달리기 · 공중 대시 · 다이빙</td><td>달리기 · 공중 대시</td><td><b>구르기</b></td></tr>
+          <tr><th><kbd>F</kbd></th>
+            <td colspan="2">양손 거미줄(집라인)</td><td><b>거미줄 접근</b> <span class="s">(락온 대상에게)</span></td></tr>
+          <tr><th><kbd>Space</kbd></th>
+            <td>줄 감기</td><td>점프</td><td>점프</td></tr>
+          <tr><th><kbd>V</kbd></th>
+            <td>—</td><td>재장전</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cols2">
       <div class="hs">
-        <h3>이동</h3>
+        <h3>어디서나</h3>
         <dl>
           <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>이동</dd>
-          <dt><kbd>Space</kbd></dt><dd>점프 (지상)</dd>
-          <dt><b>낙하 피해</b></dt><dd>35m 넘게 떨어지면 1칸, 75m 2칸, 130m 3칸.<br>내려앉는 속도가 45m/s 미만이면 <b>높이와 무관하게 면제</b> — 줄을 타고 부드럽게 내려오는 건 벌하지 않는다</dd>
-          <dt><kbd>Shift</kbd> (위협 중)</dt><dd><b>회피</b> — 붉은 예고선이 떠 있을 때 대시하면 무적. 예고 끝나기 직전에 맞추면 <b>완벽 회피</b>(슬로우모 + 궁 게이지)</dd>
-          <dt><kbd>G</kbd></dt><dd>덤블링·공중제비</dd>
-          <dt>휠</dt><dd>3인칭 화면 확대·축소</dd>
-          <dt><kbd>Shift</kbd></dt><dd>달리기 (지상) / 대시 (공중, 탭) / 다이빙 (홀드)</dd>
-          
-        </dl>
-      </div>
-
-      <div class="hs">
-        <h3>웹스윙</h3>
-        <dl>
-          <dt><kbd>좌클릭</kbd></dt><dd>조준한 지점에 거미줄 1발 · 누르는 동안 유지, 떼면 즉시 놓음</dd>
-          <dt><kbd>Space</kbd></dt><dd>줄 감기 (가속)</dd>
-          <dt>스태미나</dt><dd>초록 막대. 스윙 중 닳고, 발을 붙이면(지상·옥상·벽) 빠르게 찬다. 바닥나면 줄을 놓친다</dd>
-          <dt><kbd>—</kbd></dt><dd>적이 붉은 예고선으로 조준한다 · 선이 진해지는 1초 안에 피할 것</dd>
-          <dt><kbd>T</kbd></dt><dd>적을 잡고 날아감 · 누르면 즉시 발사 (1·3인칭)</dd>
-          <dt><kbd>R</kbd></dt><dd>적을 눈앞으로 끌어옴 (1·3인칭)</dd>
-          <dt><kbd>좌클릭</kbd></dt><dd>돌진·끌어오기 중 적이 가까워지면 발차기. 놓치면 부딪혀 서로 피해</dd>
-          <dt><kbd>X</kbd></dt><dd>근접 주먹 (마우스 앞쪽 사이드 버튼도 동일) · 쿨타임 없음, 팔이 돌아와야 다시 나감<br>근접 격투 모드의 약/강공격과는 별개다</dd>
-          <dt><kbd>E</kbd></dt><dd>속도 부스트</dd>
-          <dt><kbd>Q</kbd></dt><dd>궁극기 — 반경 75m의 적을 한 번에 거미줄로 속박 + 피해 (게이지 100%)</dd>
-          <dt><kbd>F</kbd></dt><dd>양손 거미줄(집라인) — 힘을 모았다 앵커로 끌려감. 도착 속도는 반동으로 유지<br><b>1인칭은 우클릭으로도</b> 나간다 (1인칭엔 커서가 없어 우클릭이 비어 있다)</dd>
-          
-          <dt>조준점</dt><dd>초록 = 걸 수 있음 / 흰색 = 사거리 밖(150m)이거나 걸 곳 없음</dd>
-        </dl>
-      </div>
-
-      <div class="hs">
-        <h3>적</h3>
-        <dl>
-          <dt>사수 (빨강)</dt><dd>사거리 130m. 옆으로 돌면서 쏜다</dd>
-          <dt>돌격병 (주황, 큼)</dt><dd>안 쏜다. 빠르게 달려들어 근접 공격</dd>
-          <dt>저격수 (보라, 작음)</dt><dd>사거리 280m, 피해 2배. 예고가 길어 피할 시간은 있다</dd>
-        </dl>
-      </div>
-
-      <div class="hs">
-        <h3>목표</h3>
-        <dl>
-          <dt>구역 정화</dt><dd>화면 위 패널이 현재 목표 구역과 남은 적을 보여준다</dd>
-          <dt>노란 빛기둥</dt><dd>목표 구역의 위치</dd>
-          <dt>스파이더 센스</dt><dd>화면 가장자리 8방향. <b>붉은빛</b>=근처의 적(가까울수록·나를 조준 중이면 진하게), <b>노란빛</b>=목표 방향</dd>
-          <dt>정화 보상</dt><dd>체력 2칸 · 궁 게이지 25% · 스태미나 전량 회복</dd>
-        </dl>
-      </div>
-
-      <div class="hs">
-        <h3>벽</h3>
-        <dl>
-          <dt>마우스 <b>뒤쪽</b> 사이드 버튼</dt><dd>벽 잡기 · 홀드로 벽타기 <b>(Ctrl은 락온으로 옮겼다)</b></dd>
-          <dt>사이드 버튼+<kbd>WASD</kbd></dt><dd>벽면 상하좌우 이동</dd>
-          <dt><kbd>좌클릭</kbd></dt><dd>벽 점프</dd>
-        </dl>
-      </div>
-
-      <div class="hs">
-        <h3>전투 모드</h3>
-        <dl>
-          <dt><kbd>TAB</kbd></dt><dd><b>웹스윙 → 거미줄 격투 → 근접 격투 → 웹스윙</b></dd>
-          <dt><kbd>Ctrl</kbd></dt><dd><b>락온</b> — 시야 안의 적을 물면 카메라가 알아서 따라간다.<br>물어둔 적은 조준점이 어디에 있든 공격 대상이 된다. 다시 누르면 해제</dd>
-        </dl>
-      </div>
-
-      <div class="hs">
-        <h3>거미줄 격투</h3>
-        <dl>
-          <dt><kbd>좌클릭</kbd></dt><dd>거미줄 발사 (탄창 80발)</dd>
-          <dt><kbd>E</kbd></dt><dd>적 속박 — 고치로 5초간 묶음</dd>
-          <dt><kbd>V</kbd></dt><dd>재장전</dd>
-        </dl>
-      </div>
-
-      <div class="hs">
-        <h3>근접 격투</h3>
-        <dl>
-          <dt><kbd>좌클릭</kbd> 탭</dt><dd><b>약공격</b> — 3타 체인. 3타째가 크게 들어간다</dd>
-          <dt><kbd>좌클릭</kbd> 홀드</dt><dd><b>강공격(차징)</b> — <b>0.33초</b> 넘게 물면 차오르고, <b>떼는 순간</b> 나간다.<br>발밑 고리가 <b>흐린 회색이면 아직 약공격</b>, <b>주황이면 강공격</b>, <b>하얗게 깜빡이면 최대 차징</b>이다.<br>오래 물수록 세다(최대 피해 2배·체간 1.6배). 떼고도 한 박자 뜸을 들였다가 들어간다</dd>
-          <dt><b>조준</b></dt><dd>근접 공격은 <b>직선 판정</b>이다. 화면의 <b>에임점이 적 위에 있어야</b> 대미지가 들어간다.<br>락온 중에는 조준점이 어디에 있든 그 적을 친다</dd>
-          <dt><kbd>E</kbd></dt><dd><b>쳐내기(패링)</b> — 0.2초 창. 적의 공격과 탄을 튕겨내고 체간을 크게 깎는다.<br>헛치면 그 사이에 그대로 맞는다. <b>붉은 공격은 못 막는다 — 굴러야 한다</b></dd>
-          <dt><kbd>Shift</kbd></dt><dd><b>구르기</b> — 앞부분만 무적. 스태미나를 먹는다 (방향은 WASD, 없으면 백스텝)</dd>
-          <dt><kbd>F</kbd></dt><dd><b>거미줄 접근</b> — 락온한 적에게 순식간에 붙는다</dd>
-          <dt>—</dt><dd><b>체간</b>이 다 차면 적이 무너진다. 그때 <kbd>우클릭</kbd>으로 <b>처형</b>(HP 무관 즉사, 연출 중 무적).<br>몰아치지 않으면 체간은 도로 회복된다</dd>
-          <dt>—</dt><dd>근접 모드에서는 휘두르거나 구르거나 <b>차징하는 동안</b> 발이 묶인다. Shift 달리기·공중 대시는 꺼진다</dd>
-          <dt><b>체력바</b></dt><dd>다친 적과 락온한 적의 머리 위에 뜬다. 체간이 무너지면 <b>하얗게</b> 바뀐다 — 처형 신호</dd>
-          <dt><b>격투병</b></dt><dd>청록색 큰 적. 진짜로 휘두르는 유일한 상대다. 패턴 셋:<br>
-            <b>가로베기</b>(빠름) · <b>내리침</b>(느리고 아픔) — 파랗게 달아오르면 <kbd>E</kbd>로 쳐낼 수 있다<br>
-            <b>지연</b> — <b style="color:#ff6a6a">붉게</b> 달아오르고 판정 직전에 한 박자 쉰다. <b>못 막는다. 굴러야 한다</b></dd>
+          <dt><kbd>Ctrl</kbd></dt><dd><b>락온</b> — 시야 안의 적을 문다. 카메라가 알아서 대상을 중앙에 잡고,<br>조준점이 어디에 있든 그 적이 공격 대상이 된다. 다시 누르면 해제</dd>
+          <dt><kbd>C</kbd> <span class="s">(Z도 동일)</span></dt><dd><b>시점 자동 / 수동</b> 전환 — 이 키만이 모드를 바꾼다</dd>
+          <dt><kbd>P</kbd></dt><dd>1인칭 / 3인칭 전환</dd>
+          <dt><kbd>Q</kbd></dt><dd>궁극기 — 반경 75m의 적을 한 번에 속박 + 피해 (게이지 100%)</dd>
+          <dt><kbd>T</kbd></dt><dd>적을 잡고 날아감</dd>
+          <dt><kbd>R</kbd></dt><dd>적을 눈앞으로 끌어옴</dd>
+          <dt><kbd>X</kbd></dt><dd>근접 주먹 <span class="s">(마우스 앞쪽 사이드 버튼도 동일)</span></dd>
+          <dt><kbd>G</kbd></dt><dd>덤블링 · 공중제비</dd>
+          <dt>마우스 <b>뒤쪽</b> 사이드</dt><dd>벽 잡기 · 홀드로 벽타기 <span class="s">(+WASD로 벽면 이동)</span></dd>
+          <dt><kbd>+</kbd></dt><dd>야간 / 주간 전환</dd>
         </dl>
       </div>
 
       <div class="hs">
         <h3>시점</h3>
         <dl>
-          <dt><kbd>P</kbd></dt><dd>1인칭 / 3인칭 전환</dd>
-          <dt><kbd>+</kbd></dt><dd>야간 모드 — 네온·창문·가로등이 켜진다</dd>
-          <dt><kbd>C</kbd></dt><dd>카메라 자동정렬 / 수동 전환 (Z도 동일). <b>자동/수동을 바꾸는 건 오직 이 키다</b><br>수동에서는 시점이 <b>절대</b> 저절로 안 움직인다 — 걷든 날든 카메라 방향이 0도 변한다.<br>수동에서는 스윙 뱅킹(화면 기울기)도 꺼진다<br>자동이라도 <b>근접 격투 모드에서는 정렬을 끈다</b> — 때리는 중에 카메라가 끌려가면 못 싸운다<br>락온(<kbd>Ctrl</kbd>) 중에는 모드와 무관하게 카메라가 대상을 중앙에 잡는다</dd>
-          <dt><b>3인칭</b></dt><dd>마우스 이동 = <b>조준점(커서)</b> · <kbd>우클릭 드래그</kbd> = 시점<br><b>우클릭은 어느 모드에서나 오직 시점이다.</b> 드래그로 돌린 뒤에는 3.2초 동안 자동이 손을 뗀다</dd>
-          <dt><b>1인칭</b></dt><dd>마우스 이동 = <b>시점</b> · 조준점은 화면 중앙 고정 (커서가 화면에 갇힌다 — <kbd>Esc</kbd>로 풀림)</dd>
+          <dt><b>3인칭</b></dt><dd>마우스 이동 = <b>조준점(커서)</b><br><kbd>우클릭 드래그</kbd> = 시점</dd>
+          <dt><b>1인칭</b></dt><dd>마우스 이동 = <b>시점</b> · 조준점은 화면 중앙 고정<br>커서가 화면에 갇힌다 — <kbd>ESC</kbd>로 풀림</dd>
+          <dt><b>수동</b> <span class="s">(C)</span></dt><dd>걷든 날든 카메라가 <b>1도도 안 움직인다</b>. 오직 우클릭 드래그로만 돌아간다<br>스윙 뱅킹(화면 기울기)도 꺼진다</dd>
+          <dt><b>자동</b> <span class="s">(C)</span></dt><dd>진행 방향으로 좌우·위아래를 맞춰준다<br>드래그로 돌린 뒤 3.2초는 자동이 손을 뗀다. 근접 격투 모드에서는 아예 꺼진다</dd>
+          <dt>락온 중</dt><dd>모드와 무관하게 카메라가 대상을 중앙에 잡는다</dd>
+          <dt>휠</dt><dd>3인칭 줌</dd>
         </dl>
       </div>
-
     </div>
+
+    <div class="hs m1box">
+      <h3><span class="tag t1">①</span> 웹스윙</h3>
+      <dl>
+        <dt><kbd>좌클릭</kbd></dt><dd>조준한 지점에 거미줄 1발. 누르는 동안 유지, 떼면 즉시 놓음<br>조준점이 <b style="color:#7dffa0">초록</b>이면 그 지점에 걸리고, <b style="color:#ffd24a">노랑</b>이면 조준이 빗나가 자동으로 골라준 앵커다</dd>
+        <dt><kbd>Space</kbd></dt><dd>줄 감기 (가속)</dd>
+        <dt><kbd>E</kbd></dt><dd>속도 부스트</dd>
+        <dt><kbd>F</kbd></dt><dd>양손 거미줄(집라인) — 힘을 모았다 앵커로 끌려감<br>1인칭은 <kbd>우클릭</kbd>으로도 나간다 (1인칭엔 커서가 없어 우클릭이 비어 있다)</dd>
+        <dt><kbd>Shift</kbd></dt><dd>달리기(지상) · 대시(공중 탭) · 다이빙(홀드)</dd>
+        <dt><b>낙하 피해</b></dt><dd>35m 넘게 떨어지면 1칸, 75m 2칸, 130m 3칸<br>내려앉는 속도가 45m/s 미만이면 <b>높이와 무관하게 면제</b> — 줄 타고 부드럽게 내려오는 건 안 아프다</dd>
+      </dl>
+    </div>
+
+    <div class="hs m2box">
+      <h3><span class="tag t2">②</span> 거미줄 격투 <span class="s">— 원거리</span></h3>
+      <dl>
+        <dt><kbd>좌클릭</kbd></dt><dd>거미줄 발사 (탄창 80발)</dd>
+        <dt><kbd>E</kbd></dt><dd>적 속박 — 고치로 5초간 묶음</dd>
+        <dt><kbd>V</kbd></dt><dd>재장전</dd>
+        <dt><b>조준</b></dt><dd>3인칭은 <b>커서</b>, 1인칭은 화면 중앙. 자동 조준은 3도 미세 보정만 한다<br>정확히 겨눈 곳으로 나간다 — 근처 적에게 휘지 않는다</dd>
+      </dl>
+    </div>
+
+    <div class="hs m3box">
+      <h3><span class="tag t3">③</span> 근접 격투 <span class="s">— 소울류</span></h3>
+      <dl>
+        <dt><kbd>좌클릭</kbd> 탭</dt><dd><b>약공격</b> — 3타 체인. 3타째가 크게 들어간다</dd>
+        <dt><kbd>좌클릭</kbd> 홀드</dt><dd><b>강공격(차징)</b> — 0.33초 넘게 물면 차오르고 <b>떼는 순간</b> 나간다<br>발밑 고리: <b style="color:#9aa4b2">흐린 회색</b> 아직 약공격 · <b style="color:#ffb347">주황</b> 강공격 · <b>하양 깜빡</b> 최대 차징<br>오래 물수록 세다 (최대 피해 2배 · 체간 1.6배)</dd>
+        <dt><kbd>E</kbd></dt><dd><b>쳐내기(패링)</b> — 0.2초 창. 적의 공격과 탄을 튕겨내고 체간을 크게 깎는다<br>헛치면 그 사이에 그대로 맞는다</dd>
+        <dt><kbd>Shift</kbd></dt><dd><b>구르기</b> — 앞부분만 무적, 스태미나 소모 (방향은 WASD, 없으면 백스텝)</dd>
+        <dt><kbd>F</kbd></dt><dd><b>거미줄 접근</b> — 락온한 적에게 순식간에 붙는다</dd>
+        <dt><kbd>우클릭</kbd></dt><dd>시점 <b>(공격 아님)</b>. 체간이 무너진 적 앞에서만 <b>처형</b>이 나간다</dd>
+        <dt><b>체간</b></dt><dd>HP와 별개로 쌓인다. 다 차면 적이 무너지고, 그때 <b>강공격이 처형</b>이 된다<br>(HP 무관 즉사 · 연출 중 무적). 몰아치지 않으면 도로 회복된다</dd>
+        <dt><b>체력바</b></dt><dd>다친 적과 락온한 적의 머리 위에 뜬다. 체간이 무너지면 <b>하얗게</b> 바뀐다 — 처형 신호</dd>
+        <dt><b>조준</b></dt><dd>화면의 <b>에임점이 적 위에 있어야</b> 대미지가 들어간다. 등 뒤는 못 친다<br>락온 중에는 조준점이 어디에 있든 그 적을 친다</dd>
+        <dt class="warn">발이 묶임</dt><dd>휘두르거나 구르거나 <b>차징하는 동안</b> 이동 불가. Shift 달리기·공중 대시도 꺼진다</dd>
+      </dl>
+    </div>
+
+    <div class="hs">
+      <h3>적</h3>
+      <dl>
+        <dt><b style="color:#18d6a8">격투병</b></dt><dd>청록색 큰 적. 진짜로 휘두르는 유일한 상대다. 패턴 셋:<br>
+          <b style="color:#6ab6ff">파랗게</b> 달아오르면 — <b>가로베기</b>(빠름) · <b>내리침</b>(느리고 아픔) → <kbd>E</kbd>로 쳐낼 수 있다<br>
+          <b style="color:#ff6a6a">붉게</b> 달아오르면 — <b>지연</b>. 판정 직전에 한 박자 쉰다. <b>못 막는다. 굴러야 한다</b></dd>
+        <dt><b style="color:#d41f2b">사수</b> · <b style="color:#9b4dff">저격수</b></dt><dd>붉은 예고선으로 조준한다. 선이 진해지는 동안이 피할 시간이다<br>예고 중 엄폐물 뒤로 숨으면 쏘지 않는다</dd>
+        <dt><b style="color:#ff7a18">돌격병</b></dt><dd>붙어서 후려친다. 쳐내기로 막을 수 있다</dd>
+        <dt><kbd>Shift</kbd> <span class="s">(위협 중)</span></dt><dd><b>회피</b> — 붉은 예고선이 떠 있을 때 대시하면 무적<br>예고 끝나기 직전에 맞추면 <b>완벽 회피</b> (슬로우모 + 궁 게이지)</dd>
+      </dl>
+    </div>
+
   </div>
 </div>
 <div id="speed">0 km/h</div>
@@ -533,6 +568,6 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mtmnul02"></script>
+<script type="module" src="./game3d.js?v=mtmorm68"></script>
 </body>
 </html>
