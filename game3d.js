@@ -1502,14 +1502,14 @@ function makeEnemy(x, y, z, type) {
 // ================== 적 AI · 적의 공격 · 플레이어 피격 ==================
 // 종류별 성격표. 여기 숫자만 만지면 적 성향이 바뀐다.
 const E_TYPES = [
-  { name: '사수',   color: 0xd41f2b, hp: 12, sight: 150, range: 130, aim: 0.95, cd: 2.2,
+  { name: '사수',   color: 0xd41f2b, hp: 8, sight: 150, range: 130, aim: 0.95, cd: 2.2,
     dmg: 1, spd: 5.5, chase: 1.5, strafe: 7,  proj: 117, melee: false, post: 70 },
-  { name: '돌격병', color: 0xff7a18, hp: 8, sight: 200, range: 7,   aim: 0.45, cd: 1.2,
+  { name: '돌격병', color: 0xff7a18, hp: 14, sight: 200, range: 7,   aim: 0.45, cd: 1.2,
     dmg: 1, spd: 8,   chase: 2.6, strafe: 0,  proj: 0,   melee: true,  post: 90 },
-  { name: '저격수', color: 0x9b4dff, hp: 8, sight: 300, range: 280, aim: 1.9,  cd: 3.4,
+  { name: '저격수', color: 0x9b4dff, hp: 5, sight: 300, range: 280, aim: 1.9,  cd: 3.4,
     dmg: 2, spd: 3,   chase: 0.7, strafe: 3,  proj: 190, melee: false, post: 60 },
   // 격투병 — 근접 격투 모드의 상대. 실제로 휘두르고, 예고 색으로 막을 수 있는지가 읽힌다.
-  { name: '격투병', color: 0x18d6a8, hp: 48, sight: 130, range: 8,  aim: 0,    cd: 1.05,
+  { name: '격투병', color: 0x18d6a8, hp: 32, sight: 130, range: 8,  aim: 0,    cd: 1.05,
     dmg: 1, spd: 9,   chase: 2.9, strafe: 4,  proj: 0,   melee: true,  post: 170, brawler: true },
 ];
 // 사수를 기본으로 두고 돌격병·저격수를 섞는다
@@ -1970,7 +1970,7 @@ function spawnEnemies(n) {
       const x = z.cx + (Math.random() - 0.5) * ZONE_W * 0.86;
       const zz = z.cz + (Math.random() - 0.5) * ZONE_D * 0.86;
       let placed = false;
-      if (Math.random() < 0.6) {
+      if (Math.random() < 0.35) {
         // 옥상: 그 지점 근처에서 설 만한 넓이가 되는 구조물을 고른다
         nearbyBuildings(x, zz, 140, _spawnB);
         let b = null;
@@ -1987,7 +1987,19 @@ function spawnEnemies(n) {
           placed = true;
         }
       }
-      if (!placed) makeEnemy(x, groundHeightAt(x, zz), zz);
+      if (!placed) {
+        // 길바닥에 세운다. groundHeightAt은 건물 옥상도 '바닥'으로 돌려주므로
+        // 그냥 쓰면 지상 스폰이 도로 옥상으로 올라간다. 낮은 높이 기준으로 찾고,
+        // 건물 안이면 자리를 몇 번 다시 뽑는다.
+        let px = x, pz = zz, done = false;
+        for (let k = 0; k < 12 && !done; k++) {
+          const sy = groundHeightAt(px, pz, 3);
+          if (sy < 8 && !blockedAt(px, pz, sy)) { makeEnemy(px, sy, pz); done = true; break; }
+          px = z.cx + (Math.random() - 0.5) * ZONE_W * 0.86;
+          pz = z.cz + (Math.random() - 0.5) * ZONE_D * 0.86;
+        }
+        if (!done) makeEnemy(x, groundHeightAt(x, zz), zz);
+      }
     }
   }
 }

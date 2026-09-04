@@ -163,8 +163,10 @@ T.updateSwingArc();
 ok(T.parryRingVisible, "쳐낸 순간에도 표시가 남는다");
 
 console.log("\n===== 7. 적 체력 4배 + 머리 위 체력바 =====");
-ok(T.E_TYPES[0].hp === 12 && T.E_TYPES[1].hp === 8 && T.E_TYPES[2].hp === 8 && T.E_TYPES[3].hp === 48,
-   "네 종류 모두 체력이 4배다",
+// 종류별로 달라야 한다. 근접이 두껍고 원거리가 얇다.
+const hpOf = n => T.E_TYPES.find(t => t.name === n).hp;
+ok(hpOf("격투병") > hpOf("돌격병") && hpOf("돌격병") > hpOf("사수") && hpOf("사수") > hpOf("저격수"),
+   "근접일수록 두껍고 원거리일수록 얇다",
    T.E_TYPES.map(t => `${t.name} ${t.hp}`).join(" / "));
 e = stage(10);
 e.hp = Math.max(1, Math.floor(e.ty.hp / 2));
