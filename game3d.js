@@ -3,6 +3,9 @@ import { GLTFLoader } from "./lib/loaders/GLTFLoader.js";
 import { mergeGeometries } from "./lib/utils/BufferGeometryUtils.js";
 import { RGBELoader } from "./lib/loaders/RGBELoader.js";
 import {
+  initCars, updateCars, cars, carBodyMesh, carTopMesh, CAR_L, CAR_W, CAR_H,
+} from "./src/cars.js";
+import {
   initHpBars, updateHpBars, mkBar, putBar,
   HPBAR_MAX, HPBAR_RANGE, HPBAR_W, HPBAR_H, POSTBAR_H,
   hpBarBg, hpBarFill, psBarBg, psBarFill,
@@ -1025,92 +1028,9 @@ function setNight(on) {
 }
 
 // ===================== 자동차 =====================
-// 도로 격자를 따라 실제로 달린다. 뉴욕이라 노란 택시 비중을 높게 잡았다.
-// 애비뉴는 실제처럼 일방통행(차선마다 방향이 정해짐), 스트리트는 양방향.
-const cars = [];
-const CAR_L = 4.6, CAR_W = 1.95, CAR_H = 1.35;
-{
-  // 차는 '개수'가 아니라 '간격'으로 깔아야 한다.
-  // 차선당 몇 대씩 두면 월드가 2.5km라 360m에 한 대꼴이 돼서 텅 빈 도로가 된다.
-  const LEN_Z = N_ST * ST_SPACING, LEN_X = N_AVE * AVE_SPACING;
-  const laneOff = [-24, -12, 12, 24];        // 애비뉴 4차선 (넓어진 노폭에 맞춤)
-  for (let ai = 0; ai < N_AVE - 1; ai++) {
-    const cx = (ai - AVE_C) * AVE_SPACING + AVE_SPACING / 2;
-    const oneWay = ai % 2 === 0 ? 1 : -1;    // 애비뉴별 일방통행
-    for (const off of laneOff) {
-      for (let z = -LEN_Z / 2; z < LEN_Z / 2; z += 80 + Math.random() * 110) {
-        cars.push({ axis: 'z', x: cx + off, z, dir: oneWay, speed: 16 + Math.random() * 12 });
-      }
-    }
-  }
-  const stLane = [-9, 9];                    // 스트리트 2차선(양방향)
-  for (let si = 0; si < N_ST - 1; si++) {
-    if (Math.random() < 0.5) continue;
-    const cz = (si - ST_C) * ST_SPACING + ST_SPACING / 2;
-    for (const off of stLane) {
-      for (let x = -LEN_X / 2; x < LEN_X / 2; x += 105 + Math.random() * 150) {
-        cars.push({ axis: 'x', x, z: cz + off, dir: off < 0 ? 1 : -1, speed: 11 + Math.random() * 8 });
-      }
-    }
-  }
-}
-
-const carBodyMesh = new THREE.InstancedMesh(
-  boxGeo, new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.35 }), cars.length);
-const carTopMesh = new THREE.InstancedMesh(
-  boxGeo, new THREE.MeshStandardMaterial({ color: 0x2a3038, roughness: 0.15, metalness: 0.2 }), cars.length);
-{
-  const c = new THREE.Color();
-  cars.forEach((car, i) => {
-    const r = Math.random();
-    if (r < 0.42) c.setHex(0xf2b70c);        // 노란 택시
-    else if (r < 0.58) c.setHex(0xe8e8ea);
-    else if (r < 0.72) c.setHex(0x23262b);
-    else if (r < 0.84) c.setHex(0x6d7580);
-    else if (r < 0.93) c.setHex(0x8d2626);
-    else c.setHex(0x1f3d68);
-    carBodyMesh.setColorAt(i, c);
-  });
-}
-carBodyMesh.castShadow = true;
-carTopMesh.castShadow = false;   // 차체 그림자에 어차피 묻힌다
-carBodyMesh.frustumCulled = false;
-carTopMesh.frustumCulled = false;
-scene.add(carBodyMesh);
-scene.add(carTopMesh);
-
-const CAR_HALF_X = (N_AVE * AVE_SPACING) / 2, CAR_HALF_Z = (N_ST * ST_SPACING) / 2;
-function updateCars(dt) {
-  for (let i = 0; i < cars.length; i++) {
-    const car = cars[i];
-    if (car.axis === "z") {
-      car.z += car.dir * car.speed * dt;
-      // 끝에 닿으면 반대편에서 다시 들어온다
-      if (car.z > CAR_HALF_Z) car.z = -CAR_HALF_Z;
-      else if (car.z < -CAR_HALF_Z) car.z = CAR_HALF_Z;
-      dummy.rotation.set(0, car.dir > 0 ? 0 : Math.PI, 0);
-      dummy.scale.set(CAR_W, CAR_H, CAR_L);
-    } else {
-      car.x += car.dir * car.speed * dt;
-      if (car.x > CAR_HALF_X) car.x = -CAR_HALF_X;
-      else if (car.x < -CAR_HALF_X) car.x = CAR_HALF_X;
-      dummy.rotation.set(0, car.dir > 0 ? Math.PI / 2 : -Math.PI / 2, 0);
-      dummy.scale.set(CAR_W, CAR_H, CAR_L);
-    }
-    dummy.position.set(car.x, 0.05, car.z);
-    dummy.updateMatrix();
-    carBodyMesh.setMatrixAt(i, dummy.matrix);
-
-    // 캐빈(지붕)은 차체보다 작고 살짝 뒤쪽에
-    dummy.scale.set(CAR_W * 0.86, CAR_H * 0.62, CAR_L * 0.48);
-    dummy.position.set(car.x, 0.05 + CAR_H, car.z);
-    dummy.updateMatrix();
-    carTopMesh.setMatrixAt(i, dummy.matrix);
-  }
-  carBodyMesh.instanceMatrix.needsUpdate = true;
-  carTopMesh.instanceMatrix.needsUpdate = true;
-}
-updateCars(0);
+// 실제 구현은 src/cars.js 로 옮겼다. 여기서 부르는 이유는 생성 순서 때문이다 —
+// 그쪽 파일 머리말 참고.
+initCars(scene, boxGeo, dummy, { N_AVE, N_ST, AVE_SPACING, ST_SPACING, AVE_C, ST_C });
 
 const WORLD_HALF = (CELLS * CELL) / 2;
 

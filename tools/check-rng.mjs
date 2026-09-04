@@ -14,14 +14,14 @@
 import { T } from "../_harness.mjs";
 
 // 기준값. 리팩터링으로 이 숫자가 바뀌면 난수가 밀린 것이다 — 절대 갱신하지 말 것.
-const BASE = { buildings: 2235, enemies: 216, byType: { "1": 43, "2": 42, "3": 39, "0": 92 } };
+const BASE = { buildings: 2235, cars: 1388, enemies: 216, byType: { "1": 43, "2": 42, "3": 39, "0": 92 } };
 
 const byType = {};
 for (const e of T.enemies) {
   const k = String(e.type ?? 0);
   byType[k] = (byType[k] || 0) + 1;
 }
-const now = { buildings: T.buildings.length, enemies: T.enemies.length, byType };
+const now = { buildings: T.buildings.length, cars: T.cars.length, enemies: T.enemies.length, byType };
 
 const same = JSON.stringify(now) === JSON.stringify(BASE);
 console.log("  기준  " + JSON.stringify(BASE));
