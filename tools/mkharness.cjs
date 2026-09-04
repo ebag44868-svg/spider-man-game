@@ -1,3 +1,30 @@
+// game3d.js -> _harness.mjs (테스트용). 문자열 치환만 한다.
+//
+// 하는 일
+//   1) "three" import를 실제 파일 경로로 바꾸고, 그 자리에 시드 PRNG와 DOM 스텁을 심는다
+//   2) WebGLRenderer / GLTFLoader / RGBELoader 를 아무것도 안 하는 스텁으로 바꾼다
+//   3) rAF 루프를 떼어낸다 (테스트가 직접 스텝을 돌린다)
+//   4) 내부 식별자 200여 개를 참조하는 T 객체를 파일 끝에 붙인다
+//
+// ★ 리팩터링할 때 반드시 알아야 할 것 ★
+//
+// 시드 PRNG는 game3d.js "본문 맨 위"에 심긴다. 그런데 ESM은 import한 모듈을
+// 본문보다 먼저 평가한다. 그래서 src/*.js 의 모듈 최상위에서 THREE 객체를
+// 만들면, 그 난수 소비가 시드가 심기기 전에 일어나 전체 순서가 밀린다.
+//
+// THREE는 Object3D / Material / BufferGeometry / Texture 를 만들 때마다
+// uuid를 뽑느라 Math.random()을 여러 번 쓴다.
+// (Vector3 / Matrix4 / Quaternion / Color / Loader 는 안 쓴다 — 옮겨도 안전하다)
+//
+// 실제로 두 번 당했다. vfx를 떼어내며 재질을 모듈 최상위로 올렸더니 적 구성이
+//   사수 92 · 저격수 42 · 돌격병 43 · 격투병 39
+//   -> 사수 83 · 격투병 41 · 돌격병 46 · 저격수 46
+// 으로 바뀌었고, 엉뚱한 테스트 하나가 깨져 원인을 찾는 데 한참 걸렸다.
+//
+// 그래서 규칙은 하나다:
+//   THREE 객체를 만드는 코드는 game3d.js가 "원래 만들던 그 자리"에서 실행돼야 한다.
+//   모듈로 옮길 때는 initXxx() 안에 넣고, 그 자리에서 initXxx()를 부른다.
+//   그리고 npm run rng 으로 도시·차·적 구성이 그대로인지 확인한다.
 const fs=require('fs');
 let s=fs.readFileSync('game3d.js','utf8').replace(/^﻿/,'');
 s=s.replace('import * as THREE from "three";','import * as THREE from "./lib/three.module.js";\n'+`
