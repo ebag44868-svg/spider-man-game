@@ -2421,6 +2421,10 @@ function punch() {
   punchT = PUNCH_TIME;
   punchHit = false;
   armPulse = 0.25;
+  // 3인칭에도 휘두르는 그림이 보이게 한다 (예전엔 1인칭 팔 연출뿐이었다)
+  swingFx = PUNCH_TIME; swingFxDur = PUNCH_TIME;
+  swingFxHit = PUNCH_TIME * (1 - PUNCH_HIT);
+  swingHeavy = false; swingYaw = bodyYaw;
   airHover(0.18);                  // 공중에서 쳐도 잠깐 버틴다
   sfxWhoosh();
 }
@@ -2433,17 +2437,13 @@ function updatePunch(dt) {
   const hitAt = PUNCH_TIME * (1 - PUNCH_HIT);
   if (!punchHit && prev > hitAt && punchT <= hitAt) {
     punchHit = true;
-    camera.getWorldDirection(_pv);
-    let best = null, bestD = PUNCH_R;
-    for (const e of enemies) {
-      if (e.dead) continue;
-      _pv2.set(e.g.position.x, e.g.position.y + 2.8, e.g.position.z).sub(camera.position);
-      const d = _pv2.length();
-      if (d > PUNCH_R) continue;
-      if (_pv2.divideScalar(d).dot(_pv) < PUNCH_CONE) continue;
-      if (d < bestD) { bestD = d; best = e; }
-    }
+    // 판정을 카메라가 아니라 플레이어 기준으로 잰다.
+    // 3인칭 카메라는 13m쯤 뒤에 있어서 5.5m 판정이 애초에 아무 데도 닿지 않았다 —
+    // 3인칭에서는 X 주먹이 통째로 죽어 있었다.
+    meleeFacing(_pv);
+    const best = findMeleeTarget(PUNCH_R, PUNCH_CONE);
     if (best) {
+      addPosture(best, 8);
       const killed = best.hp - PUNCH_DMG <= 0;
       best.hp -= PUNCH_DMG;
       best.flash = 0.2;
@@ -2478,7 +2478,8 @@ const M_LIGHT = [
 const M_HEAVY  = { dur: 0.74, hit: 0.35, dmg: 2, post: 44, kb: 22, r: 7.4, cone: 0.52, cancel: 0.58 };
 const M_CHAIN_T = 0.65;   // 이 안에 다음 약공격을 넣어야 체인이 이어진다
 const M_BUF_T   = 0.28;   // 선입력 유지 시간
-const M_STEP    = 26;     // 휘두르며 앞으로 파고드는 속도
+const M_STEP    = 26;     // 휘두르며 앞으로 파고드는 속도 (상한)
+const MELEE_STAND = 3.4;  // 목표 앞 이 거리에 서려고 한다. 더 붙으면 뚫고 지나간다.
 
 let mAtk = null;          // { spec, t, hit, heavy, idx }
 let mChain = 0, mChainT = 0;
@@ -2515,6 +2516,12 @@ let execT = 0, execTarget = null;
 const DASH_IN_SPEED = 62;
 const DASH_IN_MIN = 7, DASH_IN_MAX = 75, DASH_IN_STAM = 12;
 let dashIn = 0, dashInE = null;
+
+// --- 휘두르는 그림 ---
+// 3인칭에는 주먹 모션이 아예 없었다 (기존 punch 연출은 1인칭 전용이다).
+// 그래서 사거리 밖에서 치면 화면에 아무 일도 안 일어나 "공격이 안 나간다"로 읽혔다.
+// 몸통 비틀기 + 바닥을 쓸고 지나가는 호로 헛쳐도 휘둘렀다는 게 보이게 한다.
+let swingFx = 0, swingFxDur = 0.3, swingFxHit = 0.1, swingHeavy = false, swingYaw = 0;
 
 const _mDir = new THREE.Vector3(), _mh = new THREE.Vector3(), _mImp = new THREE.Vector3();
 
@@ -2588,13 +2595,21 @@ function startMelee(heavy) {
   meleeFacing(_mDir);
   bodyYaw = Math.atan2(_mDir.x, _mDir.z);
   // 살짝 파고든다. 제자리에서 휘두르면 거리가 영영 안 좁혀진다.
-  const d = lockOn && !lockOn.dead ? player.pos.distanceTo(lockOn.g.position) : 99;
-  if (d > 4.5) {
-    const push = M_STEP * (heavy ? 0.75 : 1);
+  // 목표를 락온에만 의존하면 안 된다 — 락온이 없을 때 거리를 99로 잡는 바람에
+  // 코앞(3m)의 적에게도 최대 속도로 돌진해 적을 뚫고 지나간 뒤 판정이 나갔다.
+  // 그래서 가까이 붙을수록 오히려 안 맞았다.
+  const tgt = findMeleeTarget(spec.r + 8, spec.cone - 0.15);
+  const d = tgt ? player.pos.distanceTo(tgt.g.position) : MELEE_STAND;
+  const gap = d - MELEE_STAND;
+  if (gap > 0.8) {
+    // 목표 앞 MELEE_STAND 지점에 서도록 필요한 만큼만 민다
+    const push = Math.min(M_STEP, gap * 15) * (heavy ? 0.75 : 1);
     player.vel.x = _mDir.x * push;
     player.vel.z = _mDir.z * push;
   }
   armPulse = 0.3;
+  swingFx = spec.dur; swingFxDur = spec.dur; swingFxHit = spec.hit;
+  swingHeavy = !!heavy; swingYaw = bodyYaw;
   airHover(0.2);              // 공중에서 쳐도 잠깐 버틴다
   sfxWhoosh();
 }
@@ -2621,25 +2636,29 @@ function meleeInput(heavy) {
   startMelee(heavy);
 }
 
+// 지금 때릴 수 있는 적. 락온 대상이 사거리 안이면 무조건 그 적이다.
+// 판정과 "파고들 거리 계산"이 같은 함수를 써야 서로 어긋나지 않는다.
+function findMeleeTarget(r, cone) {
+  if (lockOn && !lockOn.dead && !lockOn.grip
+      && player.pos.distanceTo(lockOn.g.position) <= r + 1.5) return lockOn;
+  meleeFacing(_mDir);
+  let best = null, bestD = r;
+  for (const e of enemies) {
+    if (e.dead || e.grip) continue;
+    _mh.set(e.g.position.x - player.pos.x, 0, e.g.position.z - player.pos.z);
+    const d = _mh.length();
+    if (d > r || Math.abs(e.g.position.y - player.pos.y) > 6) continue;
+    if (d > 0.1 && _mh.divideScalar(d).dot(_mDir) < cone) continue;
+    if (d < bestD) { bestD = d; best = e; }
+  }
+  return best;
+}
+
 function doMeleeHit(a) {
   a.hit = true;
   const spec = a.spec;
   meleeFacing(_mDir);
-  // 락온 대상이 사거리 안이면 무조건 그 적이다
-  let best = null;
-  if (lockOn && !lockOn.dead && !lockOn.grip
-      && player.pos.distanceTo(lockOn.g.position) <= spec.r + 1.5) best = lockOn;
-  if (!best) {
-    let bestD = spec.r;
-    for (const e of enemies) {
-      if (e.dead || e.grip) continue;
-      _mh.set(e.g.position.x - player.pos.x, 0, e.g.position.z - player.pos.z);
-      const d = _mh.length();
-      if (d > spec.r || Math.abs(e.g.position.y - player.pos.y) > 6) continue;
-      if (d > 0.1 && _mh.divideScalar(d).dot(_mDir) < spec.cone) continue;
-      if (d < bestD) { bestD = d; best = e; }
-    }
-  }
+  const best = findMeleeTarget(spec.r, spec.cone);
   if (!best) return;
 
   addPosture(best, spec.post);
@@ -2779,6 +2798,7 @@ function updateExecute(dt) {
 // ---------- 매 틱 ----------
 function updateMelee(dt) {
   if (parryFx > 0) parryFx -= dt * 2.4;
+  if (swingFx > 0) swingFx = Math.max(0, swingFx - dt);
   updateDashIn(dt);
   if (parryCd > 0) parryCd -= dt;
   if (mChainT > 0) { mChainT -= dt; if (mChainT <= 0) mChain = 0; }
@@ -2855,6 +2875,7 @@ function clearMelee() {
   mAtk = null; mBuf = 0; mBufT = 0; mChain = 0; mChainT = 0;
   parryT = 0; parryRec = 0; parryCd = 0; parryFx = 0; rollT = 0;
   dashIn = 0; dashInE = null;
+  swingFx = 0;
   if (execTarget && !execTarget.dead) execTarget.grip = 0;
   execT = 0; execTarget = null;
 }
@@ -3656,6 +3677,32 @@ const aimMark = new THREE.Mesh(
 aimMark.renderOrder = 5;
 aimMark.visible = false;
 scene.add(aimMark);
+
+// 휘두르는 궤적. 바닥에 눕힌 부채꼴이 몸 앞을 쓸고 지나간다.
+const SWING_SWEEP = Math.PI * 0.8;
+const swingArcPivot = new THREE.Object3D();
+const swingArc = new THREE.Mesh(
+  new THREE.RingGeometry(2.6, 6.6, 26, 1, -Math.PI / 2 - SWING_SWEEP / 2, SWING_SWEEP),
+  new THREE.MeshBasicMaterial({ color: 0xdfe8ff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false })
+);
+swingArc.rotation.x = -Math.PI / 2;      // 링은 XY 평면이라 한 번 눕힌다
+swingArcPivot.add(swingArc);
+swingArcPivot.visible = false;
+scene.add(swingArcPivot);
+function updateSwingArc() {
+  if (swingFx <= 0) { swingArcPivot.visible = false; return; }
+  const k = 1 - swingFx / swingFxDur;               // 0 -> 1
+  swingArcPivot.visible = true;
+  swingArcPivot.position.set(player.renderPos.x, player.renderPos.y + 1.1, player.renderPos.z);
+  // 준비 구간에는 뒤로 감았다가 판정에서 앞으로 훑고 지나간다
+  const hk = Math.max(0.05, swingFxHit / swingFxDur);
+  const turn = k < hk ? -(1 - k / hk) * 0.9 : ((k - hk) / (1 - hk)) * 1.5;
+  swingArcPivot.rotation.y = swingYaw + turn;
+  const fade = k < hk ? k / hk * 0.5 : 1 - (k - hk) / (1 - hk);
+  swingArc.material.opacity = Math.max(0, fade) * (swingHeavy ? 0.5 : 0.34);
+  swingArc.material.color.setHex(swingHeavy ? 0xffb347 : 0xdfe8ff);
+  swingArcPivot.scale.setScalar((swingHeavy ? 1.15 : 1) * (0.8 + k * 0.35));
+}
 
 // 락온 표시. 대상 가슴에 띄우고 항상 카메라를 향하게 눕힌다.
 const lockMark = new THREE.Mesh(
@@ -5083,6 +5130,17 @@ function update(dt) {
   }
   spiderGroup.position.copy(player.renderPos);
   spiderGroup.rotation.y = bodyYaw;
+  // 근접 공격: 몸을 뒤로 감았다가 판정에서 앞으로 튼다. 3인칭의 유일한 공격 모션이다.
+  if (swingFx > 0) {
+    const k = 1 - swingFx / swingFxDur;
+    const hk = Math.max(0.05, swingFxHit / swingFxDur);
+    const amp = swingHeavy ? 0.95 : 0.6;
+    spiderGroup.rotation.y = swingYaw
+      + (k < hk ? -(k / hk) * amp : -amp + ((k - hk) / (1 - hk)) * amp * 2.1);
+    if (tumbleT <= 0) {
+      spiderGroup.rotation.x = swingHeavy ? Math.sin(Math.min(1, k / hk) * Math.PI) * 0.28 : 0;
+    }
+  }
   // 덤블링: 진행 방향 축으로 한 바퀴. 끝나면 정확히 0으로 되돌아온다.
   if (tumbleT > 0) {
     tumbleT -= dt;
@@ -5391,8 +5449,11 @@ function updateCamera(dt) {
     poseHand(armL, 0, 1, 1, 0, kf);
   } else {
     // 왼손: 주먹을 뻗는 동안만 보인다. 뻗기 40% / 복귀 60%로 나가는 건 빠르고 오는 건 느리다.
-    if (punchT > 0 && firstPerson) {
-      const k = 1 - punchT / PUNCH_TIME;                 // 0 -> 1
+    // 주먹(punchT)과 근접 격투 공격(swingFx)이 같은 팔 연출을 쓴다.
+    const swingProg = punchT > 0 ? 1 - punchT / PUNCH_TIME
+                    : swingFx > 0 ? 1 - swingFx / swingFxDur : -1;
+    if (swingProg >= 0 && firstPerson) {
+      const k = swingProg;                               // 0 -> 1
       const ext = k < 0.4 ? k / 0.4 : 1 - (k - 0.4) / 0.6;
       const e2 = ext * ext * (3 - 2 * ext);              // 부드럽게
       armL.visible = true;
@@ -5498,6 +5559,7 @@ function updateCrosshair() {
   // 부착과 완전히 같은 함수로 미리보기를 뽑는다. 마커가 거짓말하지 않는다.
   // resolveAnchor는 전체 레이캐스트라 한 번에 0.88ms다. 마커는 몇 프레임 늦어도 안 보인다.
   updateLockMark();
+  updateSwingArc();
   if (web) aimPreview = null;
   else if (--aimTick <= 0) { aimTick = 5; aimPreview = resolveAnchor(); }
   if (aimPreview && !web) {
@@ -6044,4 +6106,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, get lampCount(){ return lampCount; } };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get lockOn(){ return lockOn; }, toggleLock, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
