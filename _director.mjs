@@ -221,4 +221,67 @@ console.log("\n===== 6. 순번을 기다리는 근접은 한 발 뒤에서 기�
   console.log(`       대기 최근접 ${minWait.toFixed(1)}m · 대기 평균 ${avgWait.toFixed(1)}m · 공격권 평균 ${avgAtk.toFixed(1)}m`);
 }
 
+console.log("\n===== 7. 맞으면 반응이 보인다 =====");
+{
+  // 지금까지 적은 맞아도 자세가 그대로였다. 때린 쪽에서 "들어갔다"는 걸
+  // 화면으로 알 방법이 피격 플래시(0.16초 번쩍임)뿐이었다.
+  const W = globalThis.__win, C = globalThis.__cv;
+  const key = c => (W.keydown || []).forEach(f => f({ code: c, repeat: false, preventDefault() {} }));
+  const md = b => (C.mousedown || []).forEach(f => f({ button: b, preventDefault() {} }));
+  const mu = b => (W.mouseup || []).forEach(f => f({ button: b, preventDefault() {} }));
+  const run = n => { for (let i = 0; i < n; i++) { T.update(DT); T.updateCamera(DT); } };
+
+  // 적 하나를 코앞에 세우고 근접 모드로 들어간다 (_melee.mjs와 같은 방식)
+  const live = T.enemies.filter(x => !x.dead);
+  const e = live.find(x => x.ty.brawler) || live[0];
+  for (const o of live) if (o !== e) o.g.position.set(9000, -800, 9000);
+  const y = T.groundHeightAt(0, 0);
+  e.hp = 400; e.bound = 0; e.grip = 0; e.post = 0; e.postMax = 9999; e.stag = 0; e.postHold = 0;
+  e.hitT = 0; e.swing = null; e.knock.set(0, 0, 0);
+  e.g.position.set(0, y, 4);
+  T.player.pos.set(0, y, 0); T.player.prevPos.copy(T.player.pos); T.player.renderPos.copy(T.player.pos);
+  T.player.vel.set(0, 0, 0); T.setClinging(null); T.releaseWeb();
+  T.aimYaw(0); T.setPitch(0); T.setLock(e); T.setStam(100); T.clearMelee();
+  T.syncWorld();
+  for (let i = 0; i < 4 && !T.meleeMode; i++) key("Tab");
+  run(30);
+  T.updateRigs(DT);
+
+  const rest = e.rig ? e.rig.armL.piv.rotation.x : null;
+  ok(!!e.rig, "적에게 팔다리 리그가 붙어 있다");
+
+  const hp0 = e.hp;
+  md(0); mu(0);
+  let peak = 0;
+  for (let i = 0; i < 60; i++) { T.update(DT); T.updateCamera(DT); peak = Math.max(peak, e.hitT); }
+  ok(e.hp < hp0, "약공격이 실제로 들어갔다", `hp ${hp0} -> ${e.hp}`);
+  ok(peak > 0.9, "맞은 순간 피격 반응이 걸린다", `최대 hitT ${peak.toFixed(2)}`);
+
+  // 자세가 실제로 달라지는가
+  e.hitT = 1; e.swing = null;
+  T.updateRigs(DT);
+  const hitPose = e.rig.armL.piv.rotation.x;
+  ok(Math.abs(hitPose - rest) > 0.3, "피격 자세가 평상시와 확실히 다르다",
+     `평상시 ${rest.toFixed(2)} -> 피격 ${hitPose.toFixed(2)}`);
+  ok(e.rig.torso.rotation.x < -0.2, "상체가 뒤로 젖혀진다", `lean ${e.rig.torso.rotation.x.toFixed(2)}`);
+
+  // 반응은 짧아야 한다. 길면 다음 동작을 잡아먹어 굼떠 보인다.
+  e.hitT = 1;
+  let secs = 0;
+  for (let i = 0; i < 120 * 2 && e.hitT > 0; i++) { T.update(DT); secs += DT; }
+  ok(secs > 0.15 && secs < 0.45, "반응이 짧게 끝난다", `${secs.toFixed(2)}초 (설정 ${T.HIT_REACT})`);
+
+  // 휘두르는 중에 맞아도 예고 동작은 안 끊긴다
+  e.hitT = 1;
+  e.swing = { kind: 1, t: 0.4, done: false };
+  T.updateRigs(DT);
+  const swingPose = e.rig.armR.piv.rotation.x;
+  e.hitT = 0;
+  T.updateRigs(DT);
+  ok(Math.abs(swingPose - e.rig.armR.piv.rotation.x) < 1e-6,
+     "휘두르는 중에는 피격 자세가 예고 동작을 덮지 않는다",
+     `맞은 채 ${swingPose.toFixed(3)} vs 안 맞은 채 ${e.rig.armR.piv.rotation.x.toFixed(3)}`);
+  e.swing = null;
+}
+
 console.log(`\n통과 ${pass} / 실패 ${fail}`);
