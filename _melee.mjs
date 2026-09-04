@@ -9,6 +9,10 @@ let pass=0, fail=0;
 const ok=(c,m,x="")=>{ if(c){pass++;console.log("  OK   "+m);} else {fail++;console.log("  FAIL "+m+"  "+x);} };
 const run = n => { for(let i=0;i<n;i++){ T.update(DT); T.updateCamera(DT); } };
 const HV = () => Math.ceil(T.M_HEAVY.dur * 120) + 4;
+// 강공격 = 좌클릭을 CHARGE_MIN 넘게 물었다 떼기. 우클릭은 시점 전용이 됐다.
+const HOLD = 0.34;
+const light = () => { md(0); mu(0); };
+const heavy = () => { md(0); run(Math.ceil(HOLD * 120)); mu(0); };
 
 function toMelee() { for (let i=0;i<4 && !T.meleeMode; i++) key("Tab"); }
 
@@ -52,7 +56,7 @@ ok(dmgs[2] > dmgs[0], "3타째가 1타보다 세다", `피해 ${dmgs.join("/")} 
 console.log("\n===== 강공격 =====");
 e = stage();
 hp0 = e.hp;
-md(2); mu(2);
+heavy();
 run(HV());
 ok(e.hp < hp0, "우클릭으로 강공격이 들어간다", `hp ${hp0} -> ${e.hp}`);
 ok(e.post >= Math.min(T.M_HEAVY.post, e.postMax) - 1, "강공격이 체간을 크게 깎는다", `체간 ${e.post.toFixed(0)}`);
@@ -60,7 +64,7 @@ ok(e.post >= Math.min(T.M_HEAVY.post, e.postMax) - 1, "강공격이 체간을 �
 // 무너질 때까지 몇 방 걸리는지가 체간 설계의 전부다
 e = stage();
 let heavies = 0;
-while (e.stag <= 0 && heavies < 6) { md(2); mu(2); run(HV()); heavies++; }
+while (e.stag <= 0 && heavies < 6) { heavy(); run(HV()); heavies++; }
 ok(e.stag > 0, `강공격 ${heavies}방에 체간이 무너진다`, `체간 ${e.post.toFixed(0)}/${e.postMax}`);
 ok(heavies >= 2, "한 방에 무너지지는 않는다", `${heavies}방`);
 
@@ -69,7 +73,7 @@ console.log("\n===== 처형 =====");
 e.hp = 99;
 const dExec = T.player.pos.distanceTo(e.g.position);
 ok(dExec < 9, "무너뜨린 뒤에도 적이 처형 사거리 안에 남아 있다", dExec.toFixed(1) + "m");
-md(2); mu(2);
+heavy();
 ok(T.execT > 0, "무너진 적에게 강공격을 넣으면 처형이 시작된다");
 ok(T.invulnNow > 0.5, "처형 중에는 무적이다", `invuln=${T.invulnNow.toFixed(2)}`);
 run(Math.ceil(T.EXEC_TIME * 120) + 10);
@@ -128,7 +132,8 @@ e = stage(4);
 key("Tab");
 ok(!T.meleeMode, "근접 모드에서 나왔다");
 md(2); mu(2); run(90);
-ok(T.execT === 0 && !T.mAtk, "근접 모드가 아니면 우클릭이 강공격이 아니다");
+ok(T.execT === 0 && !T.mAtk, "근접 모드 밖에서는 우클릭이 공격이 아니다");
+ok(!T.dragging, "우클릭을 떼면 드래그가 풀린다");
 key("KeyE");
 ok(T.parryT === 0, "근접 모드가 아니면 E는 패링이 아니다");
 

@@ -21,9 +21,23 @@ function setup(e, dist, fp) {
 }
 function shoot(e) {
   const hp0 = e.hp;
+  const n0 = T.projectiles.length;
   md(0); mu(0);
-  for(let i=0;i<120*3;i++) T.update(DT);
-  return e.hp < hp0 || e.bound > 0;
+  const fired = T.projectiles.length > n0;
+  // 탄도만 보는 시험이다. 안 잡아두면 3초 동안 공중에서 떨어져 낙하 피해로 죽고,
+  // 그러면 canAct()가 false가 되어 다음 발이 아예 안 나간다.
+  const pin = T.player.pos.clone();
+  // 적도 붙잡는다. 이건 조준이 맞는지 보는 시험이지, 움직이는 표적을 리드하는
+  // 시험이 아니다 (150m면 탄이 0.5초 나는 동안 격투병이 판정 반경만큼 비켜난다).
+  const epin = e.g.position.clone();
+  for(let i=0;i<120*3;i++){
+    T.player.pos.copy(pin); T.player.vel.set(0,0,0);
+    e.g.position.copy(epin); e.knock.set(0,0,0);
+    T.update(DT);
+  }
+  const hit = e.hp < hp0 || e.bound > 0;
+  if (!hit) console.log(`      [진단] 발사=${fired} 탄약=${T.ammo} 재장전=${T.reloadT.toFixed(2)} 적종류=${e.ty.name} hp=${e.hp} 거리=${T.player.pos.distanceTo(e.g.position).toFixed(0)}m`);
+  return hit;
 }
 const chest = e => e.g.position.clone().setY(e.g.position.y + 1.4);
 

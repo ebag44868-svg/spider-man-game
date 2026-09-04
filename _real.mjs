@@ -79,6 +79,9 @@ e = real(5);
 T.player.pos.y += 40; T.player.prevPos.copy(T.player.pos); T.player.renderPos.copy(T.player.pos);
 T.player.vel.set(0,0,0);
 e.g.position.y = T.player.pos.y;
+// 판정이 조준선(카메라 -> 커서) 기준이라 카메라가 자리를 잡아야 의미가 있다.
+for (let i=0;i<300;i++) T.updateCamera(DT);
+T.syncWorld();
 h0 = e.hp;
 md(0); mu(0);
 run(Math.ceil(T.M_LIGHT[0].dur * 120) + 6);

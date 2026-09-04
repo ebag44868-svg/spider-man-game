@@ -6,6 +6,9 @@ const key = c => (W.keydown||[]).forEach(f => f({ code: c, repeat: false, preven
 const md  = b => (C.mousedown||[]).forEach(f => f({ button: b, preventDefault(){} }));
 const mu  = b => (W.mouseup||[]).forEach(f => f({ button: b, preventDefault(){} }));
 for (let i=0;i<4 && !T.meleeMode; i++) key("Tab");
+// 강공격 = 좌클릭 홀드. 무는 동안에도 시간이 흐른다.
+const HOLD_TICKS = Math.ceil(0.34 * 120);
+function heavyHold(step) { md(0); for (let i = 0; i < HOLD_TICKS; i++) step(); mu(0); }
 
 function stageBrawler(dist) {
   const live = T.enemies.filter(x => !x.dead);
@@ -30,6 +33,7 @@ function duel(skill, maxSec = 60) {
   const e = stageBrawler(30);
   if (!e) return null;
   const hp0 = T.hp;
+  const stepOne = () => { t += DT; T.update(DT); T.updateCamera(DT); };
   let t = 0, parried = 0, rolled = 0, executed = 0, heavies = 0, lights = 0, dashes = 0;
   let react = 0, plan = null, handled = null;   // handled: 이미 대응한 공격 (한 번만 반응한다)
   for (let i = 0; i < 120 * maxSec; i++) {
@@ -55,11 +59,11 @@ function duel(skill, maxSec = 60) {
     } else if (!e.swing) {
       // --- 반격 ---
       // 처형은 실제로 시작됐을 때만 센다. 눌렀다고 다 나가는 게 아니다.
-      if (e.stag > 0 && dist < 9) { const w = T.execT; md(2); mu(2); if (T.execT > w) executed++; }
+      if (e.stag > 0 && dist < 9) { const w = T.execT; heavyHold(stepOne); if (T.execT > w) executed++; }
       else if (dist > 12) { key("KeyF"); dashes++; }
       else if (dist < 8) {
         // 회수가 긴 강공격은 적이 안 움직일 때만. 평소엔 약공격으로 안전하게.
-        if (Math.random() < 0.55) { md(2); mu(2); heavies++; }
+        if (Math.random() < 0.55) { heavyHold(stepOne); heavies++; }
         else { md(0); mu(0); lights++; }
       }
     }
@@ -75,6 +79,7 @@ function duel(skill, maxSec = 60) {
 function spamDuel(maxSec = 60) {
   const e = stageBrawler(30);
   if (!e) return null;
+  const stepOne = () => { t += DT; T.update(DT); T.updateCamera(DT); };
   const hp0 = T.hp;
   let t = 0, parried = 0;
   for (let i = 0; i < 120 * maxSec; i++) {
@@ -83,7 +88,7 @@ function spamDuel(maxSec = 60) {
     if (i % 30 === 0) { key("KeyE"); parried++; }          // 0.25초마다 무조건 E
     else if (i % 30 === 15) {
       if (dist > 12) key("KeyF");
-      else if (dist < 8) { md(2); mu(2); }
+      else if (dist < 8) { heavyHold(stepOne); }
     }
     T.update(DT); T.updateCamera(DT);
     if (e.dead) return { win: true, t, hpLost: hp0 - T.hp, parried };
