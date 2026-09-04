@@ -6,7 +6,8 @@
     "harness": "node tools/mkharness.cjs",
     "test": "node tools/run-tests.mjs",
     "bench": "node _play.mjs && node _duel.mjs && node _stall.mjs",
-    "bump": "node bump.js"
+    "bump": "node bump.js",
+    "rng": "node tools/mkharness.cjs && node tools/check-rng.mjs"
   },
   "devDependencies": {
     "@gltf-transform/core": "^4.4.2",

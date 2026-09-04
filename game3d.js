@@ -3,6 +3,9 @@ import { GLTFLoader } from "./lib/loaders/GLTFLoader.js";
 import { mergeGeometries } from "./lib/utils/BufferGeometryUtils.js";
 import { RGBELoader } from "./lib/loaders/RGBELoader.js";
 import {
+  segHitsSphere, segBoxT, shortAngle, lerpAngle,
+} from "./src/mathx.js";
+import {
   spawnRing, updateRings, spawnImpact, initVfx, impactRings,
 } from "./src/vfx.js";
 import {
@@ -1858,18 +1861,6 @@ function spawnEnemies(n) {
   }
 }
 
-// 주의: 아래 임시 벡터들은 segHitsSphere 전용이다.
-// 호출자의 step 벡터와 같은 객체를 쓰면 내부에서 정규화하는 순간 step이 덮어써져
-// 탄이 프레임당 1m만 전진하는 버그가 생긴다.
-const _s0 = new THREE.Vector3(), _s1 = new THREE.Vector3(), _s2 = new THREE.Vector3();
-// 이동 선분 vs 구. 빠른 투사체가 프레임 사이에 적을 통과해버리는 걸 막는다.
-function segHitsSphere(p0, step, c, r) {
-  const len = step.length();
-  if (len < 1e-6) return p0.distanceTo(c) <= r;
-  const d = _s0.copy(step).divideScalar(len);
-  const t = Math.max(0, Math.min(len, _s1.copy(c).sub(p0).dot(d)));
-  return _s2.copy(p0).addScaledVector(d, t).distanceTo(c) <= r;
-}
 
 
 
@@ -3254,41 +3245,6 @@ const _wallP = new THREE.Vector3();   // 탄이 지형에 닿은 지점 전용
 const projRay = new THREE.Raycaster();   // 조준선 미리보기 등 드문 용도에만 남겨둔다
 const _segBoxes = [];
 
-// 선분(p0 -> p0+step)이 축정렬 박스를 지나는 첫 지점의 t(0..1). 안 지나면 -1.
-function segBoxT(p, d, x0, y0, z0, x1, y1, z1) {
-  // 시작점이 이미 박스 안이면 무시한다. 1인칭 총구는 벽에 살짝 파고들 수 있는데,
-  // 그걸 명중으로 치면 벽에 붙어 있는 동안 쏘는 족족 총구에서 터진다.
-  if (p.x > x0 && p.x < x1 && p.y > y0 && p.y < y1 && p.z > z0 && p.z < z1) return -1;
-  let tmin = 0, tmax = 1;
-  // x
-  if (Math.abs(d.x) < 1e-9) { if (p.x < x0 || p.x > x1) return -1; }
-  else {
-    let a = (x0 - p.x) / d.x, b = (x1 - p.x) / d.x;
-    if (a > b) { const t = a; a = b; b = t; }
-    if (a > tmin) tmin = a;
-    if (b < tmax) tmax = b;
-    if (tmin > tmax) return -1;
-  }
-  // y
-  if (Math.abs(d.y) < 1e-9) { if (p.y < y0 || p.y > y1) return -1; }
-  else {
-    let a = (y0 - p.y) / d.y, b = (y1 - p.y) / d.y;
-    if (a > b) { const t = a; a = b; b = t; }
-    if (a > tmin) tmin = a;
-    if (b < tmax) tmax = b;
-    if (tmin > tmax) return -1;
-  }
-  // z
-  if (Math.abs(d.z) < 1e-9) { if (p.z < z0 || p.z > z1) return -1; }
-  else {
-    let a = (z0 - p.z) / d.z, b = (z1 - p.z) / d.z;
-    if (a > b) { const t = a; a = b; b = t; }
-    if (a > tmin) tmin = a;
-    if (b < tmax) tmax = b;
-    if (tmin > tmax) return -1;
-  }
-  return tmin;
-}
 
 // 이번 틱에 탄이 지나간 선분이 건물/지면에 닿았으면 그 지점을 out에 담고 true.
 function segHitWorld(p0, step, out, minT) {
@@ -4070,10 +4026,6 @@ function climbHeld() {
 }
 let swayX = 0, swayY = 0;
 let swayPrevYaw = 0, swayPrevPitch = 0;
-// 각도 차를 -PI..PI로 접는다. 시점이 한 바퀴 돌 때 스웨이가 튀지 않게.
-function shortAngle(a) {
-  return Math.atan2(Math.sin(a), Math.cos(a));
-}
 let armExt = 0;
 let clinging = null;
 let sliding = false;
@@ -4421,12 +4373,6 @@ function groundHeightAt(x, z, fromY = Infinity) {
   return 0;
 }
 
-function lerpAngle(a, b, t) {
-  let d = (b - a) % (Math.PI * 2);
-  if (d > Math.PI) d -= Math.PI * 2;
-  if (d < -Math.PI) d += Math.PI * 2;
-  return a + d * t;
-}
 
 // 튕겨내지 않고 벽을 따라 미끄러진다. 스치듯 맞으면 속도를 거의 그대로 유지
 // 한 프레임에 여러 박스를 해결할 때 마찰이 겹쳐 곱해지면 속도가 순식간에 죽는다.
