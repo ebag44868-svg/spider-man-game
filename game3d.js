@@ -2698,12 +2698,16 @@ let parryT = 0, parryRec = 0, parryCd = 0, parryFx = 0;
 let parryCount = 0;
 
 // --- 구르기 ---
-const ROLL_TIME  = 0.42;
-const ROLL_IFR   = 0.26;  // 앞쪽 이 구간만 무적. 끝까지 무적이면 구르기가 답이 된다.
-const ROLL_SPEED = 30;
+// 짧고 빠르게 "휙" 빠진다. 예전엔 0.42초 동안 30m/s로 미끄러져서
+// 회피라기보다 그냥 이동으로 보였다.
+const ROLL_TIME  = 0.34;
+const ROLL_IFR   = 0.22;  // 앞쪽 이 구간만 무적. 끝까지 무적이면 구르기가 답이 된다.
+const ROLL_SPEED = 52;    // 초속. 앞부분에 몰아 쓰고 뒤는 급히 죽인다.
 const ROLL_STAM  = 20;
+const ROLL_BURST = 0.16;  // 이 시간까지는 속도를 유지하고, 지나면 확 잡는다
 let rollT = 0;
-let rollFx = 0;                 // 구르기 잔상 연출 잔량 (회전 대신 쓰는 것)
+let rollFx = 0;                 // 회피 대시 연출 잔량
+let wl0 = 0;                    // 이번 틱의 이동 입력 크기 (연출용)
 const rollDir = new THREE.Vector3();
 
 // --- 체간 · 처형 ---
@@ -3096,7 +3100,7 @@ function updateExecute(dt) {
 // ---------- 매 틱 ----------
 function updateMelee(dt) {
   if (parryFx > 0) parryFx -= dt * 2.4;
-  if (rollFx > 0) rollFx -= dt * 2.6;
+  if (rollFx > 0) rollFx -= dt * 4.5;
   if (swingFx > 0) swingFx = Math.max(0, swingFx - dt);
   if (charging) chargeT = Math.min(CHARGE_FULL + 0.6, chargeT + dt);
   updateDashIn(dt);
@@ -3113,9 +3117,11 @@ function updateMelee(dt) {
 
   if (rollT > 0) {
     rollT -= dt;
-    // 굴러가는 동안 마찰. 끝에 가면 자연히 선다.
-    if (player.grounded) {
-      const k = Math.exp(-3.4 * dt);
+    // 앞부분은 속도를 그대로 뻗고, ROLL_BURST를 지나면 급제동으로 딱 선다.
+    // 균일 마찰로 흘리면 "미끄러진다"로 읽히고 회피 느낌이 안 난다.
+    const elapsed = ROLL_TIME - rollT;
+    if (elapsed > ROLL_BURST) {
+      const k = Math.exp(-11 * dt);
       player.vel.x *= k; player.vel.z *= k;
     }
     if (rollT <= 0) { rollT = 0; tumbleT = 0; }
@@ -5267,6 +5273,7 @@ function update(dt) {
   let wx = fwdFlat.x * -iz + rightV.x * ix;
   let wz = fwdFlat.z * -iz + rightV.z * ix;
   const wl = Math.hypot(wx, wz);
+  wl0 = wl;                     // 프레임 루프의 연출 판단에 쓴다
   if (wl > 0) { wx /= wl; wz /= wl; }
 
   if (clinging) {
@@ -5635,10 +5642,11 @@ function update(dt) {
   spiderGroup.rotation.y = bodyYaw;
   // 구르기: 진행 방향으로 몸을 눕혔다 세운다. 한 바퀴 돌리지 않는다.
   if (rollT > 0) {
+    // 앞으로 확 숙였다 빠르게 세운다. 대시의 "몸을 던진다" 느낌.
     const k = 1 - rollT / ROLL_TIME;            // 0 -> 1
-    const lean = Math.sin(k * Math.PI);          // 눕혔다 돌아옴
+    const lean = k < 0.35 ? k / 0.35 : Math.max(0, 1 - (k - 0.35) / 0.65);
     spiderGroup.rotation.y = bodyYaw;
-    if (tumbleT <= 0) spiderGroup.rotation.x = lean * 0.85;
+    if (tumbleT <= 0) spiderGroup.rotation.x = lean * 1.05;
   }
   // 차징: 몸을 뒤로 감으며 힘을 모은다
   else if (charging && chargeT > 0.05) {
@@ -6405,7 +6413,12 @@ function frameBody(now) {
   diveFx += ((diving ? 1 : 0) - diveFx) * Math.min(1, 5 * (1 / 60));
   // 임계 이하에서는 0으로 눌러 평상시 화면이 뿌옇지 않게 한다
   const lineSp = Math.max(0, player.vel.length() - SOFT_SPEED * 0.5) / MAX_SPEED;
-  linesEl.style.opacity = Math.max(rollFx * 0.75, 0) + Math.min(0.95,
+  // 달리기(Shift)는 바람이 스치는 정도만. 예전엔 속도선이 회피와 똑같이 세서
+  // 둘이 구분이 안 됐다.
+  const sprintWind = (player.grounded && !meleeMode && wl0 > 0
+    && (keys["ShiftLeft"] || keys["ShiftRight"])) ? 0.14 : 0;
+  // 회피는 짧고 강하게 — 시작 순간에 확 올라왔다 빠진다
+  linesEl.style.opacity = sprintWind + Math.max(rollFx * rollFx * 1.1, 0) + Math.min(0.95,
     lineSp * lineSp * 1.6
     + (pumpFx > 0 ? 0.35 : 0)
     + (dashKick > 0 ? 0.4 : 0)

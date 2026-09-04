@@ -108,3 +108,31 @@ for (const n of ["Punch","Heavy","Parry","Roll","Takedown"]) {
 }
 
 console.log(`\n최종  통과 ${pass} / 실패 ${fail}`);
+
+console.log("\n===== 회피가 미끄러짐이 아니라 대시인가 =====");
+for (let i=0;i<4 && !T.meleeMode; i++) (globalThis.__win.keydown||[]).forEach(f=>f({code:"Tab",repeat:false,preventDefault(){}}));
+const gy3 = T.groundHeightAt(0,0);
+T.player.pos.set(0, gy3, 0); T.player.prevPos.copy(T.player.pos); T.player.renderPos.copy(T.player.pos);
+T.player.vel.set(0,0,0); T.setClinging(null); T.releaseWeb(); T.clearMelee(); T.setStam(100);
+run(40);
+T.keys["KeyA"] = true;
+(globalThis.__win.keydown||[]).forEach(f=>f({code:"ShiftLeft",repeat:false,preventDefault(){}}));
+T.keys["KeyA"] = false;
+const rx0 = T.player.pos.x;
+let peak = 0, half = 0;
+const rn = Math.ceil(T.ROLL_TIME*120) + 20;
+for (let i=0;i<rn;i++) {
+  T.update(DT); T.updateCamera(DT);
+  const sp = Math.hypot(T.player.vel.x, T.player.vel.z);
+  peak = Math.max(peak, sp);
+  if (i === Math.ceil(T.ROLL_TIME*120*0.5)) half = sp;
+}
+const endSp = Math.hypot(T.player.vel.x, T.player.vel.z);
+const moved = Math.abs(T.player.pos.x - rx0);
+ok(peak >= 45, "시작 순간 확 튀어나간다", `최고 ${peak.toFixed(0)}m/s`);
+ok(endSp < 3, "끝나면 미끄러지지 않고 딱 선다", `끝 ${endSp.toFixed(1)}m/s`);
+ok(moved > 4 && moved < 10, "한 번에 넘어가는 거리가 회피다운 폭이다", `${moved.toFixed(1)}m`);
+ok(T.ROLL_TIME <= 0.36 && T.ROLL_IFR <= 0.24, "짧다", `지속 ${T.ROLL_TIME}초 · 무적 ${T.ROLL_IFR}초`);
+ok(T.tumbleT === 0, "여전히 한 바퀴 돌지 않는다");
+
+console.log(`\n최종  통과 ${pass} / 실패 ${fail}`);
