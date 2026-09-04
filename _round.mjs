@@ -162,6 +162,27 @@ T.tryParry(e, true);
 T.updateSwingArc();
 ok(T.parryRingVisible, "쳐낸 순간에도 표시가 남는다");
 
+// 창이 닫히면 즉시 사라져야 한다. 굳는 동안(parryRec) 남아 있으면
+// 점프하며 패링했을 때 그 자리에 잔상이 붙은 것처럼 보인다.
+e = stage(6);
+key("KeyE");
+run(Math.ceil((T.PARRY_WIN + 0.02) * 120));
+T.updateSwingArc();
+ok(!T.parryRingVisible, "창이 닫히면 표시가 곧바로 사라진다", `parryRec=${T.parryRec.toFixed(2)}초`);
+
+// 공중에서도 몸을 따라간다 (제자리에 남지 않는다)
+e = stage(6);
+T.player.pos.y += 50; T.player.prevPos.copy(T.player.pos); T.player.renderPos.copy(T.player.pos);
+T.player.vel.set(40, 0, 0);
+key("KeyE");
+T.updateSwingArc();
+const ringY0 = T.parryRingPos.y;
+for (let i=0;i<10;i++){ T.player.vel.set(40, 0, 0); T.update(DT); T.updateCamera(DT); }
+T.updateSwingArc();
+ok(Math.abs(T.parryRingPos.x - T.player.renderPos.x) < 3,
+   "공중에서 날아가도 고리가 몸을 따라온다",
+   `고리 x ${T.parryRingPos.x.toFixed(1)} / 몸 x ${T.player.renderPos.x.toFixed(1)}`);
+
 console.log("\n===== 7. 적 체력 4배 + 머리 위 체력바 =====");
 // 종류별로 달라야 한다. 근접이 두껍고 원거리가 얇다.
 const hpOf = n => T.E_TYPES.find(t => t.name === n).hp;

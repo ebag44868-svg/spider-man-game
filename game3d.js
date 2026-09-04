@@ -3099,7 +3099,7 @@ function updateExecute(dt) {
 
 // ---------- 매 틱 ----------
 function updateMelee(dt) {
-  if (parryFx > 0) parryFx -= dt * 2.4;
+  if (parryFx > 0) parryFx -= dt * 5.0;
   if (rollFx > 0) rollFx -= dt * 4.5;
   if (swingFx > 0) swingFx = Math.max(0, swingFx - dt);
   if (charging) chargeT = Math.min(CHARGE_FULL + 0.6, chargeT + dt);
@@ -4083,7 +4083,10 @@ function updateSwingArc() {
   }
 
   // --- 패링 고리 ---
-  if (parryT <= 0 && parryRec <= 0 && parryFx <= 0) parryRing.visible = false;
+  // 딱 그 타이밍에만 뜬다. 예전엔 헛친 뒤 굳는 동안(0.32초)에도 흐리게 남아서,
+  // 점프하며 패링하면 그 자리에 잔상이 붙어 있는 것처럼 보였다.
+  // 자리도 renderPos를 따라가야 한다 — 공중에서 몸만 날아가고 고리는 남았다.
+  if (parryT <= 0 && parryFx <= 0) parryRing.visible = false;
   else {
     parryRing.visible = true;
     _slA.set(player.renderPos.x, player.renderPos.y + 1.35, player.renderPos.z);
@@ -4091,20 +4094,16 @@ function updateSwingArc() {
     parryRing.position.copy(_slA).addScaledVector(_slB, 1.5);
     parryRing.lookAt(camera.position);
     if (parryFx > 0) {
-      // 쳐낸 순간: 하얗게 확 퍼졌다 사라진다
-      parryRing.scale.setScalar(1 + (1 - parryFx) * 2.4);
+      // 쳐낸 순간: 하얗게 확 퍼졌다 곧바로 사라진다
+      parryRing.scale.setScalar(1 + (1 - parryFx) * 2.2);
       parryRing.material.opacity = Math.max(0, parryFx) * 0.95;
       parryRing.material.color.setHex(0xffffff);
-    } else if (parryT > 0) {
-      // 창이 열려 있는 동안: 밝은 파랑
-      parryRing.scale.setScalar(1.05);
-      parryRing.material.opacity = 0.85;
-      parryRing.material.color.setHex(0x9fd8ff);
     } else {
-      // 헛쳐서 굳은 동안: 흐리게 남아 실패가 눈에 보인다
-      parryRing.scale.setScalar(0.8);
-      parryRing.material.opacity = 0.22;
-      parryRing.material.color.setHex(0x5a7a8f);
+      // 창이 열려 있는 0.2초 동안만: 밝은 파랑. 창이 닫히면 즉시 사라진다.
+      const k = parryT / PARRY_WIN;             // 1 -> 0
+      parryRing.scale.setScalar(0.9 + k * 0.25);
+      parryRing.material.opacity = 0.55 + k * 0.4;
+      parryRing.material.color.setHex(0x9fd8ff);
     }
   }
 }
