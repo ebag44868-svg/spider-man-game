@@ -1467,7 +1467,7 @@ function makeEnemy(x, y, z, type) {
   const mat = new THREE.MeshStandardMaterial({ color: ty.color, emissive: 0x000000, roughness: 0.5 });
   g.add(new THREE.Mesh(enemyGeo, mat));
   // 실루엣으로도 구분되게 크기를 달리한다 (색만으로는 원거리에서 안 읽힌다)
-  g.scale.setScalar(ty.melee ? 1.15 : ty === E_TYPES[2] ? 0.88 : 1);
+  g.scale.setScalar(ty.brawler ? 1.3 : ty.melee ? 1.15 : ty === E_TYPES[2] ? 0.88 : 1);
   g.position.set(x, y, z);
   scene.add(g);
   // 구역은 위치로 정해진다. zones가 아직 없으면(초기 로드 순서) 나중에 채운다.
@@ -1476,7 +1476,7 @@ function makeEnemy(x, y, z, type) {
     bound: 0, cocoon: null,
     // 체간: HP와 별개로 쌓이고, 다 차면 stag(붕괴) 상태가 되어 처형당한다
     post: 0, postMax: ty.post || 45, postHold: 0, stag: 0,
-    swing: null,                        // 휘두르는 중인 근접 공격
+    swing: null, lastBrawl: -1,         // 휘두르는 중인 근접 공격 / 직전 패턴
     knock: new THREE.Vector3(),
     yaw: Math.random() * 6.283, wob: Math.random() * 6.283,
     zone: null,
@@ -1500,11 +1500,15 @@ const E_TYPES = [
     dmg: 1, spd: 8,   chase: 2.6, strafe: 0,  proj: 0,   melee: true,  post: 90 },
   { name: '저격수', color: 0x9b4dff, hp: 2, sight: 300, range: 280, aim: 1.9,  cd: 3.4,
     dmg: 2, spd: 3,   chase: 0.7, strafe: 3,  proj: 190, melee: false, post: 60 },
+  // 격투병 — 근접 격투 모드의 상대. 실제로 휘두르고, 예고 색으로 막을 수 있는지가 읽힌다.
+  { name: '격투병', color: 0x18d6a8, hp: 12, sight: 130, range: 8,  aim: 0,    cd: 1.05,
+    dmg: 1, spd: 9,   chase: 2.9, strafe: 4,  proj: 0,   melee: true,  post: 170, brawler: true },
 ];
 // 사수를 기본으로 두고 돌격병·저격수를 섞는다
 function rollEnemyType() {
   const r = Math.random();
-  return r < 0.55 ? 0 : r < 0.82 ? 1 : 2;
+  // 격투병을 5분의 1쯤 섞는다. 근접 격투 모드가 놀 상대가 있어야 한다.
+  return r < 0.44 ? 0 : r < 0.66 ? 1 : r < 0.80 ? 2 : 3;
 }
 
 const E_SIGHT   = 150;   // (기본값 — 실제로는 종류별 sight를 쓴다)
@@ -1613,6 +1617,125 @@ function canSeePlayer(e) {
   return !segHitWorld(_losA, _losB, _losH);
 }
 
+// --- 격투병의 공격 패턴 ---
+// 소울류가 성립하는 최소 조건: 예고를 보고 "막을 것인가 구를 것인가"를 고르게 하는 것.
+// 그래서 패턴은 색으로 갈린다 — 파랗게 달아오르면 쳐낼 수 있고, 붉으면 무조건 피해야 한다.
+const BRAWL = [
+  // 가로베기: 빠르고 가볍다. 쳐내기 연습용.
+  { name: '가로베기', dur: 0.85, hitAt: 0.50, parry: true,  dmg: 1, r: 7.0, kb: 10 },
+  // 내리침: 느리고 무겁다. 창이 넓어 보이지만 회수가 길어 반격 기회가 크다.
+  { name: '내리침',   dur: 1.20, hitAt: 0.80, parry: true,  dmg: 2, r: 7.6, kb: 20 },
+  // 지연 페인트: 붉다. 못 막는다. 판정 직전에 한 박자 쉬어 타이밍을 흔든다.
+  { name: '지연',     dur: 1.55, hitAt: 1.10, parry: false, dmg: 2, r: 8.2, kb: 30 },
+];
+const BRAWL_HOLD = 0.22;   // 지연 패턴이 판정 직전에 멈춰 있는 시간
+
+// 다음 패턴을 고른다. 붉은 패턴이 연달아 나오면 읽을 수가 없다.
+function pickBrawl(e) {
+  const r = Math.random();
+  let k = r < 0.45 ? 0 : r < 0.80 ? 1 : 2;
+  if (k === 2 && e.lastBrawl === 2) k = 0;
+  e.lastBrawl = k;
+  return k;
+}
+
+const _bwA = new THREE.Vector3();
+
+function brawlerAI(e, dt, dist) {
+  const ty = e.ty;
+
+  // --- 휘두르는 중 ---
+  if (e.swing) {
+    const sw = e.swing, spec = BRAWL[sw.kind];
+    const prev = sw.t;
+    // 지연 패턴은 판정 직전에 한 박자 멈춘다. 이 멈춤이 이 패턴의 전부다.
+    const holding = !spec.parry && sw.t > spec.hitAt - BRAWL_HOLD && sw.t < spec.hitAt;
+    sw.t += holding ? dt * 0.25 : dt;
+
+    // 예고: 판정이 가까울수록 진해진다. 파랑 = 쳐낼 수 있음, 빨강 = 못 막음.
+    const k = Math.min(1, sw.t / spec.hitAt);
+    const g = k * k;
+    if (spec.parry) e.mat.emissive.setRGB(0.08 * g, 0.45 * g, 1.0 * g);
+    else            e.mat.emissive.setRGB(1.0 * g, 0.05 * g, 0.05 * g);
+
+    // 휘두르는 동안에도 플레이어를 본다. 등 뒤로 돌면 헛치게 된다.
+    if (sw.t < spec.hitAt) {
+      const tx = player.pos.x - e.g.position.x, tz = player.pos.z - e.g.position.z;
+      e.yaw = lerpAngle(e.yaw, Math.atan2(tx, tz), Math.min(1, 5 * dt));
+      // 사거리 밖이면 조금씩 파고든다
+      if (dist > spec.r * 0.7) stepEnemy(e, tx, tz, ty.spd * 0.55, dt);
+    }
+
+    if (!sw.done && prev < spec.hitAt && sw.t >= spec.hitAt) {
+      sw.done = true;
+      if (dist < spec.r) {
+        // 쳐내기 창이 열려 있으면 피해 대신 이 적의 체간이 무너진다
+        if (!tryParry(e, spec.parry)) {
+          damagePlayer(spec.dmg);
+          _bwA.set(player.pos.x - e.g.position.x, 0, player.pos.z - e.g.position.z);
+          if (_bwA.lengthSq() > 1e-4) {
+            _bwA.normalize();
+            player.vel.x += _bwA.x * spec.kb;
+            player.vel.z += _bwA.z * spec.kb;
+            if (!player.grounded) player.vel.y += spec.kb * 0.2;
+          }
+          sfxEnemyShot();
+        }
+      } else sfxWhoosh();
+    }
+
+    if (sw.t >= spec.dur) {
+      e.swing = null;
+      e.mat.emissive.setRGB(0, 0, 0);
+      e.fireCd = ty.cd * (0.75 + Math.random() * 0.6);
+    }
+    return;
+  }
+
+  // --- 안 보이면 순찰 ---
+  const seen = dist < ty.sight && deadT <= 0;
+  if (!seen) {
+    e.state = "patrol";
+    const dx = e.px - e.g.position.x, dz = e.pz - e.g.position.z;
+    const d2 = Math.hypot(dx, dz);
+    if (d2 < 2) {
+      const a = Math.random() * Math.PI * 2, r = 6 + Math.random() * 26;
+      e.px = e.hx + Math.cos(a) * r;
+      e.pz = e.hz + Math.sin(a) * r;
+    } else {
+      if (!stepEnemy(e, dx, dz, ty.spd, dt)) { e.px = e.hx; e.pz = e.hz; }
+      e.yaw = Math.atan2(dx, dz);
+    }
+    return;
+  }
+
+  const tx = player.pos.x - e.g.position.x, tz = player.pos.z - e.g.position.z;
+  e.yaw = lerpAngle(e.yaw, Math.atan2(tx, tz), Math.min(1, 7 * dt));
+
+  // 사거리 밖이면 달려든다
+  if (dist > ty.range) {
+    e.state = "chase";
+    stepEnemy(e, tx, tz, ty.spd * ty.chase, dt);
+    return;
+  }
+
+  // 사거리 안: 회수 중에는 옆으로 돌며 간격을 잰다
+  e.state = "engage";
+  if (e.fireCd > 0) {
+    if (ty.strafe > 0) {
+      e.wob += dt * 1.1;
+      const side = Math.sin(e.wob * 0.8);
+      stepEnemy(e, -tz * side, tx * side, ty.strafe, dt);
+    }
+    return;
+  }
+  // 벽 너머로는 휘두르지 않는다
+  if (!canSeePlayer(e)) { e.fireCd = 0.3; return; }
+  e.swing = { kind: pickBrawl(e), t: 0, done: false };
+  e.state = "swing";
+  sfxWhoosh();
+}
+
 // 적 한 명의 사고. dist는 플레이어까지 거리(제곱근 이미 계산됨).
 const _eBoxes = [];
 // 그 지점이 건물 안인가. 발밑에서 어깨높이 사이를 막는 박스가 있으면 못 간다.
@@ -1637,8 +1760,11 @@ function stepEnemy(e, dx, dz, spd, dt) {
 }
 
 function updateEnemyAI(e, dt, dist) {
-  if (e.dead || e.bound > 0 || e.grip) { freeBeam(e); e.aimT = 0; return; }
+  if (e.dead || e.bound > 0 || e.grip) { freeBeam(e); e.aimT = 0; e.swing = null; return; }
+  // 체간이 무너진 적은 아무것도 못 한다. 처형당하기를 기다리는 시간이다.
+  if (e.stag > 0) { freeBeam(e); e.aimT = 0; e.swing = null; e.state = "stagger"; return; }
   if (e.fireCd > 0) e.fireCd -= dt;
+  if (e.ty.brawler) { brawlerAI(e, dt, dist); return; }
 
   const ty = e.ty;
   const seen = dist < ty.sight && deadT <= 0;
@@ -3372,7 +3498,13 @@ function updateCombat(dt) {
 
     if (e.flash > 0) e.flash -= dt;
     // 조준 중에는 AI가 emissive를 직접 몰기 때문에 피격 플래시가 없을 때만 덮어쓴다
-    if (e.flash > 0 || e.aimT <= 0) e.mat.emissive.setScalar(Math.max(0, e.flash) * 4);
+    // 휘두르는 중에는 AI가 예고 색을 몰고, 체간이 무너진 적은 하얗게 맥동한다.
+    if (e.stag > 0) {
+      const b = 0.55 + Math.sin(performance.now() * 0.018) * 0.35;
+      e.mat.emissive.setRGB(b, b, b);
+    } else if (!e.swing && (e.flash > 0 || e.aimT <= 0)) {
+      e.mat.emissive.setScalar(Math.max(0, e.flash) * 4);
+    }
 
     // 멀리 있는 적까지 매 프레임 사고시킬 이유가 없다
     if (!e.dead && dist < E_ACTIVE) updateEnemyAI(e, dt, dist);
@@ -4597,7 +4729,7 @@ function update(dt) {
 
   // 근접 격투에서 휘두르거나 구르는 중에는 발이 묶인다. 때리면서 자유 이동이 되면
   // 소울류의 "한 방을 거는 결단"이 사라진다.
-  if (meleeMode && (mAtk || rollT > 0 || execT > 0 || parryT > 0 || parryRec > 0)) { ix = 0; iz = 0; }
+  if (meleeMode && (mAtk || rollT > 0 || execT > 0 || parryT > 0 || parryRec > 0 || dashIn > 0)) { ix = 0; iz = 0; }
   let wx = fwdFlat.x * -iz + rightV.x * ix;
   let wz = fwdFlat.z * -iz + rightV.z * ix;
   const wl = Math.hypot(wx, wz);
@@ -4678,7 +4810,7 @@ function update(dt) {
     }
   }
 
-  if (player.grounded) {
+  if (player.grounded && dashIn <= 0) {
     // 지상에서 Shift 홀드 = 달리기 (공중 Shift는 아래쪽 대시 로직이 따로 처리)
     const sprinting = !meleeMode && wl > 0 && !!(keys["ShiftLeft"] || keys["ShiftRight"]);
     const spd = sprinting ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED;
