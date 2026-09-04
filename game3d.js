@@ -1219,6 +1219,9 @@ function makeEnemy(x, y, z, type) {
     state: "patrol", aimT: 0, fireCd: 1 + Math.random() * 3,
     // grip 0=자유 / 1=제자리 고정(돌진 대상) / 2=공중으로 끌려오는 중
     grip: 0,
+    // --- 공격권 (Combat Director) ---
+    // tok이 true인 적만 새 공격을 시작할 수 있다. 자세한 건 updateDirector 참고.
+    tok: false, tokIdle: 0, atkRest: 0,
     hx: x, hz: z,                       // 초기 자리 — 순찰은 이 주변을 돈다
     px: x, pz: z,                       // 현재 순찰 목표
     beam: null,
@@ -1424,6 +1427,7 @@ function brawlerAI(e, dt, dist) {
       e.swing = null;
       e.mat.emissive.setRGB(0, 0, 0);
       e.fireCd = ty.cd * (0.75 + Math.random() * 0.6);
+      dirDone(e);
     }
     return;
   }
@@ -1461,7 +1465,8 @@ function brawlerAI(e, dt, dist) {
     // 뒤로 못 가면(벽) 옆으로라도 빠진다
     if (!stepEnemy(e, -tx, -tz, ty.spd * 0.95, dt)) stepEnemy(e, -tz, tx, ty.spd * 0.7, dt);
   }
-  if (e.fireCd > 0) {
+  // 공격권이 없으면 휘두르지 않는다. 지금까지처럼 옆으로 돌며 간격만 잰다.
+  if (e.fireCd > 0 || !e.tok) {
     if (ty.strafe > 0) {
       e.wob += dt * 1.1;
       const side = Math.sin(e.wob * 0.8);
@@ -1474,6 +1479,88 @@ function brawlerAI(e, dt, dist) {
   e.swing = { kind: pickBrawl(e), t: 0, done: false };
   e.state = "swing";
   sfxWhoosh();
+}
+
+// ================== Combat Director (공격권 배분) ==================
+// 적은 지금까지 서로를 전혀 몰랐다. 근처에 격투병 다섯이면 다섯이 동시에
+// 휘둘렀고, 예고 색(파랑=쳐낼 수 있음 / 빨강=못 막음)이 다섯 개 겹쳐서
+// 읽을 수가 없었다. 소울류에서 다대일이 성립하는 이유는 연출이 좋아서가
+// 아니라 한 번에 한둘만 들어오기 때문이다.
+//
+// 그래서 "공격권 토큰"을 둔다. 토큰이 있는 적만 새 공격을 시작한다.
+// 나머지는 지금까지처럼 움직이되 공격만 안 한다 — 간격을 재며 기다린다.
+//
+// 차선(lane)은 유형별로 따로 둔다. 근접 둘이 붙어 있어도 사수가 쏠 수 있어야
+// 화면이 심심하지 않다. 근접끼리는 한 차선을 나눠 쓴다 — 돌격병과 격투병이
+// 동시에 붙으면 결국 같은 곳이 시끄러워지기 때문이다.
+const DIR_LANES = [
+  { name: '사수',   max: 1 },
+  { name: '근접',   max: 2 },   // 돌격병 + 격투병 공용
+  { name: '저격수', max: 1 },
+];
+const DIR_LANE_OF = [0, 1, 2, 1];   // E_TYPES 순서: 사수 / 돌격병 / 저격수 / 격투병
+const DIR_MAX = DIR_LANES.reduce((a, l) => a + l.max, 0);   // 동시 교전 최대 4명
+
+const DIR_TICK = 0.08;      // 배분 주기. 매 스텝(120Hz) 돌릴 이유가 없고, 덜 흔들린다
+const DIR_REST = 1.1;       // 한 번 공격하고 나면 이만큼은 다음 차례에 양보한다
+const DIR_HOLD = 2.5;       // 토큰만 쥐고 아무것도 안 하면 이 시간 뒤 회수한다
+const DIR_MELEE_RING = 16;  // 근접은 이 안에 들어오면 후보. 사거리(7~8m)만 보면
+                            // 달려오는 중에는 아무도 후보가 아니라 순번이 안 정해진다
+
+let dirT = 0;
+const dirHeld = [0, 0, 0];  // 차선별 현재 인원 (HUD/테스트용)
+const _dirCand = [];
+
+// 이미 공격 동작에 들어갔는가. 들어갔으면 토큰을 뺏지 않는다 — 도중에 끊으면
+// 예고만 띄우고 사라지는 꼴이 되어 오히려 더 안 읽힌다.
+function dirBusy(e) { return !!e.swing || e.aimT > 0; }
+
+function updateDirector(dt) {
+  dirT -= dt;
+  if (dirT > 0) return;
+  dirT = DIR_TICK;
+
+  const held = [0, 0, 0];
+  _dirCand.length = 0;
+
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i];
+    // 싸울 수 없는 상태면 즉시 회수
+    if (e.dead || e.bound > 0 || e.grip || e.stag > 0 || deadT > 0) { e.tok = false; continue; }
+
+    const d = e.g.position.distanceTo(player.pos);
+    const near = e.ty.melee ? d < DIR_MELEE_RING : d < e.ty.range;
+    if (!near || d > e.ty.sight) { e.tok = false; continue; }
+
+    const lane = DIR_LANE_OF[e.type];
+    if (e.tok) {
+      if (dirBusy(e)) { e.tokIdle = 0; held[lane]++; continue; }   // 공격 중 — 유지
+      e.tokIdle += DIR_TICK;
+      // 쥐고만 있으면 순번이 돌지 않는다. 시간이 지나면 넘긴다.
+      if (e.tokIdle < DIR_HOLD && e.atkRest <= 0) { held[lane]++; continue; }
+      e.tok = false;
+    }
+    if (e.atkRest > 0) continue;      // 방금 공격한 적은 한 박자 쉰다
+    _dirCand.push({ e, d, lane });
+  }
+
+  // 빈 자리를 가까운 적부터 채운다
+  _dirCand.sort((a, b) => a.d - b.d);
+  for (let i = 0; i < _dirCand.length; i++) {
+    const c = _dirCand[i];
+    if (held[c.lane] >= DIR_LANES[c.lane].max) continue;
+    c.e.tok = true;
+    c.e.tokIdle = 0;
+    held[c.lane]++;
+  }
+  dirHeld[0] = held[0]; dirHeld[1] = held[1]; dirHeld[2] = held[2];
+}
+
+// 공격을 마쳤다. 토큰을 놓고 한 박자 쉬어 다음 사람에게 순번을 넘긴다.
+function dirDone(e) {
+  e.tok = false;
+  e.tokIdle = 0;
+  e.atkRest = DIR_REST;
 }
 
 // 적 한 명의 사고. dist는 플레이어까지 거리(제곱근 이미 계산됨).
@@ -1581,13 +1668,15 @@ function updateEnemyAI(e, dt, dist) {
         }
       } else enemyFire(e);
       if (e.fireCd <= 0) e.fireCd = ty.cd * (0.7 + Math.random() * 0.6);
+      dirDone(e);
     }
     return;
   }
 
   e.state = "engage";
   // 안 보이면 조준을 시작하지 않는다. 엄폐가 실제로 통해야 한다.
-  if (e.fireCd <= 0 && canSeePlayer(e)) e.aimT = ty.aim;
+  // 공격권이 없어도 시작하지 않는다 — 예고선이 사방에서 뜨면 어느 걸 피할지 모른다.
+  if (e.fireCd <= 0 && e.tok && canSeePlayer(e)) e.aimT = ty.aim;
 }
 
 // 전부 길바닥에 세워두면 스윙 중에는 아무 일도 안 일어난다.
@@ -3104,6 +3193,9 @@ function updateCombat(dt) {
     if (q.life <= 0) { scene.remove(q.m); particles.splice(i, 1); }
   }
 
+  // 누가 공격할 차례인지 먼저 정한다. 적들이 각자 판단하면 전부 동시에 덤빈다.
+  updateDirector(dt);
+
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     // 적 1명 = 드로우콜 2개. 256명을 전부 그리면 그것만으로 512콜이라 멀면 끈다.
@@ -3111,6 +3203,7 @@ function updateCombat(dt) {
     e.g.visible = dist < E_VISIBLE;
 
     if (e.flash > 0) e.flash -= dt;
+    if (e.atkRest > 0) e.atkRest -= dt;
     // 조준 중에는 AI가 emissive를 직접 몰기 때문에 피격 플래시가 없을 때만 덮어쓴다
     // 휘두르는 중에는 AI가 예고 색을 몰고, 체간이 무너진 적은 하얗게 맥동한다.
     if (e.stag > 0) {
@@ -5727,4 +5820,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };

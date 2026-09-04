@@ -1,0 +1,183 @@
+// Combat Director — 공격권 배분.
+//
+// 이 파일이 지키는 것은 하나다: "한 번에 몇 명이 덤비는가".
+// 예전에는 근처에 있는 적이 전부 동시에 덤볐다. 격투병 다섯이면 예고 색이
+// 다섯 개 겹쳐서 무엇을 쳐내고 무엇을 피할지 읽을 수가 없었다.
+//
+// 정한 상한: 근접 2 · 사수 1 · 저격수 1 = 동시에 최대 4명.
+import { T } from "./_harness.mjs";
+const DT = 1 / 120;
+T.syncWorld();
+
+let pass = 0, fail = 0;
+const ok = (c, m, x = "") => { if (c) { pass++; console.log("  OK   " + m); } else { fail++; console.log("  FAIL " + m + "  " + x); } };
+
+// 건물보다 높은 곳에서 붙인다. 가장 높은 건물이 1,685m라 2,500m면 시야를
+// 가리는 게 아무것도 없다 — 엄폐나 길막 때문에 공격을 못 하는 경우를 배제하고
+// "누가 공격해도 되는가"만 보려는 것이다.
+//
+// 대신 높이를 매 스텝 고정해야 한다. 적에게도 중력이 있어서 그냥 두면 초당 8.5m씩
+// 가라앉고, 몇 초 만에 세로 거리가 벌어져 아무도 사거리 안에 없게 된다.
+const SKY = 2500;
+
+// 한 스텝. 플레이어와 시험용 적의 높이를 붙들어 둔다.
+function step(fighters) {
+  T.setInvuln(5);                       // 죽으면 Director가 멈춰 측정이 끊긴다
+  T.player.pos.set(0, SKY, 0);
+  T.player.prevPos.copy(T.player.pos);
+  T.player.renderPos.copy(T.player.pos);
+  T.player.vel.set(0, 0, 0);
+  for (const e of fighters) { e.g.position.y = SKY; e.knock.set(0, 0, 0); }
+  T.update(DT);
+  for (const e of fighters) { e.g.position.y = SKY; e.knock.set(0, 0, 0); }
+}
+
+// 유형별로 몇 명을 플레이어 주변에 세울지. 상한(근접 2/사수 1/저격수 1)보다
+// 넉넉히 둬야 "넘치는 인원이 기다리는가"를 볼 수 있다.
+const SETUP = [
+  { type: 0, n: 5, r: 55 },    // 사수   (사거리 130)
+  { type: 1, n: 4, r: 11 },    // 돌격병 (근접)
+  { type: 2, n: 3, r: 120 },   // 저격수 (사거리 280)
+  { type: 3, n: 6, r: 11 },    // 격투병 (근접)
+];
+
+// 실제 적 목록에서 유형별로 골라 플레이어 주위에 배치한다.
+function setupFight() {
+  T.player.pos.set(0, SKY, 0);
+  T.player.prevPos.copy(T.player.pos);
+  T.player.renderPos.copy(T.player.pos);
+  T.player.vel.set(0, 0, 0);
+  T.player.grounded = false;
+  T.setClinging(null);
+  T.releaseWeb();
+  T.setFP(false);
+
+  const picked = [];
+  for (const s of SETUP) {
+    const pool = T.enemies.filter(e => e.type === s.type && !picked.includes(e)).slice(0, s.n);
+    pool.forEach((e, i) => {
+      const a = (i / s.n) * Math.PI * 2 + s.type * 0.4;
+      e.g.position.set(Math.cos(a) * s.r, SKY, Math.sin(a) * s.r);
+      e.hx = e.px = e.g.position.x;
+      e.hz = e.pz = e.g.position.z;
+      e.dead = false; e.deadT = 0; e.bound = 0; e.grip = 0;
+      e.stag = 0; e.post = 0; e.hp = e.ty.hp;
+      e.swing = null; e.aimT = 0; e.fireCd = 0.2 + Math.random() * 0.3;
+      e.tok = false; e.tokIdle = 0; e.atkRest = 0;
+      e.knock.set(0, 0, 0);
+      picked.push(e);
+    });
+  }
+  // 나머지 적은 멀리 치워 이 시험에 끼어들지 않게 한다
+  for (const e of T.enemies) {
+    if (picked.includes(e)) continue;
+    if (e.g.position.distanceTo(T.player.pos) < 400) e.g.position.y = 0;
+  }
+  T.syncWorld();
+  return picked;
+}
+
+// 지금 공격 동작에 들어가 있는 적 (예고 포함)
+const attacking = (list) => list.filter(e => T.dirBusy(e));
+
+console.log("===== 1. 동시에 덤비는 인원이 상한을 넘지 않는다 =====");
+{
+  const fighters = setupFight();
+  ok(fighters.length === 18, "시험용 적 18명을 세웠다", `${fighters.length}명`);
+
+  let maxAll = 0, maxLane = [0, 0, 0];
+  const everAttacked = new Set();
+  const swingSeen = new Map();     // 시작한 스윙이 끝까지 갔는가
+  let cutShort = 0;
+
+  for (let i = 0; i < 120 * 40; i++) {          // 40초
+    step(fighters);
+
+    const busy = attacking(fighters);
+    maxAll = Math.max(maxAll, busy.length);
+    const lane = [0, 0, 0];
+    for (const e of busy) {
+      lane[T.DIR_LANE_OF[e.type]]++;
+      everAttacked.add(e);
+    }
+    for (let l = 0; l < 3; l++) maxLane[l] = Math.max(maxLane[l], lane[l]);
+
+    // 스윙이 도중에 끊기지 않는지: 시작한 스윙의 t가 뒤로 가거나 사라졌는데
+    // 지속시간을 못 채웠으면 끊긴 것이다.
+    for (const e of fighters) {
+      const prev = swingSeen.get(e);
+      if (e.swing) swingSeen.set(e, e.swing);
+      else if (prev) {
+        if (prev.t < T.BRAWL[prev.kind].dur - 1e-6) cutShort++;
+        swingSeen.delete(e);
+      }
+    }
+  }
+
+  ok(maxAll <= T.DIR_MAX, `동시 공격이 ${T.DIR_MAX}명을 넘지 않는다`, `최대 ${maxAll}명`);
+  ok(maxLane[1] <= 2, "근접(돌격병+격투병)은 동시에 최대 2명", `최대 ${maxLane[1]}명`);
+  ok(maxLane[0] <= 1, "사수는 동시에 1명", `최대 ${maxLane[0]}명`);
+  ok(maxLane[2] <= 1, "저격수는 동시에 1명", `최대 ${maxLane[2]}명`);
+  ok(cutShort === 0, "시작한 공격이 도중에 끊기지 않는다", `끊김 ${cutShort}회`);
+
+  console.log(`\n===== 2. 순번이 돌아간다 (한 명이 독점하지 않는다) =====`);
+  // 상한이 4인데 40초 동안 4명만 계속 때렸다면 나머지는 구경만 한 것이다.
+  ok(everAttacked.size > T.DIR_MAX, "상한보다 많은 적이 돌아가며 공격했다",
+     `${everAttacked.size}명 / 세운 18명`);
+  const meleeAtk = [...everAttacked].filter(e => e.ty.melee).length;
+  ok(meleeAtk >= 4, "근접도 여러 명이 번갈아 들어왔다", `${meleeAtk}명`);
+  console.log(`       40초 동안: 세운 18명 중 ${everAttacked.size}명이 공격 (근접 ${meleeAtk}/10)`);
+  console.log(`       동시 최대: 전체 ${maxAll} · 사수 ${maxLane[0]} · 근접 ${maxLane[1]} · 저격수 ${maxLane[2]}`);
+}
+
+console.log("\n===== 3. 그래도 싸움은 성립한다 (조용해지지 않았다) =====");
+{
+  const fighters = setupFight();
+  let busyFrames = 0, frames = 0;
+  for (let i = 0; i < 120 * 20; i++) {
+    step(fighters);
+    frames++;
+    if (attacking(fighters).length > 0) busyFrames++;
+  }
+  const ratio = busyFrames / frames;
+  ok(ratio > 0.8, "대부분의 시간에 누군가는 공격 중이다 (빈 시간이 안 생긴다)",
+     `${(ratio * 100).toFixed(1)}%의 프레임`);
+}
+
+console.log("\n===== 4. 싸울 수 없는 적은 공격권을 쥐지 않는다 =====");
+{
+  const fighters = setupFight();
+  for (let i = 0; i < 120; i++) step(fighters);
+  // 근접 몇을 묶고 체간을 무너뜨린다
+  const melee = fighters.filter(e => e.ty.melee);
+  melee[0].bound = 5;
+  melee[1].stag = 5;
+  melee[2].grip = 1;
+  melee[3].dead = true;
+  for (let i = 0; i < 120; i++) step(fighters);
+  const bad = [melee[0], melee[1], melee[2], melee[3]].filter(e => e.tok).length;
+  ok(bad === 0, "묶임 / 체간붕괴 / 잡힘 / 사망 상태는 공격권을 못 가진다", `${bad}명이 쥐고 있다`);
+  // 원상복구
+  melee[0].bound = 0; melee[1].stag = 0; melee[2].grip = 0; melee[3].dead = false;
+}
+
+console.log("\n===== 5. 멀리 있는 적은 후보가 아니다 =====");
+{
+  const fighters = setupFight();
+  // 근접을 전부 링 밖으로 보낸다
+  const melee = fighters.filter(e => e.ty.melee);
+  melee.forEach((e, i) => {
+    const a = i / melee.length * Math.PI * 2;
+    const r = T.DIR_MELEE_RING + 25;
+    e.g.position.set(Math.cos(a) * r, SKY, Math.sin(a) * r);
+    e.tok = false; e.swing = null; e.aimT = 0;
+  });
+  // 한 스텝만 돌려 Director가 배분하게 한다 (달려와서 다시 들어오기 전에)
+  for (let i = 0; i < 12; i++) step(fighters);
+  const far = melee.filter(e => e.g.position.distanceTo(T.player.pos) > T.DIR_MELEE_RING);
+  const farTok = far.filter(e => e.tok).length;
+  ok(far.length > 0, "실제로 링 밖에 근접 적이 있다", `${far.length}명`);
+  ok(farTok === 0, "링 밖의 근접 적은 공격권을 못 받는다", `${farTok}명이 받았다`);
+}
+
+console.log(`\n통과 ${pass} / 실패 ${fail}`);
