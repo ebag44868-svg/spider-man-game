@@ -86,13 +86,13 @@ e = stage(5);
 md(0);
 ok(T.charging, "누르고 있으면 차징이 시작된다");
 ok(!T.mAtk, "무는 동안에는 아직 아무것도 안 나간다");
-run(Math.ceil(T.CHARGE_MIN*120)+8);
+runPinned(e, Math.ceil(T.CHARGE_MIN*120)+8);
 ok(T.chargeT >= T.CHARGE_MIN, "차징이 쌓인다", `${T.chargeT.toFixed(2)}초`);
 mu(0);
 ok(T.mAtk && T.mAtk.heavy, "떼는 순간 강공격이 나간다");
 const pauseTicks = Math.ceil(T.mAtk.spec.hit * 120);
 h0 = e.hp;
-run(pauseTicks - 3);
+runPinned(e, pauseTicks - 3);
 ok(e.hp === h0, "뗀 뒤 바로 대미지가 아니라 한 박자 뜸을 들인다", `${T.M_HEAVY.hit}초 뒤 판정`);
 runPinned(e, 8);
 ok(e.hp < h0, "그 다음에 들어간다", `hp ${h0} -> ${e.hp}`);
@@ -100,7 +100,7 @@ ok(e.hp < h0, "그 다음에 들어간다", `hp ${h0} -> ${e.hp}`);
 // 오래 물수록 세다
 function heavyPower(hold) {
   const t = stage(5);
-  md(0); run(Math.ceil(hold*120)); mu(0);
+  md(0); runPinned(t, Math.ceil(hold*120)); mu(0);
   const before = { hp: t.hp, post: t.post };
   runPinned(t, Math.ceil(T.M_HEAVY.dur*120)+8);
   return { dmg: before.hp - t.hp, post: Math.round(t.post - before.post) };
@@ -172,10 +172,12 @@ e = stage(10);
 e.hp = Math.max(1, Math.floor(e.ty.hp / 2));
 T.updateHpBars();
 ok(T.hpBarCount > 0, "다친 적 머리 위에 체력바가 그려진다", `${T.hpBarCount}개`);
-e.hp = e.ty.hp;
+// 이제는 멀쩡해도 상시로 띄운다 (예전엔 다친 적만 띄웠다)
+e.hp = e.ty.hp; e.post = 0; e.stag = 0;
 T.setLock(null);
 T.updateHpBars();
-ok(T.hpBarCount === 0, "멀쩡하고 락온도 안 된 적은 체력바를 안 띄운다");
+ok(T.hpBarCount > 0, "멀쩡한 적도 상시로 체력바를 띄운다", `${T.hpBarCount}개`);
+ok(T.psBarCount === T.hpBarCount, "체간바도 같은 수만큼 함께 뜬다", `체간바 ${T.psBarCount}개`);
 
 console.log("\n===== 8. 낙하 데미지 =====");
 toSwing();

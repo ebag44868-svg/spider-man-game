@@ -2598,7 +2598,7 @@ function updateRigs(dt) {
 // 쿨타임을 따로 두지 않는다. 뻗었다 돌아오는 동안 다시 못 뻗는 것 자체가 쿨타임이다.
 const PUNCH_TIME = 0.19;   // 한 사이클(뻗기 + 복귀). 빠르게 치고 빠지는 맛.
 const PUNCH_HIT  = 0.5;    // 사이클의 이 지점(=완전히 뻗은 순간)에 판정
-const PUNCH_R    = 5.5;    // 주먹이 닿는 거리
+const PUNCH_R    = 6.5;    // 주먹이 닿는 거리 (적이 6m 간격을 두므로 그만큼 필요)
 const PUNCH_CONE = 0.55;   // 정면 원뿔 (dot 기준)
 const PUNCH_DMG  = 1;
 const PUNCH_KB   = 40;
@@ -2662,13 +2662,13 @@ function updatePunch(dt) {
 // 한 방의 사양. hit은 사이클 시작으로부터 판정이 나가는 시각(초).
 // cancel 이후에는 다음 입력을 선입력으로 받아 이어친다.
 const M_LIGHT = [
-  { dur: 0.23, hit: 0.075, dmg: 1, post: 10, kb: 6,  r: 6.2, cancel: 0.14 },
-  { dur: 0.21, hit: 0.065, dmg: 1, post: 10, kb: 6,  r: 6.2, cancel: 0.13 },
-  { dur: 0.38, hit: 0.14,  dmg: 2, post: 22, kb: 15, r: 6.8, cancel: 0.26 },
+  { dur: 0.23, hit: 0.075, dmg: 1, post: 10, kb: 6,  r: 7.2, cancel: 0.14 },
+  { dur: 0.21, hit: 0.065, dmg: 1, post: 10, kb: 6,  r: 7.2, cancel: 0.13 },
+  { dur: 0.38, hit: 0.14,  dmg: 2, post: 22, kb: 15, r: 7.8, cancel: 0.26 },
 ];
 // 강공격은 느리고 크게 무너뜨린다. 체간 44면 세 방에 붕괴한다.
 // 강공격은 뗀 뒤에도 한 박자 뜸을 들였다가 들어간다 (차징했다 때리는 맛).
-const M_HEAVY  = { dur: 0.62, hit: 0.30, dmg: 2, post: 44, kb: 22, r: 7.4, cancel: 0.46 };
+const M_HEAVY  = { dur: 0.62, hit: 0.30, dmg: 2, post: 44, kb: 22, r: 8.6, cancel: 0.46 };
 const M_CHAIN_T = 0.65;   // 이 안에 다음 약공격을 넣어야 체인이 이어진다
 const M_BUF_T   = 0.28;   // 선입력 유지 시간
 const M_STEP    = 26;     // 휘두르며 앞으로 파고드는 속도 (상한)
@@ -4105,21 +4105,41 @@ function updateSwingArc() {
 
 // 적 머리 위 체력바. 적이 200명이 넘으므로 개별 메시로 만들면 드로우콜이 터진다.
 // 인스턴스 두 장(바탕 + 채움)으로 가까운 적만 그린다.
-const HPBAR_MAX = 32;        // 동시에 그릴 최대 개수
-const HPBAR_RANGE = 80;      // 이 거리 안의 적만
-const HPBAR_W = 3.2, HPBAR_H = 0.36;
+const HPBAR_MAX = 48;        // 동시에 그릴 최대 개수 (상시 표시라 늘렸다)
+const HPBAR_RANGE = 110;     // 이 거리 안의 적만
+const HPBAR_W = 3.2, HPBAR_H = 0.34;
+const POSTBAR_H = 0.20;      // 체간바는 체력바보다 얇게 — 한눈에 구분된다
 const _hbGeo = new THREE.PlaneGeometry(1, 1);
-const hpBarBg = new THREE.InstancedMesh(_hbGeo,
-  new THREE.MeshBasicMaterial({ color: 0x0a0d12, transparent: true, opacity: 0.62, depthWrite: false }), HPBAR_MAX);
-const hpBarFill = new THREE.InstancedMesh(_hbGeo,
-  new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95, depthWrite: false }), HPBAR_MAX);
-hpBarBg.frustumCulled = false; hpBarFill.frustumCulled = false;
-hpBarBg.renderOrder = 5; hpBarFill.renderOrder = 6;
-hpBarBg.count = 0; hpBarFill.count = 0;
-scene.add(hpBarBg); scene.add(hpBarFill);
+function mkBar(color, opacity) {
+  const m = new THREE.InstancedMesh(_hbGeo,
+    new THREE.MeshBasicMaterial(color === null
+      ? { transparent: true, opacity, depthWrite: false }
+      : { color, transparent: true, opacity, depthWrite: false }), HPBAR_MAX);
+  m.frustumCulled = false; m.count = 0;
+  scene.add(m);
+  return m;
+}
+// 바탕 -> 체력(붉은) -> 체간 바탕 -> 체간(노란) 순으로 겹쳐 그린다
+const hpBarBg   = mkBar(0x0a0d12, 0.62); hpBarBg.renderOrder = 5;
+const hpBarFill = mkBar(null,     0.95); hpBarFill.renderOrder = 6;
+const psBarBg   = mkBar(0x0a0d12, 0.5);  psBarBg.renderOrder = 5;
+const psBarFill = mkBar(null,     0.95); psBarFill.renderOrder = 6;
 const _hbM = new THREE.Matrix4(), _hbP = new THREE.Vector3(), _hbP2 = new THREE.Vector3();
 const _hbQ = new THREE.Quaternion(), _hbS = new THREE.Vector3(), _hbR = new THREE.Vector3();
 const _hbC = new THREE.Color();
+// 한 줄(바탕 + 채움)을 인스턴스에 써 넣는다. 채움은 왼쪽 정렬이라
+// 줄어든 만큼 카메라 기준 왼쪽으로 밀어야 가운데서 줄지 않는다.
+function putBar(bg, fill, i, cx, cy, cz, w, h, ratio, col) {
+  _hbP.set(cx, cy, cz);
+  _hbM.compose(_hbP, _hbQ, _hbS.set(w, h, 1));
+  bg.setMatrixAt(i, _hbM);
+  const r = Math.max(0, Math.min(1, ratio));
+  _hbP2.copy(_hbP).addScaledVector(_hbR, -w * (1 - r) * 0.5);
+  _hbM.compose(_hbP2, _hbQ, _hbS.set(Math.max(0.001, w * r), h * 0.66, 1));
+  fill.setMatrixAt(i, _hbM);
+  fill.setColorAt(i, col);
+}
+
 function updateHpBars() {
   let n = 0;
   _hbQ.copy(camera.quaternion);
@@ -4129,27 +4149,28 @@ function updateHpBars() {
     if (e.dead) continue;
     if (e.g.position.distanceTo(player.pos) > HPBAR_RANGE) continue;
     const maxHp = e.ty.hp || 1;
-    // 멀쩡하고 관심 밖인 적까지 다 띄우면 화면이 막대로 덮인다
-    if (e.hp >= maxHp && e.stag <= 0 && e !== lockOn) continue;
-    _hbP.set(e.g.position.x, e.g.position.y + 5.6, e.g.position.z);
-    _hbM.compose(_hbP, _hbQ, _hbS.set(HPBAR_W, HPBAR_H, 1));
-    hpBarBg.setMatrixAt(n, _hbM);
-    const r = Math.max(0, Math.min(1, e.hp / maxHp));
-    // 채움은 왼쪽에 붙어 있어야 한다. 가운데 정렬 평면이라 줄어든 만큼 왼쪽으로 민다.
-    _hbP2.copy(_hbP).addScaledVector(_hbR, -HPBAR_W * (1 - r) * 0.5);
-    _hbM.compose(_hbP2, _hbQ, _hbS.set(Math.max(0.001, HPBAR_W * r), HPBAR_H * 0.66, 1));
-    hpBarFill.setMatrixAt(n, _hbM);
-    // 체간이 무너진 적은 하얗게 — 지금 처형할 수 있다는 신호
+    const hr = Math.max(0, Math.min(1, e.hp / maxHp));
+    const pr = e.postMax ? Math.max(0, Math.min(1, (e.post || 0) / e.postMax)) : 0;
+
+    // 체력바 — 상시 붉은색. 체간이 무너지면 하얗게 (지금 처형 가능하다는 신호)
     if (e.stag > 0) _hbC.setRGB(1, 1, 1);
-    else _hbC.setRGB(1, 0.16 + r * 0.5, 0.16);
-    hpBarFill.setColorAt(n, _hbC);
+    else _hbC.setRGB(0.92, 0.14, 0.16);
+    putBar(hpBarBg, hpBarFill, n, e.g.position.x, e.g.position.y + 5.9, e.g.position.z,
+           HPBAR_W, HPBAR_H, hr, _hbC);
+
+    // 체간바 — 체력바 바로 아래, 더 얇게. 노랑에서 붕괴가 가까울수록 하얘진다.
+    if (e.stag > 0) _hbC.setRGB(1, 1, 1);
+    else _hbC.setRGB(1, 0.78 + pr * 0.2, 0.25 + pr * 0.6);
+    putBar(psBarBg, psBarFill, n, e.g.position.x, e.g.position.y + 5.42, e.g.position.z,
+           HPBAR_W * 0.86, POSTBAR_H, e.stag > 0 ? 1 : pr, _hbC);
     n++;
   }
-  hpBarBg.count = n; hpBarFill.count = n;
-  if (n > 0) {
-    hpBarBg.instanceMatrix.needsUpdate = true;
-    hpBarFill.instanceMatrix.needsUpdate = true;
-    if (hpBarFill.instanceColor) hpBarFill.instanceColor.needsUpdate = true;
+  for (const m of [hpBarBg, hpBarFill, psBarBg, psBarFill]) {
+    m.count = n;
+    if (n > 0) {
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    }
   }
 }
 
