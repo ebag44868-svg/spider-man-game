@@ -5799,17 +5799,33 @@ function updateCamera(dt) {
     );
     const cl = 1 - Math.exp(-(6.5 + hug * 5.5) * dt);
     camera.position.lerp(desired, cl);
-    lookTarget.lerp(_c1.set(
-      player.renderPos.x + player.vel.x * 0.16,
-      player.renderPos.y + 1.7 + player.vel.y * 0.05,
-      player.renderPos.z + player.vel.z * 0.16
-    ), 1 - Math.exp(-12 * dt));
-    camera.lookAt(lookTarget);
+    if (camAuto) {
+      // 자동: 진행 방향을 살짝 앞서 본다. 속도감이 여기서 나온다.
+      lookTarget.lerp(_c1.set(
+        player.renderPos.x + player.vel.x * 0.16,
+        player.renderPos.y + 1.7 + player.vel.y * 0.05,
+        player.renderPos.z + player.vel.z * 0.16
+      ), 1 - Math.exp(-12 * dt));
+      camera.lookAt(lookTarget);
+    } else {
+      // 수동: 시점은 오직 viewYaw/viewPitch가 정한다.
+      // 예전엔 여기서도 lookAt(플레이어 + 속도*0.16)을 썼다. viewYaw는 고정인데
+      // 좌우로 걸으면 그 목표점이 옆으로 밀려 카메라가 20도 넘게 돌아갔다.
+      // "수동인데 시점이 조금씩 바뀐다"의 진짜 원인이 이것이었다.
+      // 1인칭과 똑같이 시선 벡터로 직접 맞춘다 — 속도와 완전히 무관해진다.
+      lookTarget.set(player.renderPos.x, player.renderPos.y + 1.7, player.renderPos.z);
+      camera.lookAt(
+        camera.position.x + viewDir.x,
+        camera.position.y + viewDir.y,
+        camera.position.z + viewDir.z
+      );
+    }
   }
 
   // 뱅킹: 로프가 걸린 쪽으로 기울인다. 웹스윙 체감의 절반이 여기서 나온다.
+  // 수동 시점에서는 뱅킹도 끈다. 화면이 기우는 것도 "시점이 움직인다"로 읽힌다.
   let targetRoll = 0;
-  if (web && !clinging) {
+  if (web && !clinging && (camAuto || firstPerson)) {
     rightV.set(-Math.cos(viewYaw), 0, Math.sin(viewYaw));
     const ox = player.pos.x - web.a.x, oz = player.pos.z - web.a.z;
     const ol = Math.hypot(ox, oz);

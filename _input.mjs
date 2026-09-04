@@ -165,3 +165,55 @@ for(let i=0;i<120*2;i++){ T.player.vel.set(0, 50, 30); T.update(DT); T.updateCam
 ok(T.viewPitch > 0.15, "솟구칠 때는 자동 시점이 위를 본다", `pitch=${T.viewPitch.toFixed(2)}`);
 
 console.log(`\n통과 ${pass} / 실패 ${fail}`);
+
+console.log("\n===== 수동 시점: 카메라 '방향'이 진짜 고정인가 =====");
+// viewYaw만 재면 안 된다. viewYaw가 고정이어도 camera.lookAt이 속도에 끌려
+// 실제 화면이 20도 넘게 돌아가고 있었다 — 그래서 이 검사는 카메라 방향을 직접 잰다.
+const _cd = new (T.player.pos.constructor)();
+const camDir = () => { T.camera.updateMatrixWorld(); T.camera.getWorldDirection(_cd); return _cd.clone(); };
+const angDeg = (a, b) => Math.acos(Math.max(-1, Math.min(1, a.dot(b)))) * 57.3;
+
+T.setFP(false);
+T.setAuto(false);                       // 수동
+const gy2 = T.groundHeightAt(0, 0);
+function stand() {
+  T.player.pos.set(0, gy2, 0); T.player.prevPos.copy(T.player.pos); T.player.renderPos.copy(T.player.pos);
+  T.player.vel.set(0,0,0); T.setClinging(null); T.releaseWeb(); T.setLock(null);
+  for (const k of ["KeyW","KeyA","KeyS","KeyD"]) T.keys[k] = false;
+  for (let i=0;i<240;i++){ T.update(DT); T.updateCamera(DT); }
+}
+stand();
+let base = camDir(), worst = 0;
+for (const k of ["KeyA","KeyD","KeyW","KeyS"]) {
+  T.keys[k] = true;
+  for (let i=0;i<120;i++){ T.update(DT); T.updateCamera(DT); worst = Math.max(worst, angDeg(base, camDir())); }
+  T.keys[k] = false;
+  for (let i=0;i<60;i++){ T.update(DT); T.updateCamera(DT); }
+}
+ok(worst < 0.5, "수동에서 WASD로 움직여도 카메라 방향이 안 돈다", `최대 ${worst.toFixed(2)}도`);
+
+// 빠르게 날아도 마찬가지
+stand();
+base = camDir(); worst = 0;
+for (let i=0;i<120*3;i++){ T.player.vel.set(60, 8, 40); T.update(DT); T.updateCamera(DT); worst = Math.max(worst, angDeg(base, camDir())); }
+ok(worst < 0.5, "수동에서 60m/s로 날아도 카메라 방향이 안 돈다", `최대 ${worst.toFixed(2)}도`);
+
+// 우클릭 드래그로는 돌아가야 한다
+stand();
+base = camDir();
+md(2);
+for (let i=0;i<6;i++) move(40, 0);
+mu(2);
+for (let i=0;i<30;i++){ T.update(DT); T.updateCamera(DT); }
+ok(angDeg(base, camDir()) > 10, "그래도 우클릭 드래그로는 돌아간다", `${angDeg(base, camDir()).toFixed(0)}도`);
+
+// 자동 모드는 예전처럼 따라가야 한다
+T.setAuto(true);
+stand();
+base = camDir();
+let auto = 0;
+for (let i=0;i<120*2;i++){ T.player.vel.set(50,0,0); T.update(DT); T.updateCamera(DT); auto = Math.max(auto, angDeg(base, camDir())); }
+ok(auto > 10, "자동 모드는 여전히 진행 방향을 따라간다", `${auto.toFixed(0)}도`);
+T.setAuto(false);
+
+console.log(`\n최종  통과 ${pass} / 실패 ${fail}`);
