@@ -68,6 +68,7 @@ export const T = {
   setFP(v){ firstPerson = v; },
   // 교전 시험용: 플레이어가 죽으면 Director가 멈춰서 측정이 끊긴다.
   setInvuln(v){ invuln = v; }, get invuln(){ return invuln; },
+  setHp(v){ hp = v; regenWait = 0; regenT = 0; }, MAX_HP,
   setPitch(v){ viewPitch = v; },
   get viewYaw(){ return viewYaw; },
   get viewPitch(){ return viewPitch; },

@@ -284,4 +284,32 @@ console.log("\n===== 7. 맞으면 반응이 보인다 =====");
   e.swing = null;
 }
 
+console.log("\n===== 8. 난이도 안전망 =====");
+{
+  // Director는 동시에 덤비는 인원을 줄인다. 줄이는 게 목적이지만 너무 줄면
+  // 그냥 쉬운 게임이 된다. 18명에게 둘러싸여 가만히 서 있을 때 몇 초를
+  // 버티는지 못 박아둔다 — 나중에 상한이나 쿨다운을 만졌을 때 균형이 어디로
+  // 갔는지 이 숫자 하나로 바로 보인다.
+  const fighters = setupFight();
+  T.setHp(T.MAX_HP);
+  T.setInvuln(0);
+  let t = 0;
+  for (let i = 0; i < 120 * 90 && T.deadT <= 0; i++) {
+    T.player.pos.set(0, SKY, 0);          // step()과 달리 무적을 주지 않는다
+    T.player.prevPos.copy(T.player.pos);
+    T.player.renderPos.copy(T.player.pos);
+    T.player.vel.set(0, 0, 0);
+    for (const e of fighters) { e.g.position.y = SKY; e.knock.set(0, 0, 0); }
+    T.update(DT);
+    for (const e of fighters) { e.g.position.y = SKY; e.knock.set(0, 0, 0); }
+    t += DT;
+  }
+  const died = T.deadT > 0;
+  ok(died, "18명에게 둘러싸여 가만히 있으면 죽는다 (Director가 게임을 무르게 만들지 않았다)",
+     `${t.toFixed(1)}초 뒤에도 살아있음`);
+  ok(t > 2, "그래도 즉사는 아니다 (피할 시간이 있다)", `${t.toFixed(1)}초`);
+  console.log(`       가만히 서서 버틴 시간 ${t.toFixed(1)}초 (체력 ${T.MAX_HP}칸)`);
+  T.setHp(T.MAX_HP);
+}
+
 console.log(`\n통과 ${pass} / 실패 ${fail}`);
