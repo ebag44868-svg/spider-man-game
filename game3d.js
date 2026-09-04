@@ -4157,17 +4157,25 @@ function updateHpBars() {
     const hr = Math.max(0, Math.min(1, e.hp / maxHp));
     const pr = e.postMax ? Math.max(0, Math.min(1, (e.post || 0) / e.postMax)) : 0;
 
+    // 적마다 덩치가 다르다(격투병 1.3배). 그만큼 위로 올려야 머리 위에 뜬다 —
+    // 고정값이었을 때는 큰 적일수록 바가 몸 속에 파묻혀 안 보였다.
+    const sc = e.g.scale.x || 1;
+    const barY = e.g.position.y + 8.4 * sc;
+    // 멀어지면 화면에서 작아져 안 읽힌다. 거리에 따라 조금 키운다.
+    const dCam = camera.position.distanceTo(e.g.position);
+    const gz = 1 + Math.min(1.1, dCam / 90);
+
     // 체력바 — 상시 붉은색. 체간이 무너지면 하얗게 (지금 처형 가능하다는 신호)
     if (e.stag > 0) _hbC.setRGB(1, 1, 1);
-    else _hbC.setRGB(0.92, 0.14, 0.16);
-    putBar(hpBarBg, hpBarFill, n, e.g.position.x, e.g.position.y + 5.9, e.g.position.z,
-           HPBAR_W, HPBAR_H, hr, _hbC);
+    else _hbC.setRGB(0.95, 0.13, 0.15);
+    putBar(hpBarBg, hpBarFill, n, e.g.position.x, barY, e.g.position.z,
+           HPBAR_W * gz, HPBAR_H * gz, hr, _hbC);
 
     // 체간바 — 체력바 바로 아래, 더 얇게. 노랑에서 붕괴가 가까울수록 하얘진다.
     if (e.stag > 0) _hbC.setRGB(1, 1, 1);
     else _hbC.setRGB(1, 0.78 + pr * 0.2, 0.25 + pr * 0.6);
-    putBar(psBarBg, psBarFill, n, e.g.position.x, e.g.position.y + 5.42, e.g.position.z,
-           HPBAR_W * 0.86, POSTBAR_H, e.stag > 0 ? 1 : pr, _hbC);
+    putBar(psBarBg, psBarFill, n, e.g.position.x, barY - (HPBAR_H + POSTBAR_H) * 0.75 * gz, e.g.position.z,
+           HPBAR_W * 0.86 * gz, POSTBAR_H * gz, e.stag > 0 ? 1 : pr, _hbC);
     n++;
   }
   for (const m of [hpBarBg, hpBarFill, psBarBg, psBarFill]) {
@@ -6120,9 +6128,6 @@ function updateCrosshair() {
 
   // 부착과 완전히 같은 함수로 미리보기를 뽑는다. 마커가 거짓말하지 않는다.
   // resolveAnchor는 전체 레이캐스트라 한 번에 0.88ms다. 마커는 몇 프레임 늦어도 안 보인다.
-  updateLockMark();
-  updateSwingArc();
-  updateHpBars();
   if (web) aimPreview = null;
   else if (--aimTick <= 0) {
     aimTick = 5;
@@ -6391,6 +6396,11 @@ function frameBody(now) {
   frame.prev = now;
   skyMesh.position.copy(camera.position);
   updateWebVisual();
+  // 월드에 그리는 표식들은 조준점 로직과 무관하게 매 프레임 갱신한다.
+  // 예전엔 updateCrosshair 안에 있어서 공격 모드의 early return에 걸렸다.
+  updateLockMark();
+  updateSwingArc();
+  updateHpBars();
   updateCrosshair();
   updateHud(realDt);
   if (camMsg > 0) camMsg -= 1 / 60;
@@ -6691,4 +6701,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };

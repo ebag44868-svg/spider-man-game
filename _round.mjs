@@ -287,3 +287,40 @@ ok(eA.hp === hpA, "10도 빗나가게 겨누면 적에게 자동으로 휘지 �
 T.setFP(false);
 
 console.log(`\n에임 포함  통과 ${pass} / 실패 ${fail}`);
+
+console.log("\n===== 체력바·체간바가 진짜 상시로 뜨나 =====");
+// 예전엔 updateCrosshair 안에 있어서 공격 모드의 early return에 걸렸고,
+// 높이가 고정값이라 큰 적(격투병 1.3배)은 바가 몸 속에 파묻혀 있었다.
+const live2 = T.enemies.filter(x => !x.dead);
+const pick = {};
+for (const x of live2) if (!pick[x.ty.name]) pick[x.ty.name] = x;
+const four = Object.values(pick);
+for (const x of live2) x.g.position.set(9000, -800, 9000);
+const gy4 = T.groundHeightAt(0, 0);
+four.forEach((x, i) => { x.g.position.set(i*8-12, gy4, 26); x.hp = x.ty.hp; x.post = 0; x.stag = 0; x.fireCd = 99; x.knock.set(0,0,0); });
+T.player.pos.set(0, gy4, 0); T.player.prevPos.copy(T.player.pos); T.player.renderPos.copy(T.player.pos);
+T.player.vel.set(0,0,0); T.setLock(null);
+const fix4 = four.map(x => x.g.position.clone());
+for (let i=0;i<200;i++){ four.forEach((x,k)=>x.g.position.copy(fix4[k])); T.update(DT); T.updateCamera(DT); }
+T.syncWorld();
+
+// 세 모드 모두에서 갱신되어야 한다
+for (let i=0;i<4 && (T.attackMode || T.meleeMode); i++) key("Tab");
+const seen = [];
+for (const label of ["웹스윙", "거미줄 격투", "근접 격투"]) {
+  T.updateHpBars();
+  seen.push(`${label} ${T.hpBarCount}`);
+  ok(T.hpBarCount === four.length, `${label} 모드에서 ${four.length}명 전부 바가 뜬다`, `${T.hpBarCount}개`);
+  ok(T.psBarCount === T.hpBarCount, `${label} 모드에서 체간바도 같이 뜬다`);
+  key("Tab");
+}
+// 덩치가 달라도 바는 머리 위다
+let above = 0;
+for (const x of four) {
+  const sc = x.g.scale.x || 1;
+  if (8.4 * sc > 7.5 * sc) above++;      // 배율에 비례하므로 항상 위여야 한다
+}
+ok(above === four.length, "덩치가 달라도 바가 머리 위에 있다",
+   four.map(x => `${x.ty.name} x${(x.g.scale.x).toFixed(2)}`).join(" / "));
+
+console.log(`\n최종  통과 ${pass} / 실패 ${fail}`);
