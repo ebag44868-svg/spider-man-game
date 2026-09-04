@@ -107,8 +107,14 @@ for (const fp of [true, false]) {
   T.setFP(fp);
   for (let i=0;i<300;i++) T.updateCamera(DT);      // 카메라를 완전히 정착시킨다
   T.syncWorld();
-  const fix = t.g.position.clone();
+  // 적은 이제 몸이 겹칠 만큼 붙지 않고 물러난다. 주먹 사거리(5.5m)만 보려면
+  // 자리를 잡을 때부터 붙잡아 둬야 한다.
+  // real()이 30틱을 돌리는 동안 적이 이미 물러났다. 4m로 되돌려놓고 붙잡는다.
+  const fix = new (T.player.pos.constructor)(0, T.groundHeightAt(0, 0), 4);
+  t.g.position.copy(fix);
   const a = t.hp;
+  for (let i=0;i<10;i++){ t.g.position.copy(fix); t.knock.set(0,0,0); T.update(DT); T.updateCamera(DT); }
+  T.syncWorld();
   key("KeyX");
   for (let i=0;i<50;i++){ t.g.position.copy(fix); t.knock.set(0,0,0); T.update(DT); T.updateCamera(DT); }
   ok(t.hp < a, `${fp?"1인칭":"3인칭"} X키 주먹이 4m 적에게 닿는다`, `hp ${a} -> ${t.hp}`);

@@ -1637,6 +1637,8 @@ const BRAWL = [
   { name: '지연',     dur: 1.55, hitAt: 1.10, parry: false, dmg: 2, r: 8.2, kb: 30 },
 ];
 const BRAWL_HOLD = 0.22;   // 지연 패턴이 판정 직전에 멈춰 있는 시간
+// 이보다 가까우면 물러난다. 서로 몸이 겹치면 누가 뭘 하는지 화면에서 안 읽힌다.
+const E_STANDOFF = 6.0;
 
 // 다음 패턴을 고른다. 붉은 패턴이 연달아 나오면 읽을 수가 없다.
 function pickBrawl(e) {
@@ -1670,8 +1672,8 @@ function brawlerAI(e, dt, dist) {
     if (sw.t < spec.hitAt) {
       const tx = player.pos.x - e.g.position.x, tz = player.pos.z - e.g.position.z;
       e.yaw = lerpAngle(e.yaw, Math.atan2(tx, tz), Math.min(1, 5 * dt));
-      // 사거리 밖이면 조금씩 파고든다
-      if (dist > spec.r * 0.7) stepEnemy(e, tx, tz, ty.spd * 0.55, dt);
+      // 사거리 밖이면 조금씩 파고든다. 단 너무 붙지는 않는다.
+      if (dist > Math.max(E_STANDOFF, spec.r * 0.7)) stepEnemy(e, tx, tz, ty.spd * 0.55, dt);
     }
 
     if (!sw.done && prev < spec.hitAt && sw.t >= spec.hitAt) {
@@ -1727,8 +1729,12 @@ function brawlerAI(e, dt, dist) {
     return;
   }
 
-  // 사거리 안: 회수 중에는 옆으로 돌며 간격을 잰다
+  // 사거리 안: 너무 붙었으면 물러나고, 아니면 옆으로 돌며 간격을 잰다
   e.state = "engage";
+  if (dist < E_STANDOFF) {
+    // 뒤로 못 가면(벽) 옆으로라도 빠진다
+    if (!stepEnemy(e, -tx, -tz, ty.spd * 0.95, dt)) stepEnemy(e, -tz, tx, ty.spd * 0.7, dt);
+  }
   if (e.fireCd > 0) {
     if (ty.strafe > 0) {
       e.wob += dt * 1.1;
@@ -1808,6 +1814,10 @@ function updateEnemyAI(e, dt, dist) {
     return;
   }
 
+  // 근접형(돌격병)도 몸이 겹칠 만큼 붙지는 않는다
+  if (ty.melee && dist < E_STANDOFF) {
+    if (!stepEnemy(e, -tx, -tz, ty.spd * 0.95, dt)) stepEnemy(e, -tz, tx, ty.spd * 0.7, dt);
+  }
   // 사거리 안에서는 서 있지 않는다. 플레이어를 중심으로 옆으로 돌면서 쏜다.
   // 가만히 선 과녁은 위협이 안 되고, 조준 예고선도 의미가 없어진다.
   if (ty.strafe > 0) {
@@ -2662,7 +2672,7 @@ const M_HEAVY  = { dur: 0.62, hit: 0.30, dmg: 2, post: 44, kb: 22, r: 7.4, cance
 const M_CHAIN_T = 0.65;   // 이 안에 다음 약공격을 넣어야 체인이 이어진다
 const M_BUF_T   = 0.28;   // 선입력 유지 시간
 const M_STEP    = 26;     // 휘두르며 앞으로 파고드는 속도 (상한)
-const MELEE_STAND = 3.4;  // 목표 앞 이 거리에 서려고 한다. 더 붙으면 뚫고 지나간다.
+const MELEE_STAND = 5.0;  // 목표 앞 이 거리에 서려고 한다. 3.4였을 때는 서로 몸이 겹쳤다.
 
 let mAtk = null;          // { spec, t, hit, heavy, idx }
 let mChain = 0, mChainT = 0;

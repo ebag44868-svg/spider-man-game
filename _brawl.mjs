@@ -122,3 +122,31 @@ if (e) {
 }
 
 console.log(`\n통과 ${pass} / 실패 ${fail}`);
+
+console.log("\n===== 적이 몸이 겹칠 만큼 붙지 않는다 =====");
+// 플레이어를 붙잡고 체력도 유지한다. 죽으면 적이 순찰로 돌아가 결과가 오염된다.
+function standoff(sel, label) {
+  const gy = T.groundHeightAt(0, 0);
+  const e = T.enemies.find(sel);
+  if (!e) { console.log("  (대상 없음) " + label); return null; }
+  for (const o of T.enemies) if (o !== e) o.g.position.set(9000, -800, 9000);
+  e.dead = false; e.deadT = 0; e.hp = 999; e.bound = 0; e.grip = 0; e.stag = 0;
+  e.fireCd = 0; e.swing = null; e.knock.set(0, 0, 0);
+  e.g.position.set(0, gy, 30);
+  let min = 1e9;
+  for (let i = 0; i < 120 * 12; i++) {
+    T.player.pos.set(0, gy, 0);
+    T.player.prevPos.copy(T.player.pos); T.player.renderPos.copy(T.player.pos);
+    T.player.vel.set(0, 0, 0); T.setHp(T.MAX_HP);
+    T.update(DT);
+    if (i > 120 * 3) min = Math.min(min, T.player.pos.distanceTo(e.g.position));
+  }
+  return min;
+}
+const dBraw = standoff(x => x.ty.brawler, "격투병");
+const dRush = standoff(x => x.ty.name === "돌격병", "돌격병");
+ok(dBraw !== null && dBraw >= T.E_STANDOFF - 0.3, "격투병이 기준 거리 안으로 안 붙는다", `${dBraw.toFixed(1)}m / 기준 ${T.E_STANDOFF}m`);
+ok(dRush !== null && dRush >= T.E_STANDOFF - 0.3, "돌격병도 안 붙는다", `${dRush.toFixed(1)}m`);
+ok(dBraw < T.BRAWL[0].r + 2, "그렇다고 공격이 안 닿을 만큼 멀지도 않다", `간격 ${dBraw.toFixed(1)}m / 가로베기 사거리 ${T.BRAWL[0].r}m`);
+
+console.log(`\n최종  통과 ${pass} / 실패 ${fail}`);
