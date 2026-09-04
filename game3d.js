@@ -1465,14 +1465,16 @@ function makeEnemy(x, y, z, type) {
   const ty = E_TYPES[type === undefined ? rollEnemyType() : type];
   // 적마다 재질을 따로 만든다 — 피격 플래시를 개별로 줘야 하므로 공유하면 안 된다
   const mat = new THREE.MeshStandardMaterial({ color: ty.color, emissive: 0x000000, roughness: 0.5 });
-  g.add(new THREE.Mesh(enemyGeo, mat));
+  const bodyMesh = new THREE.Mesh(enemyGeo, mat);
+  g.add(bodyMesh);
   // 실루엣으로도 구분되게 크기를 달리한다 (색만으로는 원거리에서 안 읽힌다)
   g.scale.setScalar(ty.brawler ? 1.3 : ty.melee ? 1.15 : ty === E_TYPES[2] ? 0.88 : 1);
   g.position.set(x, y, z);
   scene.add(g);
   // 구역은 위치로 정해진다. zones가 아직 없으면(초기 로드 순서) 나중에 채운다.
   enemies.push({
-    g, mat, type: E_TYPES.indexOf(ty), ty, hp: ty.hp, flash: 0, dead: false, deadT: 0,
+    g, mat, body: bodyMesh, rig: null,
+    type: E_TYPES.indexOf(ty), ty, hp: ty.hp, flash: 0, dead: false, deadT: 0,
     bound: 0, cocoon: null,
     // 체간: HP와 별개로 쌓이고, 다 차면 stag(붕괴) 상태가 되어 처형당한다
     post: 0, postMax: ty.post || 45, postHold: 0, stag: 0,
@@ -2217,7 +2219,7 @@ function fireWeb() {
   // 3인칭은 카메라가 뒤에 있는데 총구는 플레이어라, 카메라 정면의 먼 점을 향해 쏘면
   // 총구에서 본 각도가 어긋나 전 거리에서 빗나갔다. 잡기/끌어오기가 안 빗나간 건
   // 그쪽만 적을 직접 겨누고 있었기 때문이다.
-  const lockOn = pickEnemy(0.97, PROJ_RANGE);   // 약 14도 원뿔
+  const lockOn = pickEnemy(0.9985, PROJ_RANGE);  // 약 3도. 조준을 덮어쓰지 않는 미세 보정만
   const target = lockOn ? gripPoint(lockOn, _lv).clone() : aimPointOrFar(PROJ_RANGE);
 
   // 총구는 눈/가슴 높이에서. 방향은 총구 -> 조준지점.
@@ -2403,6 +2405,156 @@ function fireBind() {
   sfxShot();
 }
 
+// ================== 적 팔다리 리그 ==================
+// 근접 격투는 "지금 뭘 휘두르는지"가 보여야 성립한다. 캡슐 하나로는 가로베기와
+// 내리침이 색으로만 구분됐다. 그래서 팔다리를 붙인다.
+//
+// 다만 216명 전부에 달면 한 명당 메시 5개 = 1,000개가 넘는 드로우콜이 된다.
+// 근접 격투는 코앞에서만 벌어지므로, 가까운 몇 명에게만 돌려 쓰는 풀을 둔다.
+// 멀리 있는 적은 지금까지처럼 캡슐 하나로 그린다.
+const RIG_POOL  = 10;      // 동시에 팔다리를 붙일 최대 인원
+const RIG_RANGE = 75;      // 이 거리 안에서만
+
+const _rigTorsoGeo = (() => {
+  const b = new THREE.BoxGeometry(2.3, 3.1, 1.5); b.translate(0, 4.3, 0);
+  const h = new THREE.SphereGeometry(0.95, 10, 8); h.translate(0, 6.5, 0);
+  return mergeGeometries([b, h], false) || b;
+})();
+// 팔다리는 관절에서 매달리도록 원점을 위쪽 끝에 둔다 (회전이 어깨/골반에서 걸리게)
+const _rigArmGeo = (() => { const g = new THREE.BoxGeometry(0.68, 2.9, 0.68); g.translate(0, -1.45, 0); return g; })();
+const _rigLegGeo = (() => { const g = new THREE.BoxGeometry(0.86, 3.0, 0.86); g.translate(0, -1.5, 0); return g; })();
+
+function makeRig() {
+  const root = new THREE.Object3D();
+  const torso = new THREE.Mesh(_rigTorsoGeo, _rigFallbackMat);
+  root.add(torso);
+  const mk = (geo, x, y) => {
+    const piv = new THREE.Object3D();
+    piv.position.set(x, y, 0);
+    const m = new THREE.Mesh(geo, _rigFallbackMat);
+    piv.add(m);
+    root.add(piv);
+    return { piv, m };
+  };
+  const armL = mk(_rigArmGeo, -1.55, 5.4);
+  const armR = mk(_rigArmGeo,  1.55, 5.4);
+  const legL = mk(_rigLegGeo, -0.65, 2.9);
+  const legR = mk(_rigLegGeo,  0.65, 2.9);
+  root.visible = false;
+  return { root, torso, armL, armR, legL, legR, owner: null };
+}
+const _rigFallbackMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.5 });
+const rigPool = [];
+for (let i = 0; i < RIG_POOL; i++) { const r = makeRig(); scene.add(r.root); rigPool.push(r); }
+
+function rigAttach(r, e) {
+  if (r.owner === e) return;
+  rigDetach(r);
+  r.owner = e;
+  e.rig = r;
+  if (e.body) e.body.visible = false;      // 캡슐을 끄고 팔다리로 대체한다
+  e.g.add(r.root);
+  r.root.visible = true;
+  for (const m of [r.torso, r.armL.m, r.armR.m, r.legL.m, r.legR.m]) m.material = e.mat;
+}
+function rigDetach(r) {
+  const e = r.owner;
+  if (!e) return;
+  if (e.body) e.body.visible = true;
+  if (e.rig === r) e.rig = null;
+  e.g.remove(r.root);
+  r.root.visible = false;
+  r.owner = null;
+}
+
+// 가까운 적에게 리그를 나눠준다. 매 프레임 한 번.
+const _rigCand = [];
+function assignRigs() {
+  _rigCand.length = 0;
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const d = e.g.position.distanceTo(player.pos);
+    if (d > RIG_RANGE) continue;
+    _rigCand.push({ e, d });
+  }
+  _rigCand.sort((a, b) => a.d - b.d);
+  const want = _rigCand.slice(0, RIG_POOL).map(c => c.e);
+  // 더 이상 대상이 아닌 리그부터 뗀다
+  for (const r of rigPool) if (r.owner && (r.owner.dead || want.indexOf(r.owner) < 0)) rigDetach(r);
+  for (const e of want) {
+    if (e.rig) continue;
+    const free = rigPool.find(r => !r.owner);
+    if (!free) break;
+    rigAttach(free, e);
+  }
+}
+
+// 팔다리를 상태에 맞춰 움직인다. 이게 격투를 읽히게 하는 전부다.
+const _rigPrev = new THREE.Vector3();
+function poseRig(e, r, dt) {
+  const t = performance.now() * 0.001;
+  const sw = e.swing;
+  // 걷기 흔들림. 실제 속도를 재는 대신 AI 상태를 쓴다 — 넉백에 다리가 튀지 않는다.
+  const spd = e.state === "chase" ? 1 : e.state === "patrol" ? 0.45 : e.state === "engage" ? 0.3 : 0;
+  const step = Math.sin(t * (5 + spd * 6)) * spd;
+
+  let aL = 0, aR = 0;       // 팔 X 회전 (앞뒤)
+  let sL = 0, sR = 0;       // 팔 Z 회전 (좌우로 벌리기)
+  let yR = 0;               // 오른팔 Y 회전 (가로로 휘두르기)
+  let lean = 0, twist = 0;  // 몸통
+
+  if (e.bound > 0) {
+    // 고치에 묶임 — 팔을 몸에 붙이고 굳는다
+    sL = 0.25; sR = -0.25;
+  } else if (e.stag > 0) {
+    // 체간 붕괴 — 팔이 축 늘어지고 상체가 앞으로 꺾인다
+    const w = Math.sin(t * 3) * 0.12;
+    aL = 0.5 + w; aR = 0.5 - w;
+    lean = 0.42;
+  } else if (sw) {
+    // 격투병의 휘두르기. 준비 -> 판정 -> 회수를 한 몸짓으로.
+    const spec = BRAWL[sw.kind];
+    const k = Math.min(1.4, sw.t / spec.hitAt);          // 1에서 판정
+    if (sw.kind === 0) {
+      // 가로베기: 오른팔을 뒤로 감았다가 몸 앞을 가로질러 훑는다
+      yR = k <= 1 ? -1.7 * k : -1.7 + (k - 1) * 8.5;
+      aR = -1.35; sR = -0.5;
+      twist = k <= 1 ? -0.5 * k : -0.5 + (k - 1) * 2.4;
+    } else if (sw.kind === 1) {
+      // 내리침: 오른팔을 머리 위로 들었다가 수직으로 찍는다
+      aR = k <= 1 ? -2.7 * k : -2.7 + (k - 1) * 12;
+      aL = -0.3;
+      lean = k <= 1 ? -0.3 * k : -0.3 + (k - 1) * 2.2;
+    } else {
+      // 지연 페인트: 두 팔을 크게 젖히고 멈췄다가 한꺼번에 내리찍는다
+      const hold = k > 0.72 && k <= 1;
+      const raise = hold ? 0.72 : Math.min(0.72, k);
+      aR = -3.0 * (raise / 0.72); aL = -3.0 * (raise / 0.72);
+      if (k > 1) { aR += (k - 1) * 13; aL += (k - 1) * 13; }
+      lean = k <= 1 ? -0.45 * (raise / 0.72) : -0.45 + (k - 1) * 3;
+    }
+  } else if (e.aimT > 0) {
+    // 사수·저격수의 조준: 오른팔을 플레이어 쪽으로 곧게 뻗는다
+    aR = -1.55; sR = -0.12;
+    aL = -0.5;
+  } else {
+    // 평상시: 걸음에 맞춰 팔다리가 엇갈린다
+    aL = step * 0.75;  aR = -step * 0.75;
+    sL = 0.14; sR = -0.14;
+  }
+
+  r.armL.piv.rotation.set(aL, 0, sL);
+  r.armR.piv.rotation.set(aR, yR, sR);
+  r.legL.piv.rotation.set(-step * 0.7, 0, 0);
+  r.legR.piv.rotation.set(step * 0.7, 0, 0);
+  r.torso.rotation.set(lean, twist, 0);
+}
+
+function updateRigs(dt) {
+  assignRigs();
+  for (const r of rigPool) if (r.owner && !r.owner.dead) poseRig(r.owner, r, dt);
+}
+
 // ============ 근접 주먹 ============
 // 쿨타임을 따로 두지 않는다. 뻗었다 돌아오는 동안 다시 못 뻗는 것 자체가 쿨타임이다.
 const PUNCH_TIME = 0.19;   // 한 사이클(뻗기 + 복귀). 빠르게 치고 빠지는 맛.
@@ -2456,7 +2608,7 @@ function updatePunch(dt) {
       hitKill = killed;
       combo++; comboT = 1.8;
       sfxHit(killed);
-      if (killed && !best.dead) { best.dead = true; best.deadT = 0.5; ultFake = Math.min(1, ultFake + 0.04); }
+      if (killed && !best.dead) { best.dead = true; best.deadT = 0.5; ultFake = Math.min(1, ultFake + 0.04); if (best.rig) rigDetach(best.rig); }
       // 친 반동으로 살짝 밀린다
       player.vel.addScaledVector(_pv, -5);
     }
@@ -4406,6 +4558,7 @@ let diving = false;
 let diveFx = 0;      // 급강하 연출 강도 0..1 (서서히 차오르고 서서히 빠진다)
 let camRoll = 0;
 let aimPreview = null;
+let aimAuto = false;        // 지금 미리보기가 자동 앵커인가 (조준이 빗나갔다는 뜻)
 let aimTick = 0;
 const lookTarget = new THREE.Vector3();
 
@@ -5787,13 +5940,22 @@ function updateCrosshair() {
   updateSwingArc();
   updateHpBars();
   if (web) aimPreview = null;
-  else if (--aimTick <= 0) { aimTick = 5; aimPreview = resolveAnchor(); }
+  else if (--aimTick <= 0) {
+    aimTick = 5;
+    // tryAttach와 정확히 같은 순서로 뽑는다. 보이는 것 = 실제로 걸리는 곳.
+    aimPreview = resolveAnchor();
+    aimAuto = false;
+    if (!aimPreview) { aimPreview = findSwingAnchor(); aimAuto = !!aimPreview; }
+  }
   if (aimPreview && !web) {
-    // 사거리 안 + 걸 수 있음 -> 초록
     aimMark.visible = true;
     aimMark.position.copy(aimPreview);
-    aimMark.scale.setScalar(1 + Math.sin(performance.now() * 0.006) * 0.12);
-    crosshairEl.style.borderColor = "rgba(120,255,140,0.95)";
+    aimMark.scale.setScalar((aimAuto ? 1.25 : 1) * (1 + Math.sin(performance.now() * 0.006) * 0.12));
+    // 초록 = 조준한 그 지점 / 노랑 = 조준이 빗나가 자동으로 골라준 앵커
+    aimMark.material.color.setHex(aimAuto ? 0xffd24a : 0x7dffa0);
+    crosshairEl.style.borderColor = aimAuto
+      ? "rgba(255,210,74,0.95)"
+      : "rgba(120,255,140,0.95)";
   } else {
     // 사거리 밖이거나 하늘 -> 흰색 (스윙 중에는 노란색 유지)
     aimMark.visible = false;
@@ -6033,6 +6195,7 @@ function frameBody(now) {
   // 차량은 프레임당 한 번만 갱신한다. 물리 스텝마다 돌리면 2,825대 x 2메시의
   // 인스턴스 버퍼를 초당 수십 번 통째로 GPU에 올려 프레임이 끊긴다.
   updateCars(realDt);
+  updateRigs(realDt);
   updateCamera(Math.min(0.05, (frame.prev ? now - frame.prev : 16) / 1000));
   frame.prev = now;
   skyMesh.position.copy(camera.position);

@@ -218,3 +218,47 @@ ok(T.M_LIGHT[0].dur <= 0.24, "약공격 1타 사이클이 0.24초 이하", `${T.
 ok(T.M_LIGHT[0].hit <= 0.08, "판정까지 0.08초 이하", `${T.M_LIGHT[0].hit}초`);
 
 console.log(`\n통과 ${pass} / 실패 ${fail}`);
+
+console.log("\n===== 에임: 미리보기 = 실제로 걸리는 곳 =====");
+toSwing(); T.setFP(false);
+T.player.pos.set(120, 200, -80); T.player.prevPos.copy(T.player.pos); T.player.renderPos.copy(T.player.pos);
+T.player.vel.set(30, 0, 10); T.setClinging(null); T.releaseWeb(); T.setLock(null);
+run(30); for (let i=0;i<200;i++) T.updateCamera(DT);
+T.syncWorld();
+let agree = 0, tries = 0, autoShown = 0;
+for (const [cxp, cyp] of [[800,450],[800,250],[400,300],[1200,600],[800,80],[200,800]]) {
+  T.setCursor(cxp, cyp);
+  T.updateCrosshair();                       // 미리보기 갱신 (aimPreview / aimAuto)
+  const shown = T.aimPreviewPos ? T.aimPreviewPos.clone() : null;
+  const wasAuto = T.aimAuto;
+  T.releaseWeb();
+  T.tryAttach();
+  const actual = T.web ? T.web.a.clone() : null;
+  tries++;
+  if (!shown && !actual) agree++;
+  else if (shown && actual && shown.distanceTo(actual) < 1.5) agree++;
+  if (wasAuto) autoShown++;
+  T.releaseWeb();
+}
+ok(agree === tries, "미리보기에 뜬 지점에 정확히 걸린다", `${agree}/${tries} 일치, 자동앵커 표시 ${autoShown}회`);
+
+console.log("\n===== 에임: 1인칭 자동 스냅이 조준을 덮지 않는다 =====");
+T.setFP(true);
+const eA = stage(0);   // 적을 한 명만 남긴다
+eA.g.position.set(0, T.groundHeightAt(0,0), 60);
+eA.hp = 99; eA.bound = 0; eA.grip = 0;
+T.player.pos.set(0, T.groundHeightAt(0,0), 0);
+T.player.prevPos.copy(T.player.pos); T.player.renderPos.copy(T.player.pos);
+T.setLock(null);
+// 적에서 10도쯤 옆으로 조준 — 예전 14도 원뿔이면 그래도 적에게 휘어갔다
+T.aimYaw(10 * Math.PI / 180); T.setPitch(0);
+for (let i=0;i<200;i++) T.updateCamera(DT);
+T.syncWorld();
+for (let k=0;k<4 && (T.attackMode===false); k++) key("Tab");
+const hpA = eA.hp;
+md(0); mu(0);
+for (let i=0;i<120*2;i++) { eA.knock.set(0,0,0); T.update(DT); }
+ok(eA.hp === hpA, "10도 빗나가게 겨누면 적에게 자동으로 휘지 않는다", `hp ${hpA} -> ${eA.hp}`);
+T.setFP(false);
+
+console.log(`\n에임 포함  통과 ${pass} / 실패 ${fail}`);
