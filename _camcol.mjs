@@ -204,4 +204,46 @@ console.log("\n===== 6. 벽에 바짝 붙어도 뚫지 않는다 (최소 거리�
   T.setAuto(true);
 }
 
+console.log("\n===== 7. 실제 웹스윙 60초: 도심을 스치며 날아도 안 파묻힌다 =====");
+{
+  // 앞의 시험들은 위치를 직접 밀어 만든 인공 상황이다. 여기서는 진짜 물리를 돌린다 —
+  // 건물 사이를 스치며 도는 이 상황이 실제로 카메라가 벽에 처박히던 장면이다.
+  T.setFP(false);
+  T.setAuto(true);
+  place(0, 260, 0);
+  T.player.vel.set(40, 0, 20);
+  T.setView(0.4, -0.1);
+  let held = 0, inside = 0, blocked = 0, frames = 0, skipped = 0, worst = 0, swings = 0;
+  const _h = T.player.pos.clone();
+  for (let i = 0; i < 120 * 60; i++) {
+    T.updateCamera(DT);
+    if (T.web) { held += DT; if (T.player.vel.y > 2 && held > 0.4) { T.releaseWeb(); held = 0; } }
+    else if (T.player.vel.y < -2) { T.syncWorld(); if (T.tryAttachAuto()) swings++; }
+    T.keys["KeyE"] = true;        // 줄을 감아 속도를 유지한다 (_regress의 스윙 시험과 같은 방식)
+    T.update(DT);
+    if (T.player.pos.y < -50) break;
+
+    // 렌더 프레임 기준으로만 본다 (updateCamera는 프레임당 한 번이지만
+    // 여기서는 물리 스텝마다 부르므로 4스텝에 한 번만 채점한다)
+    if (i % 4) continue;
+    const pivot = _h.set(T.player.renderPos.x, T.player.renderPos.y + T.CAM_PIVOT_Y, T.player.renderPos.z);
+    if (insideBuilding(pivot, 0.5)) { skipped++; continue; }
+    frames++;
+    if (T.camBlocked) blocked++;
+    const b = insideBuilding(T.camera.position, -0.2);
+    if (b) {
+      inside++;
+      const p = T.camera.position;
+      worst = Math.max(worst, Math.min(
+        b.x + b.w / 2 - p.x, p.x - (b.x - b.w / 2),
+        b.z + b.d / 2 - p.z, p.z - (b.z - b.d / 2)));
+    }
+  }
+  T.keys["KeyE"] = false;
+  ok(swings >= 3, "실제로 여러 번 스윙했다 (시험이 헛돌지 않았다)", `${swings}회`);
+  ok(blocked > 0, "그 사이 카메라가 실제로 막힌 적이 있다", `${blocked}/${frames} 프레임`);
+  ok(inside === 0, `웹스윙 ${frames}프레임 동안 카메라가 건물 안에 없다`,
+     `들어감 ${inside}회, 최대 침투 ${worst.toFixed(2)}m (머리가 벽 속이라 건너뜀 ${skipped})`);
+}
+
 console.log(`\n통과 ${pass} / 실패 ${fail}`);
