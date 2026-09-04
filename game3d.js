@@ -5560,18 +5560,29 @@ function update(dt) {
     let state = "Idle";
     // 근접 격투 동작이 가장 우선한다. 해당 클립이 아직 없으면 crossfadeTo가
     // 조용히 무시하고, 지금처럼 몸통을 절차적으로 돌리는 그림이 그대로 남는다.
-    if (execT > 0) state = "Takedown";
-    else if (rollT > 0) state = "Roll";
-    else if (parryT > 0 || parryRec > 0) state = "Parry";
-    else if (mAtk) state = mAtk.heavy ? "Heavy" : "Punch";
+    // 근접 동작은 길이가 제각각이라(약공격 0.23초 vs 클립 1초) 그냥 틀면
+    // 앞부분만 나오고 정작 타격 순간이 화면에 안 보인다. 재생 속도를 동작 길이에
+    // 맞춰 늘리고 줄인다. 4배를 넘기면 잔상만 남으므로 거기서 자른다.
+    let clipFit = 0;
+    if (execT > 0) { state = "Takedown"; clipFit = EXEC_TIME; }
+    else if (rollT > 0) { state = "Roll"; clipFit = ROLL_TIME; }
+    else if (parryT > 0 || parryRec > 0) { state = "Parry"; clipFit = PARRY_WIN + PARRY_REC; }
+    else if (mAtk) { state = mAtk.heavy ? "Heavy" : "Punch"; clipFit = mAtk.spec.dur; }
     else if (landFx > 0) state = "Land";
+    if (clipFit > 0) {
+      const act = heroActions[state];
+      if (act) {
+        const cd = act.getClip().duration;
+        act.timeScale = cd > 0.01 ? Math.min(4, Math.max(0.5, cd / clipFit)) : 1;
+      }
+    }
     // 벽: 실제로 오를 때만 등반 모션, 붙어만 있으면 매달린 자세
     else if (clinging) state = climbHeld() ? "WallRun" : "WallHang";
     else if (web || zip) state = "Swing";
     else if (!player.grounded) state = player.vel.y > 0.5 ? "Jump" : "Fall";
     else if (hsp > MOVE_SPEED * 1.6) state = "Sprint";
     else if (hsp > 1.5) state = "Run";
-    crossfadeTo(state);
+    crossfadeTo(state, clipFit > 0 ? 0.06 : 0.25);
   }
 }
 
@@ -6529,4 +6540,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get lockOn(){ return lockOn; }, toggleLock, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, updateEnemyAI, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
