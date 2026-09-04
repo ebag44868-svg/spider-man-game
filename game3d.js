@@ -3188,9 +3188,11 @@ function updateLungePull(dt) {
   if (hoverT > 0) hoverT -= dt;
   if (glideCd > 0) glideCd -= dt;
   // 시점에서 손을 뗀 뒤 잠시 지나면 자동 카메라가 다시 붙는다
-  if (!firstPerson) {
+  // 자동 복귀 타이머는 터치 전용이다. 터치엔 C키가 없어 손을 뗐을 때
+  // 자동으로 돌아갈 길이 필요하다. 키보드/마우스에서는 오직 C가 모드를 바꾼다.
+  if (!firstPerson && touchMode) {
     lookIdle += dt;
-    if (lookIdle > CAM_RETURN && !camAuto && !camHold) { camAuto = true; camMsg = 1.2; }
+    if (lookIdle > CAM_RETURN && !camAuto) { camAuto = true; camMsg = 1.2; }
   }
   if (noGrabT > 0) noGrabT -= dt;
   if (jumpLockT > 0) jumpLockT -= dt;
@@ -4459,9 +4461,8 @@ document.addEventListener("mousemove", e => {
     viewYaw -= dx * 0.005;
     viewPitch -= dy * 0.004;
     viewPitch = Math.min(Math.max(viewPitch, -1.0), 1.2);
-    // 드래그하는 동안만 자동 카메라가 물러난다. 손을 떼면 잠시 뒤 되돌아온다.
-    // C로 켠 수동 모드(camHold)와는 별개다 — 그쪽은 되돌아오지 않는다.
-    camAuto = false;
+    // 자동/수동 모드는 건드리지 않는다. 그건 C키만의 몫이다.
+    // 자동 모드에서는 드래그를 놓는 순간 카메라가 알아서 다시 따라붙는다.
     lookIdle = 0;
   }
 });
@@ -5234,7 +5235,7 @@ function updateCamera(dt) {
       const wantP = Math.max(-0.8, Math.min(0.5, Math.atan2(dy, h)));
       viewPitch += (wantP - viewPitch) * Math.min(1, 9 * dt);
     }
-  } else if (camAuto && !firstPerson && (hsp > 3 || clinging)) {
+  } else if (camAuto && !dragging && !firstPerson && (hsp > 3 || clinging)) {
     // 좌우: 느릴수록 천천히. 저속에서 급하게 붙이면 방향이 조금만 흔들려도 같이 흔들린다.
     const k = clinging ? 4 : Math.min(3.5, 0.9 + hsp * 0.07);
     viewYaw = lerpAngle(viewYaw, bodyYaw, Math.min(1, k * dt));

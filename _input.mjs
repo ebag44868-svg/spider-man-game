@@ -87,20 +87,33 @@ place(0, 150, 0, 0, 0);
 key("KeyG");
 ok(T.tumbleT > 0, "G키로 덤블링이 나간다");
 
-console.log("\n===== 시점 모드: C는 수동 유지, 드래그는 자동 복귀 =====");
+console.log("\n===== 시점 모드: 자동/수동은 오직 C가 정한다 =====");
 T.setFP(false); T.setAuto(true);
 place(0, 150, 0, 40, 0);
-// 드래그로 잠깐 물러난 자동 카메라는 손을 떼면 되돌아온다
+// 드래그는 시점만 돌린다. 모드까지 건드리면 C로 걸어둔 수동이 제멋대로 풀린다.
 md(2); move(200, 0); mu(2);
-ok(!T.camAuto, "드래그하는 동안은 자동 카메라가 물러난다");
+ok(T.camAuto, "우클릭 드래그는 자동/수동 상태를 바꾸지 않는다");
 for(let i=0;i<120*4;i++) T.update(DT);
-ok(T.camAuto, "손을 떼고 잠시 지나면 자동 카메라가 되돌아온다");
+ok(T.camAuto, "드래그 뒤에도 자동은 자동 그대로다");
 
-// C로 켠 수동은 시간이 지나도 안 풀린다
+// 자동 모드라도 붙잡고 있는 동안은 자동 정렬이 손과 싸우지 않는다
+T.setAuto(true); place(0, 150, 0, 40, 0); T.aimYaw(0);
+md(2);
+const yDrag = T.viewYaw;
+for(let i=0;i<120;i++){ T.player.vel.set(50,0,0); T.update(DT); T.updateCamera(DT); }
+ok(Math.abs(T.viewYaw - yDrag) < 0.02, "드래그를 붙잡고 있는 동안은 카메라가 진행 방향으로 안 끌려간다",
+   `${(yDrag*57.3).toFixed(0)}도 -> ${(T.viewYaw*57.3).toFixed(0)}도`);
+mu(2);
+
+// C 수동은 무슨 일이 있어도 안 움직인다
 key("KeyC");
 ok(!T.camAuto && T.camHold, "C키로 수동 시점이 켜진다");
-for(let i=0;i<120*8;i++) T.update(DT);
+place(0, 150, 0, 0, 0); T.aimYaw(0);
+const yMan = T.viewYaw;
+for(let i=0;i<120*8;i++){ T.player.vel.set(50, 0, 30); T.update(DT); T.updateCamera(DT); }
 ok(!T.camAuto, "C 수동은 8초가 지나도 자동으로 안 돌아간다");
+ok(Math.abs(T.viewYaw - yMan) < 1e-6, "C 수동에서는 빠르게 날아도 시점이 1도도 안 움직인다",
+   `${(yMan*57.3).toFixed(1)}도 -> ${(T.viewYaw*57.3).toFixed(1)}도`);
 key("KeyC");
 ok(T.camAuto && !T.camHold, "C키를 다시 누르면 자동으로 돌아간다");
 
