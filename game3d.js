@@ -4808,6 +4808,125 @@ function updateWebVisual() {
   fillRibbon(webStrand, s, _w4, sag, rad);
 }
 
+// 1인칭 손 포즈. updateCamera 안에 110줄 넘게 섞여 있던 것을 그대로 떼어냈다.
+// 코드는 한 줄도 바꾸지 않았다 — updateCamera에서 부르는 위치도 원래 그 자리다.
+//
+// src/fp-hands.js 로 옮기지 않은 이유: 이 블록은 armPulse / fireKick / swayX /
+// swayY / armExt 같은 최상위 let 을 직접 대입한다. 모듈로 빼면 export가
+// 읽기 전용이라 그 대입이 전부 배선 작업이 되고, 그건 "옮기기"가 아니라
+// 상태 재설계다. 상태를 먼저 묶은 뒤에 옮기는 게 맞다.
+//
+// sp = player.vel.length(). updateCamera가 이미 구해둔 값을 그대로 받는다.
+function updateHands(dt, sp) {
+  armPulse = Math.max(0, armPulse - dt);
+  const kf = Math.min(1, 14 * dt);          // 손가락 보간 계수 (프레임레이트 독립)
+  const now = performance.now();
+
+  // 발사 반동: armPulse가 0.28에서 시작해 줄어드는 것을 0..1 킥으로 바꾼다
+  fireKick += ((armPulse > 0 ? Math.min(1, armPulse / 0.18) : 0) - fireKick) * Math.min(1, 20 * dt);
+  // 시점을 홱 돌리면 손이 관성으로 살짝 끌린다 (웨폰 스웨이)
+  const dYaw = shortAngle(viewYaw - swayPrevYaw);
+  swayPrevYaw = viewYaw;
+  swayX += (THREE.MathUtils.clamp(-dYaw * 1.6, -0.11, 0.11) - swayX) * Math.min(1, 9 * dt);
+  swayY += (THREE.MathUtils.clamp((viewPitch - swayPrevPitch) * 1.4, -0.09, 0.09) - swayY) * Math.min(1, 9 * dt);
+  swayPrevPitch = viewPitch;
+
+  if (firstPerson && (zip || lunge || pull)) {
+    // 집라인/잡기/끌어오기 모두 "양손을 앞으로 뻗은" 같은 계열의 포즈를 쓴다.
+    // ch = 1이면 힘을 모으거나 움켜쥔 상태, 0이면 완전히 뻗은 상태.
+    let ch = 0;
+    if (zip) ch = zip.charge > 0 ? zip.charge / ZIP_CHARGE : 0;
+    else if (lunge) ch = lunge.phase === "hold" ? lunge.t / LUNGE_HOLD : 0;
+    else if (pull) ch = Math.max(0, 1 - pull.t / 0.3);   // 끌어올 때는 손을 되당긴다
+    // 이름을 pull로 두면 위의 끌어오기 상태 변수와 같은 블록에서 충돌한다(TDZ)
+    const back = ch * 0.16;                 // 힘 모으는 동안 끌어당기는 양
+    const reach = (1 - ch) * 0.16;          // 발사 후 앞으로
+    armR.visible = true;
+    armL.visible = true;
+    // 두 가지를 동시에 지켜야 한다.
+    //  (1) 당김은 z(뒤)가 아니라 y(아래)로. z로 당기면 전완이 근평면(0.1)에 잘린다.
+    //  (2) 팔을 시선축과 나란히 두면 전완 캡슐의 둥근 끝이 손을 통째로 가린다.
+    //      화면 아래 양옆에서 안쪽 위로 모아 올려야 장갑과 웹슈터가 보인다.
+    armR.position.set(0.44 + swayX, -0.40 + swayY - back * 0.4, -0.68 - reach + back * 0.3);
+    armR.rotation.set(0.34 - ch * 0.16, 0.30, -0.46);
+    armL.position.set(-0.44 + swayX, -0.40 + swayY - back * 0.4, -0.68 - reach + back * 0.3);
+    armL.rotation.set(0.34 - ch * 0.16, -0.30, 0.46);
+    armR.scale.setScalar(0.72);
+    armL.scale.set(-0.72, 0.72, 0.72);   // 왼손은 거울상 유지 (setScalar면 mirror가 지워진다)
+    // 줄을 쏘는 손이므로 웹슈팅 자세(검지·소지 편 채)를 유지한다
+    // 잡는 순간(hold)에는 주먹을 쥐듯 움켜쥔 손, 그 외에는 웹슈팅 자세
+    const grip = lunge && lunge.phase === "hold" ? 1 : 0;
+    poseHand(armR, 1 - grip, grip, 0.5, 1 - ch, kf);
+    poseHand(armL, 1 - grip, grip, 0.5, 1 - ch, kf);
+  } else if (firstPerson && clinging) {
+    // 벽 짚기: 양손 모두 벽면을 움켜쥔다. F4로 오를 때는 좌우 손이 번갈아 뻗는다.
+    const climbing = !!climbHeld();
+    const step = now * (climbing ? 0.009 : 0.0022);
+    const reachR = climbing ? Math.sin(step) : Math.sin(step) * 0.25;
+    const reachL = climbing ? Math.sin(step + Math.PI) : Math.sin(step + Math.PI) * 0.25;
+    armR.visible = true;
+    armL.visible = true;
+    armR.position.set(0.34 + swayX, -0.16 + reachR * 0.07 + swayY, -0.70 - Math.max(0, reachR) * 0.05);
+    armR.rotation.set(-0.24 + reachR * 0.12, 0.1, -0.5);
+    armL.position.set(-0.34 + swayX, -0.16 + reachL * 0.07 + swayY, -0.70 - Math.max(0, reachL) * 0.05);
+    armL.rotation.set(-0.24 + reachL * 0.12, -0.1, 0.5);
+    armR.scale.setScalar(0.72);
+    armL.scale.set(-0.72, 0.72, 0.72);
+    poseHand(armR, 0, 1, 1, 0, kf);
+    poseHand(armL, 0, 1, 1, 0, kf);
+  } else {
+    // 왼손: 주먹을 뻗는 동안만 보인다. 뻗기 40% / 복귀 60%로 나가는 건 빠르고 오는 건 느리다.
+    // 주먹(punchT)과 근접 격투 공격(swingFx)이 같은 팔 연출을 쓴다.
+    const swingProg = punchT > 0 ? 1 - punchT / PUNCH_TIME
+                    : swingFx > 0 ? 1 - swingFx / swingFxDur : -1;
+    if (swingProg >= 0 && firstPerson) {
+      const k = swingProg;                               // 0 -> 1
+      const ext = k < 0.4 ? k / 0.4 : 1 - (k - 0.4) / 0.6;
+      const e2 = ext * ext * (3 - 2 * ext);              // 부드럽게
+      armL.visible = true;
+      armL.position.set(-0.34 + e2 * 0.30 + swayX, -0.34 + e2 * 0.14 + swayY, -0.62 - e2 * 0.62);
+      armL.rotation.set(0.30 - e2 * 0.30, -0.22 + e2 * 0.22, 0.40 - e2 * 0.40);
+      armL.scale.set(-0.72, 0.72, 0.72);
+      poseHand(armL, 0, 1, 0, 1, kf);                    // 주먹 쥔 손
+    } else {
+      armL.visible = false;
+    }
+    const armTarget = firstPerson && (web !== null || armPulse > 0) ? 1 : 0;
+    armExt += (armTarget - armExt) * Math.min(1, 10 * dt);
+
+    // 줄에 매달린 동안 팔이 앵커 쪽으로 당겨지고, 장력에 따라 미세하게 떨린다
+    let tugY = 0, tugZ = 0;
+    if (web) {
+      const tension = THREE.MathUtils.clamp((player.pos.distanceTo(web.a) - web.len) / 6 + 0.5, 0, 1);
+      // 속도가 붙을수록 장력 떨림이 커진다 — 줄이 버티고 있다는 신호
+      const tShake = tension * (0.6 + Math.min(1, sp / MAX_SPEED) * 1.6);
+      tugY = Math.sin(now * 0.034) * 0.016 * tShake;
+      tugZ = -tension * 0.03 - Math.sin(now * 0.047) * 0.006 * tShake;
+    }
+    // 고속에서는 바람에 팔이 뒤로 밀리고 손가락이 살짝 벌어진다
+    const spd = Math.min(sp / MAX_SPEED, 1);
+    const idle = Math.sin(now * 0.0026) * 0.008 + Math.sin(now * 0.0041) * 0.004;
+
+    // 재장전: 손을 화면 아래로 내렸다가 비틀어 올린다 (카트리지 교체의 자리표시)
+    // 0 -> 1 -> 0 종 모양이라 내려갔다 올라오는 왕복이 한 번에 나온다
+    const rl = reloadT > 0 ? Math.sin(Math.PI * (1 - reloadT / RELOAD_TIME)) : 0;
+
+    armR.position.set(
+      0.5 - 0.14 * armExt + swayX + rl * 0.1,
+      -0.40 + 0.16 * armExt + idle + tugY + swayY - fireKick * 0.035 - rl * 0.42,
+      -0.52 - 0.1 * armExt + tugZ + spd * 0.035 + fireKick * 0.07 + rl * 0.12
+    );
+    armR.rotation.set(
+      0.55 - 0.4 * armExt - fireKick * 0.22 + idle * 0.5 + rl * 0.85,
+      swayX * 0.7 + rl * 0.7,
+      -0.06 * armExt + fireKick * 0.1 - rl * 0.5
+    );
+    armR.scale.setScalar(0.72);
+    armR.visible = firstPerson;
+    poseHand(armR, 1, 0, 0.35 + spd * 0.65, fireKick, kf);
+  }
+}
+
 function updateCamera(dt) {
   const hsp = Math.hypot(player.vel.x, player.vel.z);
 
@@ -4975,113 +5094,7 @@ function updateCamera(dt) {
   camera.fov += (targetFov - camera.fov) * Math.min(1, 5 * dt);
   camera.updateProjectionMatrix();
 
-  armPulse = Math.max(0, armPulse - dt);
-  const kf = Math.min(1, 14 * dt);          // 손가락 보간 계수 (프레임레이트 독립)
-  const now = performance.now();
-
-  // 발사 반동: armPulse가 0.28에서 시작해 줄어드는 것을 0..1 킥으로 바꾼다
-  fireKick += ((armPulse > 0 ? Math.min(1, armPulse / 0.18) : 0) - fireKick) * Math.min(1, 20 * dt);
-  // 시점을 홱 돌리면 손이 관성으로 살짝 끌린다 (웨폰 스웨이)
-  const dYaw = shortAngle(viewYaw - swayPrevYaw);
-  swayPrevYaw = viewYaw;
-  swayX += (THREE.MathUtils.clamp(-dYaw * 1.6, -0.11, 0.11) - swayX) * Math.min(1, 9 * dt);
-  swayY += (THREE.MathUtils.clamp((viewPitch - swayPrevPitch) * 1.4, -0.09, 0.09) - swayY) * Math.min(1, 9 * dt);
-  swayPrevPitch = viewPitch;
-
-  if (firstPerson && (zip || lunge || pull)) {
-    // 집라인/잡기/끌어오기 모두 "양손을 앞으로 뻗은" 같은 계열의 포즈를 쓴다.
-    // ch = 1이면 힘을 모으거나 움켜쥔 상태, 0이면 완전히 뻗은 상태.
-    let ch = 0;
-    if (zip) ch = zip.charge > 0 ? zip.charge / ZIP_CHARGE : 0;
-    else if (lunge) ch = lunge.phase === "hold" ? lunge.t / LUNGE_HOLD : 0;
-    else if (pull) ch = Math.max(0, 1 - pull.t / 0.3);   // 끌어올 때는 손을 되당긴다
-    // 이름을 pull로 두면 위의 끌어오기 상태 변수와 같은 블록에서 충돌한다(TDZ)
-    const back = ch * 0.16;                 // 힘 모으는 동안 끌어당기는 양
-    const reach = (1 - ch) * 0.16;          // 발사 후 앞으로
-    armR.visible = true;
-    armL.visible = true;
-    // 두 가지를 동시에 지켜야 한다.
-    //  (1) 당김은 z(뒤)가 아니라 y(아래)로. z로 당기면 전완이 근평면(0.1)에 잘린다.
-    //  (2) 팔을 시선축과 나란히 두면 전완 캡슐의 둥근 끝이 손을 통째로 가린다.
-    //      화면 아래 양옆에서 안쪽 위로 모아 올려야 장갑과 웹슈터가 보인다.
-    armR.position.set(0.44 + swayX, -0.40 + swayY - back * 0.4, -0.68 - reach + back * 0.3);
-    armR.rotation.set(0.34 - ch * 0.16, 0.30, -0.46);
-    armL.position.set(-0.44 + swayX, -0.40 + swayY - back * 0.4, -0.68 - reach + back * 0.3);
-    armL.rotation.set(0.34 - ch * 0.16, -0.30, 0.46);
-    armR.scale.setScalar(0.72);
-    armL.scale.set(-0.72, 0.72, 0.72);   // 왼손은 거울상 유지 (setScalar면 mirror가 지워진다)
-    // 줄을 쏘는 손이므로 웹슈팅 자세(검지·소지 편 채)를 유지한다
-    // 잡는 순간(hold)에는 주먹을 쥐듯 움켜쥔 손, 그 외에는 웹슈팅 자세
-    const grip = lunge && lunge.phase === "hold" ? 1 : 0;
-    poseHand(armR, 1 - grip, grip, 0.5, 1 - ch, kf);
-    poseHand(armL, 1 - grip, grip, 0.5, 1 - ch, kf);
-  } else if (firstPerson && clinging) {
-    // 벽 짚기: 양손 모두 벽면을 움켜쥔다. F4로 오를 때는 좌우 손이 번갈아 뻗는다.
-    const climbing = !!climbHeld();
-    const step = now * (climbing ? 0.009 : 0.0022);
-    const reachR = climbing ? Math.sin(step) : Math.sin(step) * 0.25;
-    const reachL = climbing ? Math.sin(step + Math.PI) : Math.sin(step + Math.PI) * 0.25;
-    armR.visible = true;
-    armL.visible = true;
-    armR.position.set(0.34 + swayX, -0.16 + reachR * 0.07 + swayY, -0.70 - Math.max(0, reachR) * 0.05);
-    armR.rotation.set(-0.24 + reachR * 0.12, 0.1, -0.5);
-    armL.position.set(-0.34 + swayX, -0.16 + reachL * 0.07 + swayY, -0.70 - Math.max(0, reachL) * 0.05);
-    armL.rotation.set(-0.24 + reachL * 0.12, -0.1, 0.5);
-    armR.scale.setScalar(0.72);
-    armL.scale.set(-0.72, 0.72, 0.72);
-    poseHand(armR, 0, 1, 1, 0, kf);
-    poseHand(armL, 0, 1, 1, 0, kf);
-  } else {
-    // 왼손: 주먹을 뻗는 동안만 보인다. 뻗기 40% / 복귀 60%로 나가는 건 빠르고 오는 건 느리다.
-    // 주먹(punchT)과 근접 격투 공격(swingFx)이 같은 팔 연출을 쓴다.
-    const swingProg = punchT > 0 ? 1 - punchT / PUNCH_TIME
-                    : swingFx > 0 ? 1 - swingFx / swingFxDur : -1;
-    if (swingProg >= 0 && firstPerson) {
-      const k = swingProg;                               // 0 -> 1
-      const ext = k < 0.4 ? k / 0.4 : 1 - (k - 0.4) / 0.6;
-      const e2 = ext * ext * (3 - 2 * ext);              // 부드럽게
-      armL.visible = true;
-      armL.position.set(-0.34 + e2 * 0.30 + swayX, -0.34 + e2 * 0.14 + swayY, -0.62 - e2 * 0.62);
-      armL.rotation.set(0.30 - e2 * 0.30, -0.22 + e2 * 0.22, 0.40 - e2 * 0.40);
-      armL.scale.set(-0.72, 0.72, 0.72);
-      poseHand(armL, 0, 1, 0, 1, kf);                    // 주먹 쥔 손
-    } else {
-      armL.visible = false;
-    }
-    const armTarget = firstPerson && (web !== null || armPulse > 0) ? 1 : 0;
-    armExt += (armTarget - armExt) * Math.min(1, 10 * dt);
-
-    // 줄에 매달린 동안 팔이 앵커 쪽으로 당겨지고, 장력에 따라 미세하게 떨린다
-    let tugY = 0, tugZ = 0;
-    if (web) {
-      const tension = THREE.MathUtils.clamp((player.pos.distanceTo(web.a) - web.len) / 6 + 0.5, 0, 1);
-      // 속도가 붙을수록 장력 떨림이 커진다 — 줄이 버티고 있다는 신호
-      const tShake = tension * (0.6 + Math.min(1, sp / MAX_SPEED) * 1.6);
-      tugY = Math.sin(now * 0.034) * 0.016 * tShake;
-      tugZ = -tension * 0.03 - Math.sin(now * 0.047) * 0.006 * tShake;
-    }
-    // 고속에서는 바람에 팔이 뒤로 밀리고 손가락이 살짝 벌어진다
-    const spd = Math.min(sp / MAX_SPEED, 1);
-    const idle = Math.sin(now * 0.0026) * 0.008 + Math.sin(now * 0.0041) * 0.004;
-
-    // 재장전: 손을 화면 아래로 내렸다가 비틀어 올린다 (카트리지 교체의 자리표시)
-    // 0 -> 1 -> 0 종 모양이라 내려갔다 올라오는 왕복이 한 번에 나온다
-    const rl = reloadT > 0 ? Math.sin(Math.PI * (1 - reloadT / RELOAD_TIME)) : 0;
-
-    armR.position.set(
-      0.5 - 0.14 * armExt + swayX + rl * 0.1,
-      -0.40 + 0.16 * armExt + idle + tugY + swayY - fireKick * 0.035 - rl * 0.42,
-      -0.52 - 0.1 * armExt + tugZ + spd * 0.035 + fireKick * 0.07 + rl * 0.12
-    );
-    armR.rotation.set(
-      0.55 - 0.4 * armExt - fireKick * 0.22 + idle * 0.5 + rl * 0.85,
-      swayX * 0.7 + rl * 0.7,
-      -0.06 * armExt + fireKick * 0.1 - rl * 0.5
-    );
-    armR.scale.setScalar(0.72);
-    armR.visible = firstPerson;
-    poseHand(armR, 1, 0, 0.35 + spd * 0.65, fireKick, kf);
-  }
+  updateHands(dt, sp);
 
   if (windActive()) {
     const r = Math.min(sp / MAX_SPEED, 1);
