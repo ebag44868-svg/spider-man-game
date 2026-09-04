@@ -248,6 +248,80 @@ function makeWebGloveTexture() {
   return t;
 }
 
+// ---------------------------------------------------------------------------
+// 사진 기반 PBR 텍스처 (Poly Haven CC0). 위쪽 절차적 텍스처와 달리 파일을 읽는다.
+// game3d.js에서 그대로 옮겨왔고 내용은 한 줄도 바꾸지 않았다.
+// ---------------------------------------------------------------------------
+
+// --- Poly Haven CC0 PBR 텍스처 ---
+// 캔버스로 그린 그림 대신 사진 기반 albedo/normal/roughness를 쓴다.
+// normal map이 있어야 1인칭에서 벽에 붙었을 때 표면 요철이 빛을 받아 살아난다.
+const texLoader = new THREE.TextureLoader();
+
+// 파일이 없으면 fallback 텍스처의 이미지를 같은 텍스처 객체에 밀어넣는다.
+// 슬롯만 등록해 두고 파일은 나중에 넣어도 화면이 깨지지 않게 하기 위한 장치다.
+function loadPbr(name, srgb = true, fallback) {
+  const t = texLoader.load(`assets/textures/${name}.jpg`, undefined, undefined, () => {
+    if (!fallback) return;
+    console.warn(`[텍스처 없음] ${name}.jpg → ${fallback}.jpg 로 대체`);
+    texLoader.load(`assets/textures/${fallback}.jpg`, (f) => {
+      t.image = f.image;
+      t.needsUpdate = true;
+    });
+  });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = renderer.capabilities ? renderer.capabilities.getMaxAnisotropy() : 1;
+  return t;
+}
+
+// 같은 재질을 여러 번 만들지 않도록 한 번만 읽어 캐시한다
+function pbrSet(base, fallback) {
+  return {
+    map: loadPbr(`${base}_diff`, true, fallback && `${fallback}_diff`),
+    normalMap: loadPbr(`${base}_nor`, false, fallback && `${fallback}_nor`),
+    roughnessMap: loadPbr(`${base}_rough`, false, fallback && `${fallback}_rough`),
+  };
+}
+
+// 인스턴스마다 크기가 제각각인데 UV는 0..1이라, 그냥 두면 큰 오브젝트에서 텍스처가
+// 늘어나 뭉개진다(366m 건물의 벽돌 한 장이 수십 미터가 되는 식).
+// 인스턴스 행렬에서 실제 치수를 뽑아 UV를 미터 단위로 다시 매기면 어디서나 같은 밀도가 된다.
+function worldScaleUv(mat, tile) {
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <uv_vertex>",
+      `#include <uv_vertex>
+      #ifdef USE_INSTANCING
+        vec3 iScale = vec3(
+          length(instanceMatrix[0].xyz),
+          length(instanceMatrix[1].xyz),
+          length(instanceMatrix[2].xyz));
+        vec3 an = abs(normal);
+        vec2 dims = an.y > 0.5 ? vec2(iScale.x, iScale.z)
+                  : an.x > 0.5 ? vec2(iScale.z, iScale.y)
+                               : vec2(iScale.x, iScale.y);
+        vec2 wuv = uv * dims / float(${tile.toFixed(1)});
+        // 색/노멀/러프니스가 각자 다른 varying을 쓰므로 전부 같은 좌표로 맞춰야 한다.
+        // 하나라도 빠뜨리면 요철과 무늬가 서로 어긋나 표면이 깨져 보인다.
+        #ifdef USE_MAP
+          vMapUv = wuv;
+        #endif
+        #ifdef USE_NORMALMAP
+          vNormalMapUv = wuv;
+        #endif
+        #ifdef USE_ROUGHNESSMAP
+          vRoughnessMapUv = wuv;
+        #endif
+        #ifdef USE_EMISSIVEMAP
+          vEmissiveMapUv = wuv;
+        #endif
+      #endif`
+    );
+  };
+  return mat;
+}
+
 export {
   makeFacadeTexture,
   makeGlassTexture,
@@ -257,4 +331,5 @@ export {
   makeWebStrandTexture,
   makeWebGloveTexture,
   setTextureRenderer,
+  worldScaleUv, loadPbr, pbrSet,
 };
