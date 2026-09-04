@@ -180,4 +180,45 @@ console.log("\n===== 5. 멀리 있는 적은 후보가 아니다 =====");
   ok(farTok === 0, "링 밖의 근접 적은 공격권을 못 받는다", `${farTok}명이 받았다`);
 }
 
+console.log("\n===== 6. 순번을 기다리는 근접은 한 발 뒤에서 기다린다 =====");
+{
+  // 전부 사거리까지 붙어버리면 플레이어 몸이 적들에게 묻혀서 무엇을 쳐낼지
+  // 안 보인다. 들어오는 놈만 파고들고 나머지는 대기 링을 지켜야 한다.
+  const fighters = setupFight();
+  const melee = fighters.filter(e => e.ty.melee);
+  for (let i = 0; i < 120 * 3; i++) step(fighters);   // 자리를 잡을 시간
+
+  let waitNear = 0, waitFrames = 0, atkFrames = 0;
+  let sumWait = 0, sumAtk = 0, minWait = 99;
+  let stateOk = 0, stateAll = 0;
+  for (let i = 0; i < 120 * 20; i++) {
+    step(fighters);
+    for (const e of melee) {
+      const d = e.g.position.distanceTo(T.player.pos);
+      if (e.tok) { atkFrames++; sumAtk += d; }
+      else if (d < T.DIR_MELEE_RING) {
+        waitFrames++; sumWait += d;
+        minWait = Math.min(minWait, d);
+        if (d < T.E_STANDOFF) waitNear++;
+        // "engage"는 지금 들어가는 놈의 상태다. 대기 중인 적이 그걸 달고 있으면
+        // 리그가 대기 자세를 안 잡는다. swing은 예외 — 공격권을 놓는 순간과
+        // 휘두르기가 끝나는 순간 사이에 한 프레임 남는다.
+        stateAll++;
+        if (e.state !== "engage") stateOk++;
+      }
+    }
+  }
+  const avgWait = sumWait / Math.max(1, waitFrames);
+  const avgAtk = sumAtk / Math.max(1, atkFrames);
+  ok(waitFrames > 0 && atkFrames > 0, "대기하는 적과 들어오는 적이 둘 다 있었다",
+     `대기 ${waitFrames} / 공격권 ${atkFrames} 프레임`);
+  ok(avgWait > avgAtk + 2, "기다리는 적이 들어오는 적보다 확실히 뒤에 있다",
+     `대기 평균 ${avgWait.toFixed(1)}m vs 공격권 평균 ${avgAtk.toFixed(1)}m`);
+  ok(waitNear / waitFrames < 0.02, "기다리는 적이 접근 거리(6m) 안까지 들어오지 않는다",
+     `${(waitNear / waitFrames * 100).toFixed(2)}%의 프레임`);
+  ok(stateOk === stateAll, "기다리는 적이 교전(engage) 상태를 달고 있지 않다",
+     `${stateOk}/${stateAll}`);
+  console.log(`       대기 최근접 ${minWait.toFixed(1)}m · 대기 평균 ${avgWait.toFixed(1)}m · 공격권 평균 ${avgAtk.toFixed(1)}m`);
+}
+
 console.log(`\n통과 ${pass} / 실패 ${fail}`);

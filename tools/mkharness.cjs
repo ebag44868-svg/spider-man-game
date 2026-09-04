@@ -148,7 +148,7 @@ export const T = {
   climbHeld,
   meleeInput, parry, meleeRoll, startMelee, updateMelee, clearMelee, addPosture, tryParry, startExecute,
   BRAWL, BRAWL_HOLD, E_STANDOFF, brawlerAI, pickBrawl,
-  updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_TICK, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, dirBusy, makeEnemy,
+  updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_TICK, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, dirBusy, makeEnemy, E_STANDOFF, E_WAIT_RING,
   E_TYPES, updateSwingArc, E_WALL_PAD, blockedAt, stepEnemy, updateRigs, rigPool, RIG_POOL, RIG_RANGE, RIG_DROP, rigDetach, get rollFx(){ return rollFx; }, ANIM_ONLY_FILES, CLIP_ONCE, poseRig, assignRigs, get aimAuto(){ return aimAuto; }, get aimPreviewPos(){ return aimPreview; }, findSwingAnchor,
   meleePress, meleeRelease, get charging(){ return charging; }, get chargeT(){ return chargeT; },
   CHARGE_MIN, CHARGE_FULL, MELEE_AIM_R, FALL_MIN_V, FALL_H1, FALL_H2, FALL_H3, get fallTopY(){ return fallTopY; }, setHp(v){ hp = v; invuln = 0; regenWait = 0; regenT = 0; deadT = 0; },

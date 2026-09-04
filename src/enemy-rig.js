@@ -129,7 +129,8 @@ function poseRig(e, r, dt) {
   const t = performance.now() * 0.001;
   const sw = e.swing;
   // 걷기 흔들림. 실제 속도를 재는 대신 AI 상태를 쓴다 — 넉백에 다리가 튀지 않는다.
-  const spd = e.state === "chase" ? 1 : e.state === "patrol" ? 0.45 : e.state === "engage" ? 0.3 : 0;
+  const spd = e.state === "chase" ? 1 : e.state === "patrol" ? 0.45
+            : e.state === "engage" ? 0.3 : e.state === "wait" ? 0.35 : 0;
   const step = Math.sin(t * (5 + spd * 6)) * spd;
 
   let aL = 0, aR = 0;       // 팔 X 회전 (앞뒤)
@@ -167,6 +168,12 @@ function poseRig(e, r, dt) {
       if (k > 1) { aR += (k - 1) * 13; aL += (k - 1) * 13; }
       lean = k <= 1 ? -0.45 * (raise / 0.72) : -0.45 + (k - 1) * 3;
     }
+  } else if (e.state === "wait") {
+    // 순번을 기다리는 중. 가드를 올리고 발을 잘게 놀린다.
+    // "구경하는 놈"과 "다음에 들어올 놈"이 달라 보여야 대기가 대기로 읽힌다.
+    aL = -0.62; aR = -0.62;
+    sL = 0.34; sR = -0.34;
+    lean = 0.12;
   } else if (e.aimT > 0) {
     // 사수·저격수의 조준: 오른팔을 플레이어 쪽으로 곧게 뻗는다
     aR = -1.55; sR = -0.12;
