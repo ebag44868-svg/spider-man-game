@@ -3712,6 +3712,26 @@ addEventListener("keydown", e => {
       lookIdle = 0;
     }
   }
+  // O = 조준 방식 전환 (실험). 커서 조준 <-> 중앙 고정 + 어깨너머.
+  if (e.code === "KeyO" && !e.repeat) {
+    aimCenter = !aimCenter;
+    dragging = false;
+    if (aimCenter) {
+      camAuto = false;               // 자동 정렬이 끼어들면 조준이 흔들린다
+      if (!firstPerson) requestLook();
+      crosshairEl.style.left = "50%";
+      crosshairEl.style.top = "50%";
+      say("중앙 조준 · 어깨너머 카메라 (O로 되돌리기)", 3);
+    } else {
+      if (!firstPerson) {
+        document.exitPointerLock();
+        crosshairEl.style.left = `${mx}px`;
+        crosshairEl.style.top = `${my}px`;
+        camAuto = !camHold;
+      }
+      say("커서 조준 (예전 방식) · O로 다시 전환", 3);
+    }
+  }
   // C = 시점 자동/수동. 수동은 C를 다시 누를 때까지 유지된다 (시간이 지나도 안 풀린다).
   if (e.code === "KeyC" || e.code === "KeyZ") {
     camAuto = !camAuto;
@@ -3990,8 +4010,20 @@ crosshairEl.style.top = `${my}px`;
 
 // 1인칭은 항상 화면 정중앙. 포인터락이 풀려도 조준 기준이 흔들리면 안 된다.
 // 3인칭은 커서가 곧 조준점이다. 시점(우클릭 드래그)과 조준(커서)이 따로 논다.
+// --- 조준 방식 (O키로 전환. 어느 쪽이 나은지 직접 눌러보고 정하려고 토글로 뒀다) ---
+//
+// 기본(커서 조준): 마우스가 조준점을 옮기고, 시점은 우클릭 드래그가 맡는다.
+//   마우스 하나가 조준과 시점 두 가지 일을 해서, 적을 겨누면서 시점을 돌릴 수가 없다.
+//
+// 중앙 조준(오버워치 / PS4 스파이더맨): 조준점을 화면 정중앙에 박고 마우스는 시점만
+//   돌린다. 대신 카메라를 어깨 뒤로 붙이고 캐릭터를 한쪽으로 비켜 세워 중앙을 비운다.
+//   1인칭과 같은 체계가 되어 손이 훨씬 단순해진다.
+let aimCenter = false;
+const CAM_SHOULDER = 0.85;   // 어깨너머 옆 오프셋(m). 크면 근거리 시차가 커진다
+const CAM_TIGHT = 0.72;      // 중앙 조준일 때 카메라 거리 배율
+
 function cursorNdc() {
-  if (firstPerson) return _ndc.set(0, 0);
+  if (firstPerson || aimCenter) return _ndc.set(0, 0);
   return _ndc.set((mx / innerWidth) * 2 - 1, -(my / innerHeight) * 2 + 1);
 }
 
@@ -4250,16 +4282,19 @@ addEventListener("blur", () => { dragging = false; mouseDownL = false; mouseDown
 document.addEventListener("mousemove", e => {
   // 1인칭은 포인터 락 성공 여부와 관계없이 이동량으로 시점을 돌린다.
   // (락이 거부되는 환경에서도 조작이 죽지 않게 — 락은 커서를 가두는 역할만 한다)
-  if (firstPerson) {
+  // 1인칭, 그리고 3인칭 중앙 조준 모드: 이동량이 곧 시점이다. 조준점은 화면 중앙 고정.
+  if (firstPerson || aimCenter) {
     // 락이 막 걸린 직후 첫 이벤트에는 커서가 중앙으로 순간이동한 거리가 통째로 실려온다.
     // 그대로 반영하면 시점이 홱 돌아가므로 한 번 버린다.
     if (lockSettle) { lockSettle = false; return; }
     // 창 전환·프레임 드랍 뒤에 큰 델타가 몰려올 수 있으니 상한을 둔다.
     const dx = Math.max(-140, Math.min(140, e.movementX || 0));
     const dy = Math.max(-140, Math.min(140, e.movementY || 0));
-    viewYaw -= dx * 0.0022;
-    viewPitch -= dy * 0.0018;
+    // 3인칭은 카메라가 뒤에 있어 같은 델타라도 화면 이동이 작게 느껴진다. 조금 더 준다.
+    viewYaw -= dx * (firstPerson ? 0.0022 : 0.0026);
+    viewPitch -= dy * (firstPerson ? 0.0018 : 0.0021);
     viewPitch = Math.min(Math.max(viewPitch, -1.2), 1.35);
+    if (!firstPerson) { camFree = CAM_FREE; lookIdle = 0; }   // 자동 정렬이 끼어들면 조준이 흔들린다
     return;
   }
   // 3인칭: 마우스 이동은 조준점(커서)을 옮긴다. 시점은 우클릭 드래그가 맡는다.
@@ -5237,7 +5272,7 @@ function updateCamera(dt) {
       const wantP = Math.max(-0.8, Math.min(0.5, Math.atan2(dy, h)));
       viewPitch += (wantP - viewPitch) * Math.min(1, 12 * dt);
     }
-  } else if (camAuto && !dragging && camFree <= 0 && !meleeMode && !firstPerson && (hsp > 3 || clinging)) {
+  } else if (camAuto && !aimCenter && !dragging && camFree <= 0 && !meleeMode && !firstPerson && (hsp > 3 || clinging)) {
     // 좌우: 느릴수록 천천히. 저속에서 급하게 붙이면 방향이 조금만 흔들려도 같이 흔들린다.
     const k = clinging ? 4 : Math.min(3.5, 0.9 + hsp * 0.07);
     viewYaw = lerpAngle(viewYaw, bodyYaw, Math.min(1, k * dt));
@@ -5273,12 +5308,21 @@ function updateCamera(dt) {
     const hug = Math.min(sp / MAX_SPEED, 1);
     // 빠를수록 뒤로 더 빠져야 속도가 읽힌다. 상한도 같이 올린다.
     // 휠 줌 배율을 곱한다. 가까이 당기면 캐릭터가 크게, 멀리 밀면 속도가 잘 읽힌다.
-    const camDist = Math.min(9.5 + hsp * 0.28, 34) * camZoom;
+    const camDist = Math.min(9.5 + hsp * 0.28, 34) * camZoom * (aimCenter ? CAM_TIGHT : 1);
     const desired = _c0.set(
       player.renderPos.x - viewDir.x * camDist,
       player.renderPos.y + (3.0 - hug * 1.4) - viewDir.y * camDist * 0.55,
       player.renderPos.z - viewDir.z * camDist
     );
+    // 어깨너머: 캐릭터를 화면 한쪽으로 비켜 세워 정중앙(조준점)을 비운다.
+    // 오버워치 3인칭도 캐릭터가 화면 중앙이 아니라 한쪽에 서 있다 — 안 그러면
+    // 조준점이 자기 몸에 가린다.
+    if (aimCenter) {
+      const rx = -viewDir.z, rz = viewDir.x;          // 카메라 오른쪽 = 시선 x 위
+      const rl = Math.hypot(rx, rz) || 1;
+      desired.x += (rx / rl) * CAM_SHOULDER;
+      desired.z += (rz / rl) * CAM_SHOULDER;
+    }
     // 카메라 충돌. 머리에서 desired까지 선분을 한 번 쏴서 막혔으면 벽 앞으로 당긴다.
     // 기존 공간해시(nearbyBuildings)와 선분 검사(segHitWorld)를 그대로 쓴다 —
     // 지면과 인도 턱까지 같은 함수가 봐주므로 아래를 볼 때 땅을 뚫는 것도 같이 막힌다.
@@ -5314,7 +5358,9 @@ function updateCamera(dt) {
     // 벽에 밀려 카메라가 몸 안까지 들어오면 캐릭터 내부가 화면을 덮는다.
     // 그럴 때만 숨긴다 — 평상시(dLimit이 기본 거리)에는 항상 보인다.
     spiderGroup.visible = dLimit > CAM_HIDE_DIST;
-    if (camAuto) {
+    // 중앙 조준에서는 화면 중앙이 곧 조준 방향이어야 한다. 목표점을 보면 어깨
+    // 오프셋만큼 화면이 돌아가서 조준점과 실제 방향이 어긋난다.
+    if (camAuto && !aimCenter) {
       // 자동: 진행 방향을 살짝 앞서 본다. 속도감이 여기서 나온다.
       lookTarget.lerp(_c1.set(
         player.renderPos.x + player.vel.x * 0.16,
@@ -5418,7 +5464,7 @@ function updateObjective() {
 
 function updateCrosshair() {
   // 1인칭 조준점은 항상 화면 정중앙. 매 프레임 강제해서 어떤 경로로도 밀리지 않게 한다.
-  if (firstPerson) {
+  if (firstPerson || aimCenter) {
     crosshairEl.style.left = "50%";
     crosshairEl.style.top = "50%";
   }
@@ -5730,6 +5776,7 @@ function frameBody(now) {
     `${Math.round(player.vel.length() * 3.6)} km/h · DASH ${hasDash ? "READY" : `${Math.max(dashTimer, 0).toFixed(1)}s`}`
     + ` · ${camLabel}${camMsg > 0 ? " ←" : ""}`
     + (!firstPerson ? `  줌 ${(1 / camZoom).toFixed(1)}x` : "")
+    + (!firstPerson ? (aimCenter ? "  ◎ 중앙조준(O)" : "  ✛ 커서조준(O)") : "")
     + (meleeMode ? "  ✊ 근접 격투" : attackMode ? "  ⚔ 거미줄 격투" : "  (TAB=격투)")
     + `  적 ${enemies.length}`
     + (lockOn ? `  ◎ ${lockOn.ty.name} ${lockOn.stag > 0 ? "◆ 붕괴! 우클릭 처형" : "체간 " + Math.round((lockOn.post||0) / lockOn.postMax * 100) + "%"}` : "")
@@ -6020,4 +6067,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, get aimCenter(){ return aimCenter; }, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
