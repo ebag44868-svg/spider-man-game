@@ -148,7 +148,7 @@ export const T = {
   climbHeld,
   meleeInput, parry, meleeRoll, startMelee, updateMelee, clearMelee, addPosture, tryParry, startExecute,
   BRAWL, BRAWL_HOLD, E_STANDOFF, brawlerAI, pickBrawl,
-  MOVE_SPEED, SPRINT_MULT, FALL_TIERS,
+  MOVE_SPEED, SPRINT_MULT, FALL_TIERS, HEROES, applyHero, get hero(){ return hero; },
   AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy,
   updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_TICK, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, dirBusy, makeEnemy, E_STANDOFF, E_WAIT_RING,
   E_TYPES, updateSwingArc, E_WALL_PAD, blockedAt, stepEnemy, updateRigs, rigPool, RIG_POOL, RIG_RANGE, RIG_DROP, rigDetach, get rollFx(){ return rollFx; }, ANIM_ONLY_FILES, CLIP_ONCE, poseRig, assignRigs, get aimAuto(){ return aimAuto; }, get aimPreviewPos(){ return aimPreview; }, findSwingAnchor,

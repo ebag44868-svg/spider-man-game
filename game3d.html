@@ -228,6 +228,55 @@
   #ammoBar { height: 5px; margin-top: 7px; background: rgba(0,0,0,.5); border-radius: 3px; overflow: hidden; }
   #ammoBar i { display: block; height: 100%; width: 100%; background: #fff; }
   #reloadMsg { color: #ffd24a; font: 700 14px/1 sans-serif; margin-top: 6px; height: 14px; }
+  /* ================= 시작 화면 ================= */
+  #title, #charSel {
+    position: fixed; inset: 0; z-index: 60; display: none;
+    background: radial-gradient(ellipse at 50% 40%, rgba(8,10,16,.55) 0%, rgba(5,6,10,.92) 70%);
+    color: #e8eef7; font-family: inherit;
+  }
+  #title.show, #charSel.show { display: flex; }
+  #title { align-items: center; justify-content: center; }
+  .tinner { text-align: center; }
+  #title h1 {
+    margin: 0; font-size: clamp(48px, 11vw, 132px); letter-spacing: .08em; font-weight: 800;
+    line-height: .95; color: #fff; text-shadow: 0 0 30px rgba(220,30,45,.55), 0 6px 24px rgba(0,0,0,.8);
+  }
+  #title h1 span { color: #e11d2e; }
+  #title .sub { margin: 10px 0 34px; opacity: .55; letter-spacing: .28em; font-size: 12px; }
+  .tbtns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  #title button, #charSel button {
+    font: inherit; font-size: 15px; padding: 13px 30px; cursor: pointer; color: #dfe7f2;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.18); border-radius: 8px;
+    transition: background .12s, border-color .12s, transform .08s;
+  }
+  #title button:hover, #charSel button:hover { background: rgba(255,255,255,.13); border-color: rgba(255,255,255,.4); }
+  #title button:active, #charSel button:active { transform: translateY(1px); }
+  button.primary { background: #b3121f !important; border-color: #e11d2e !important; color: #fff !important; }
+  button.primary:hover { background: #d4162a !important; }
+  .thint { margin-top: 26px; font-size: 12px; opacity: .5; }
+  .thint b { color: #ffd24a; opacity: 1; }
+
+  /* ================= 캐릭터 선택 ================= */
+  /* 오른쪽 절반은 비워둔다 — 거기서 실제 3D 모델이 등장 모션을 돈다 */
+  #charSel { align-items: stretch; }
+  .cinner { display: flex; width: 100%; }
+  .clist { width: 260px; padding: 26px 0 26px 26px; display: flex; flex-direction: column; gap: 10px; justify-content: center; }
+  .ccard {
+    text-align: left; padding: 14px 16px !important; border-left-width: 3px !important;
+    border-left-style: solid !important; opacity: .55;
+  }
+  .ccard.on { opacity: 1; background: rgba(255,255,255,.12) !important; }
+  .ccard b { display: block; font-size: 17px; margin-bottom: 3px; }
+  .ccard i { font-style: normal; font-size: 11.5px; opacity: .7; }
+  .cinfo { width: 330px; padding: 26px; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
+  .cinfo h2 { margin: 0; font-size: 30px; }
+  .ctag { font-size: 12px; letter-spacing: .14em; opacity: .65; margin-bottom: 6px; }
+  .cdesc { font-size: 13px; line-height: 1.65; }
+  .cdesc .row { display: flex; gap: 9px; padding: 5px 0; border-top: 1px solid rgba(255,255,255,.09); }
+  .cdesc .row:first-child { border-top: 0; }
+  .cdesc .k { flex: 0 0 74px; opacity: .6; font-size: 12px; }
+  .cbtns { display: flex; gap: 10px; margin-top: 14px; }
+
   #crosshair {
     position: fixed; left: 50%; top: 50%; width: 16px; height: 16px;
     transform: translate(-50%, -50%); border: 2px solid rgba(255,255,255,0.55);
@@ -397,6 +446,39 @@
 </style>
 </head>
 <body>
+<!-- ================= 시작 화면 ================= -->
+<!-- 배경은 따로 안 만든다. 뒤에서 실제 도시를 카메라가 천천히 도는 게
+     정지 이미지보다 훨씬 낫고, 이미 있는 걸 쓰는 거라 공짜다. -->
+<div id="title" class="show">
+  <div class="tinner">
+    <h1>SPIDER<span>MAN</span></h1>
+    <p class="sub">뉴욕 · 9구역 · 적 216</p>
+    <div class="tbtns">
+      <button id="btnTut">튜토리얼</button>
+      <button id="btnChar">캐릭터</button>
+      <button id="btnPlay" class="primary">입장</button>
+    </div>
+    <p class="thint">선택 중인 캐릭터 — <b id="titleHero">파이터</b></p>
+  </div>
+</div>
+
+<!-- ================= 캐릭터 선택 ================= -->
+<!-- 오버워치식: 왼쪽에 카드, 고른 캐릭터가 오른쪽에서 등장 모션을 돌린다.
+     등장 모션은 새 모델이 아니라 기존 플레이어 모델 + 기존 클립을 쓴다. -->
+<div id="charSel">
+  <div class="cinner">
+    <div class="clist" id="charList"></div>
+    <div class="cinfo">
+      <h2 id="cName">파이터</h2>
+      <div class="ctag" id="cTag">근접 격투 특화</div>
+      <div class="cdesc" id="cDesc"></div>
+      <div class="cbtns">
+        <button id="btnCharBack">뒤로</button>
+        <button id="btnCharOk" class="primary">이 캐릭터로</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div id="crosshair"></div>
 <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
 <div id="objective">
@@ -627,6 +709,6 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mtnzobkt"></script>
+<script type="module" src="./game3d.js?v=mto31o0d"></script>
 </body>
 </html>

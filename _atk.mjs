@@ -4,6 +4,7 @@ const C=globalThis.__cv, W=globalThis.__win;
 const md=b=>(C.mousedown||[]).forEach(f=>f({button:b,preventDefault(){}}));
 const mu=b=>(W.mouseup||[]).forEach(f=>f({button:b,preventDefault(){}}));
 const key=c=>(W.keydown||[]).forEach(f=>f({code:c,preventDefault(){}}));
+T.applyHero(T.HEROES[1]);   // 웹슈터 — 거미줄 격투를 쓰는 캐릭터
 key("Tab");   // 공격 모드
 let pass=0, fail=0;
 const ok=(c,m)=>{ if(c){pass++;console.log("  OK   "+m);} else {fail++;console.log("  FAIL "+m);} };

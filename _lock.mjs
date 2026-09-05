@@ -88,6 +88,7 @@ T.aimYaw(0); T.setPitch(0);
 for(let i=0;i<300;i++) T.updateCamera(DT);
 T.syncWorld();
 T.setCursor(120, 820);                 // 화면 구석 — 락온이 없으면 절대 못 맞는다
+T.applyHero(T.HEROES[1]);               // 웹슈터 — 거미줄 격투 담당
 key("Tab");                            // 거미줄 격투 모드
 const hp0 = e.hp;
 T.setLock(e);
@@ -96,14 +97,25 @@ T.setLock(e);
 for(let i=0;i<120*3;i++) T.update(DT);
 ok(e.hp < hp0 || e.bound > 0, "락온 중에는 커서가 딴 데 있어도 대상을 맞춘다", `hp ${hp0} -> ${e.hp}`);
 
-console.log("\n===== TAB 3모드 순환 =====");
+console.log("\n===== TAB = 웹스윙 <-> 그 캐릭터의 특화 모드 =====");
+// 캐릭터를 나누면서 TAB이 3모드 순환에서 2모드 토글로 바뀌었다.
+// 한 캐릭터가 쥐는 조작을 줄이는 게 목적이라 순환이 아니라 토글이어야 한다.
 T.setLock(null);
-// 지금 상태를 웹스윙으로 되돌린다
-for (let i=0;i<3 && (T.attackMode || T.meleeMode); i++) key("Tab");
+const toSwing = () => { for (let i=0;i<3 && (T.attackMode || T.meleeMode); i++) key("Tab"); };
+
+T.applyHero(T.HEROES[1]); toSwing();               // 웹슈터
 ok(!T.attackMode && !T.meleeMode, "시작은 웹스윙");
-key("Tab"); ok(T.attackMode && !T.meleeMode, "1) 거미줄 격투");
-key("Tab"); ok(!T.attackMode && T.meleeMode, "2) 근접 격투");
-key("Tab"); ok(!T.attackMode && !T.meleeMode, "3) 다시 웹스윙");
+key("Tab"); ok(T.attackMode && !T.meleeMode, "웹슈터: TAB = 거미줄 격투");
+key("Tab"); ok(!T.attackMode && !T.meleeMode, "웹슈터: 한 번 더 = 웹스윙");
+
+T.applyHero(T.HEROES[2]); toSwing();               // 파이터
+key("Tab"); ok(!T.attackMode && T.meleeMode, "파이터: TAB = 근접 격투");
+key("Tab"); ok(!T.attackMode && !T.meleeMode, "파이터: 한 번 더 = 웹스윙");
+
+T.applyHero(T.HEROES[0]); toSwing();               // 스윙어 — 특화가 없다
+key("Tab"); ok(!T.attackMode && !T.meleeMode, "스윙어: TAB이 아무것도 안 한다 (웹스윙 전용)");
+ok(T.HEROES[0].mode === null, "스윙어는 특화 모드가 없다");
+T.applyHero(T.HEROES[1]); toSwing(); key("Tab");   // 뒤 시험을 위해 되돌린다
 
 console.log("\n===== Ctrl 해방 =====");
 T.setClimbMouse(false);
