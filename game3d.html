@@ -228,6 +228,35 @@
   #ammoBar { height: 5px; margin-top: 7px; background: rgba(0,0,0,.5); border-radius: 3px; overflow: hidden; }
   #ammoBar i { display: block; height: 100%; width: 100%; background: #fff; }
   #reloadMsg { color: #ffd24a; font: 700 14px/1 sans-serif; margin-top: 6px; height: 14px; }
+  /* 캐릭터 전환 플래시 */
+  #charFlash {
+    position: fixed; inset: 0; z-index: 62; pointer-events: none;
+    background: #fff; opacity: 0;
+  }
+  #charFlash.on { animation: cflash .42s ease-out; }
+  @keyframes cflash { 0% { opacity: .55; } 100% { opacity: 0; } }
+
+  /* ================= 튜토리얼 ================= */
+  #tut { position: fixed; inset: 0; z-index: 40; display: none; pointer-events: none; color: #e8eef7; }
+  #tut.show { display: block; }
+  .tutbox {
+    position: absolute; left: 50%; top: 74px; transform: translateX(-50%);
+    min-width: 340px; max-width: 560px; text-align: center;
+    background: rgba(12,15,22,.86); border: 1px solid rgba(255,255,255,.16);
+    border-top: 3px solid #ffd24a; border-radius: 10px; padding: 14px 24px 16px;
+    box-shadow: 0 10px 34px rgba(0,0,0,.6);
+  }
+  .tutstep { font-size: 11px; letter-spacing: .2em; opacity: .5; }
+  .tuttitle { font-size: 21px; font-weight: 700; margin: 4px 0 6px; color: #ffd24a; }
+  .tutdesc { font-size: 13.5px; line-height: 1.6; opacity: .92; }
+  .tutprog { font-size: 12px; margin-top: 8px; opacity: .65; min-height: 16px; }
+  .tutbox.done { border-top-color: #7dffa0; }
+  .tutbox.done .tuttitle { color: #7dffa0; }
+  .tutskip {
+    position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%);
+    font-size: 11.5px; opacity: .45;
+  }
+
   /* ================= 시작 화면 ================= */
   #title, #charSel {
     position: fixed; inset: 0; z-index: 60; display: none;
@@ -479,6 +508,20 @@
     </div>
   </div>
 </div>
+<!-- 캐릭터를 바꾼 순간 한 번 번쩍인다. 모델이 아직 다 같아서 안 그러면
+     바뀐 게 티가 안 난다 (모델링을 씌우면 덜 필요해질 연출) -->
+<div id="charFlash"></div>
+
+<!-- ================= 튜토리얼 ================= -->
+<div id="tut">
+  <div class="tutbox">
+    <div class="tutstep" id="tutStep">1 / 3</div>
+    <div class="tuttitle" id="tutTitle">거미줄 걸기</div>
+    <div class="tutdesc" id="tutDesc"></div>
+    <div class="tutprog" id="tutProg"></div>
+  </div>
+  <div class="tutskip">Esc — 그만두기 · Enter — 이 단계 건너뛰기</div>
+</div>
 <div id="crosshair"></div>
 <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
 <div id="objective">
@@ -709,6 +752,6 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mto31o0d"></script>
+<script type="module" src="./game3d.js?v=mto7dzdh"></script>
 </body>
 </html>
