@@ -154,4 +154,97 @@ console.log("\n===== 5. 차징하는 동안에는 체인이 안 끊긴다 ====="
   ok(T.mChain === 0, "가만히 두면 체인이 시간에 풀린다", `mChain ${T.mChain}`);
 }
 
+console.log("\n===== 6. 뜬 적은 아무것도 못 한다 =====");
+{
+  // 띄우기의 보상은 피해가 아니라 '그동안 아무것도 못 한다'는 것이다.
+  // 지금까지는 띄워놔도 공중에서 걸어다니고 공격했다.
+  const e = stage(4);
+  const x0 = e.g.position.x, z0 = e.g.position.z;
+  T.launchEnemy(e, 30);
+  ok(e.air > 0, "띄우면 공중 상태가 된다", `air ${e.air}`);
+  ok(!e.tok, "띄우는 순간 공격권을 잃는다");
+
+  let swung = 0, moved = 0, states = new Set();
+  for (let i = 0; i < 120 * 2 && e.air > 0; i++) {
+    e.tok = true;                       // 억지로 공격권을 줘도
+    T.update(DT); T.updateCamera(DT);
+    if (e.swing || e.aimT > 0) swung++;
+    states.add(e.state);
+    moved = Math.max(moved, Math.hypot(e.g.position.x - x0, e.g.position.z - z0));
+  }
+  ok(swung === 0, "뜬 동안에는 공격을 시작하지 않는다 (공격권을 억지로 줘도)", `${swung}프레임`);
+  ok(states.has("air"), "상태가 air로 잡힌다", [...states].join(","));
+  ok(moved < 1.0, "뜬 동안 걸어다니지 않는다", `${moved.toFixed(2)}m 이동`);
+
+  ok(e.down > 0, "착지하면 다운 경직이 걸린다", `down ${e.down.toFixed(2)}`);
+  let downSwung = 0;
+  while (e.down > 0) { e.tok = true; T.update(DT); T.updateCamera(DT); if (e.swing || e.aimT > 0) downSwung++; }
+  ok(downSwung === 0, "다운 중에도 공격을 시작하지 않는다", `${downSwung}프레임`);
+
+  // 다운이 풀리면 돌아온다
+  T.update(DT);
+  ok(e.air === 0 && e.down === 0, "다운이 풀리면 평소 상태로 돌아온다");
+}
+
+console.log("\n===== 7. 무한 저글링은 안 된다 =====");
+{
+  const e = stage(4);
+  const ups = [];
+  for (let i = 0; i < T.AIR_HITS + 3; i++) {
+    e.knock.y = 0;
+    const okLaunch = T.launchEnemy(e, 30);
+    ups.push(okLaunch ? +e.knock.y.toFixed(1) : null);
+  }
+  const landed = ups.filter(v => v !== null);
+  ok(landed.length === T.AIR_HITS, `공중에서 ${T.AIR_HITS}번까지만 띄운다`, `${landed.length}번`);
+  ok(ups.slice(T.AIR_HITS).every(v => v === null), "상한을 넘으면 아예 안 뜬다", JSON.stringify(ups));
+  let falling = true;
+  for (let i = 1; i < landed.length; i++) if (landed[i] >= landed[i - 1]) falling = false;
+  ok(falling, "연달아 띄울수록 낮아진다", landed.join(" -> "));
+
+  // 착지하면 횟수가 초기화된다
+  for (let i = 0; i < 120 * 4 && (e.air > 0 || e.down > 0); i++) { T.update(DT); T.updateCamera(DT); }
+  ok(e.airHits === 0, "착지하면 띄운 횟수가 초기화된다", `airHits ${e.airHits}`);
+}
+
+console.log("\n===== 8. 안전장치: 영영 떠 있지 않는다 =====");
+{
+  const e = stage(4);
+  T.launchEnemy(e, 30);
+  // 중력이 안 먹는 상황을 흉내낸다 — 매 스텝 위로 다시 밀어올린다
+  let t = 0;
+  for (let i = 0; i < 120 * 6 && e.air > 0; i++) {
+    e.knock.y = 40;
+    T.update(DT); T.updateCamera(DT);
+    t += DT;
+  }
+  ok(e.air === 0, "AIR_MAX가 지나면 강제로 내려온다", `${t.toFixed(2)}초`);
+  ok(t <= T.AIR_MAX + 0.2, `${T.AIR_MAX}초 안에 끝난다`, `${t.toFixed(2)}초`);
+}
+
+console.log("\n===== 9. 공중/다운 자세가 실제로 다르다 =====");
+{
+  const e = stage(4);
+  for (let i = 0; i < 30; i++) { T.update(DT); T.updateCamera(DT); }
+  T.updateRigs(DT);
+  ok(!!e.rig, "리그가 붙어 있다");
+  e.air = 0; e.down = 0; e.hitT = 0; e.swing = null;
+  T.updateRigs(DT);
+  const rest = { arm: e.rig.armL.piv.rotation.x, torso: e.rig.torso.rotation.x };
+
+  e.air = 0.5;
+  T.updateRigs(DT);
+  const air = { arm: e.rig.armL.piv.rotation.x, torso: e.rig.torso.rotation.x };
+  ok(air.arm < rest.arm - 1.0, "공중에서는 팔이 위로 흩어진다", `${rest.arm.toFixed(2)} -> ${air.arm.toFixed(2)}`);
+  ok(air.torso < -0.3, "공중에서는 상체가 젖혀진다", `lean ${air.torso.toFixed(2)}`);
+
+  e.air = 0; e.down = 0.5;
+  T.updateRigs(DT);
+  const down = { arm: e.rig.armL.piv.rotation.x, torso: e.rig.torso.rotation.x };
+  ok(down.torso > 0.5, "다운에서는 상체가 앞으로 꺾인다", `lean ${down.torso.toFixed(2)}`);
+  ok(Math.abs(down.arm - air.arm) > 1.0, "공중 자세와 다운 자세가 다르다",
+     `공중 ${air.arm.toFixed(2)} vs 다운 ${down.arm.toFixed(2)}`);
+  e.down = 0;
+}
+
 console.log(`\n통과 ${pass} / 실패 ${fail}`);

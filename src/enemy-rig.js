@@ -146,6 +146,18 @@ function poseRig(e, r, dt) {
     const w = Math.sin(t * 3) * 0.12;
     aL = 0.5 + w; aR = 0.5 - w;
     lean = 0.42;
+  } else if (e.air > 0) {
+    // 공중에 떴다 — 팔다리가 위로 흩어지고 상체가 젖혀진다.
+    // 뜬 동안에는 아무것도 못 한다는 게 자세로 보여야 띄우기가 보상으로 읽힌다.
+    const w = Math.sin(t * 9) * 0.14;
+    aL = -1.5 + w; aR = -1.5 - w;
+    sL = 0.62;     sR = -0.62;
+    lean = -0.5;
+  } else if (e.down > 0) {
+    // 착지 직후 — 아직 못 일어났다. 상체가 앞으로 꺾이고 팔이 바닥을 짚는다.
+    aL = 1.05; aR = 1.05;
+    sL = 0.42;  sR = -0.42;
+    lean = 0.78;
   } else if (sw) {
     // 격투병의 휘두르기. 준비 -> 판정 -> 회수를 한 몸짓으로.
     const spec = BRAWL[sw.kind];
