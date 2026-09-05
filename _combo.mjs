@@ -247,4 +247,55 @@ console.log("\n===== 9. 공중/다운 자세가 실제로 다르다 =====");
   e.down = 0;
 }
 
+console.log("\n===== 10. 콤보에 실제 보상이 붙는다 =====");
+{
+  // 지금까지 combo는 화면에 숫자만 떴다. 이어칠 이유가 없었다.
+  ok(T.comboTier() >= 0, "콤보 단계를 읽을 수 있다");
+  T.setCombo(0);  ok(T.comboTier() === 0, "0타 = 단계 0");
+  T.setCombo(5);  ok(T.comboTier() === 1, "5타 = 단계 1");
+  T.setCombo(10); ok(T.comboTier() === 2, "10타 = 단계 2");
+  T.setCombo(20); ok(T.comboTier() === 3, "20타 = 단계 3");
+  T.setCombo(99); ok(T.comboTier() === 3, "그 위로는 단계가 안 넘친다 (배열 밖 참조 없음)");
+
+  let rising = true;
+  for (let i = 1; i < T.COMBO_STOP.length; i++) if (T.COMBO_STOP[i] <= T.COMBO_STOP[i - 1]) rising = false;
+  for (let i = 1; i < T.COMBO_ULT.length; i++) if (T.COMBO_ULT[i] <= T.COMBO_ULT[i - 1]) rising = false;
+  ok(rising, "단계가 오를수록 히트스톱·궁극기 배율이 커진다",
+     `stop ${T.COMBO_STOP.join("/")} · ult ${T.COMBO_ULT.join("/")}`);
+
+  // 히트스톱이 실제로 배율을 탄다
+  const e = stage();
+  T.setCombo(0); T.setUlt(0);
+  light();
+  const stop0 = T.hitStopNow;
+  const ult0 = T.ult;
+  const e2 = stage();
+  T.setCombo(30); T.setUlt(0);
+  light();
+  const stop3 = T.hitStopNow;
+  const ult3 = T.ult;
+  ok(stop3 > stop0 * 1.5, "콤보가 쌓이면 타격이 무거워진다", `히트스톱 ${stop0.toFixed(3)} -> ${stop3.toFixed(3)}`);
+  ok(ult3 > ult0 * 1.5, "콤보가 쌓이면 궁극기가 빨리 찬다", `충전 ${ult0.toFixed(4)} -> ${ult3.toFixed(4)}`);
+  ok(ult0 > 0, "안 죽여도 때리기만 하면 궁극기가 찬다 (예전엔 처치해야 찼다)", `${ult0.toFixed(4)}`);
+}
+
+console.log("\n===== 11. 맞으면 콤보가 끊긴다 =====");
+{
+  const e = stage();
+  T.setCombo(0);
+  light(); light();
+  ok(T.combo >= 2, "두 대 때려 콤보가 쌓였다", `${T.combo}타`);
+  T.setInvuln(0);
+  T.damagePlayer(1);
+  ok(T.combo === 0, "맞으면 콤보가 0으로 끊긴다", `${T.combo}타`);
+
+  // 쳐내기는 damagePlayer를 안 타므로 콤보가 유지된다 — 그게 패링의 보상이다
+  T.setCombo(7);
+  T.setInvuln(5);
+  T.damagePlayer(1);            // 무적이면 피해가 없으니 콤보도 안 끊긴다
+  ok(T.combo === 7, "피해가 실제로 안 들어가면 콤보는 유지된다", `${T.combo}타`);
+  T.setInvuln(0);
+  T.setCombo(0);
+}
+
 console.log(`\n통과 ${pass} / 실패 ${fail}`);
