@@ -228,6 +228,33 @@
   #ammoBar { height: 5px; margin-top: 7px; background: rgba(0,0,0,.5); border-radius: 3px; overflow: hidden; }
   #ammoBar i { display: block; height: 100%; width: 100%; background: #fff; }
   #reloadMsg { color: #ffd24a; font: 700 14px/1 sans-serif; margin-top: 6px; height: 14px; }
+  /* 화면 정리 단계.
+     최소 = 체력·궁·조준점만. 없음 = 조준점만 남기고 전부.
+     웹스윙만 하고 싶을 때 화면을 통째로 비우려는 것. */
+  body.ui-min #speed, body.ui-min #objective, body.ui-min #skills,
+  body.ui-min #ammo, body.ui-min #hpNum { display: none !important; }
+  body.ui-off #ui, body.ui-off #speed, body.ui-off #objective,
+  body.ui-off #hitmarker { display: none !important; }
+  body.ui-off #crosshair { opacity: .35; }
+
+  /* 시작 화면의 작은 링크 — 큰 버튼 셋만 눈에 띄게 두려는 것 */
+  .tlink {
+    margin-top: 20px; font: inherit; font-size: 12.5px; padding: 6px 16px; cursor: pointer;
+    color: rgba(232,238,247,.55); background: none; border: 1px solid rgba(255,255,255,.14);
+    border-radius: 999px;
+  }
+  .tlink:hover { color: #fff; border-color: rgba(255,255,255,.4); }
+
+  /* 옵션 화면 */
+  #opts { position: fixed; inset: 0; z-index: 61; display: none;
+    background: rgba(5,6,10,.9); color: #e8eef7; align-items: center; justify-content: center; }
+  #opts.show { display: flex; }
+  .oinner { width: 460px; max-width: 90vw; }
+  .oinner h2 { margin: 0 0 18px; font-size: 26px; }
+  .oinner .setrow { display: flex; align-items: center; gap: 12px; padding: 9px 0;
+    border-top: 1px solid rgba(255,255,255,.09); }
+  .oinner .setd { font-size: 12px; opacity: .5; padding: 0 0 6px 104px; }
+
   /* 설정 칩 — F1 카드와 시작 화면이 같은 모양을 쓴다 */
   .chips { display: inline-flex; gap: 6px; }
   .chip {
@@ -269,23 +296,22 @@
   /* ================= 튜토리얼 ================= */
   #tut { position: fixed; inset: 0; z-index: 40; display: none; pointer-events: none; color: #e8eef7; }
   #tut.show { display: block; }
+  /* 화면 가운데를 비워야 근접 격투가 보인다. 왼쪽 위에 작게 붙인다. */
   .tutbox {
-    position: absolute; left: 50%; top: 74px; transform: translateX(-50%);
-    min-width: 340px; max-width: 560px; text-align: center;
-    background: rgba(12,15,22,.86); border: 1px solid rgba(255,255,255,.16);
-    border-top: 3px solid #ffd24a; border-radius: 10px; padding: 14px 24px 16px;
-    box-shadow: 0 10px 34px rgba(0,0,0,.6);
+    position: absolute; left: 16px; top: 62px;
+    width: 268px; text-align: left;
+    background: rgba(10,13,20,.55); border: 1px solid rgba(255,255,255,.10);
+    border-left: 3px solid rgba(255,210,74,.75); border-radius: 8px; padding: 9px 13px 11px;
+    backdrop-filter: blur(2px);
   }
-  .tutstep { font-size: 11px; letter-spacing: .2em; opacity: .5; }
-  .tuttitle { font-size: 21px; font-weight: 700; margin: 4px 0 6px; color: #ffd24a; }
-  .tutdesc { font-size: 13.5px; line-height: 1.6; opacity: .92; }
-  .tutprog { font-size: 12px; margin-top: 8px; opacity: .65; min-height: 16px; }
+  .tutbox:hover { background: rgba(10,13,20,.82); }
+  .tutstep { font-size: 10px; letter-spacing: .18em; opacity: .45; }
+  .tuttitle { font-size: 15px; font-weight: 700; margin: 2px 0 4px; color: #ffd24a; }
+  .tutdesc { font-size: 11.5px; line-height: 1.5; opacity: .78; }
+  .tutprog { font-size: 11px; margin-top: 6px; opacity: .6; min-height: 14px; }
   .tutbox.done { border-top-color: #7dffa0; }
   .tutbox.done .tuttitle { color: #7dffa0; }
-  .tutskip {
-    position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%);
-    font-size: 11.5px; opacity: .45;
-  }
+  .tutskip { position: absolute; left: 16px; top: 20px; font-size: 10.5px; opacity: .38; }
 
   /* ================= 시작 화면 ================= */
   #title, #charSel {
@@ -518,16 +544,7 @@
       <button id="btnPlay" class="primary">입장</button>
     </div>
     <p class="thint">선택 중인 캐릭터 — <b id="titleHero">파이터</b></p>
-    <div class="tset">
-      <span class="setk">3인칭 조준</span>
-      <span class="chips" data-set="aim"></span>
-    </div>
-    <div class="tset">
-      <span class="setk">시점 (C)</span>
-      <span class="chips" data-set="cam"></span>
-      <span class="setk" style="margin-left:14px">시야 (P)</span>
-      <span class="chips" data-set="view"></span>
-    </div>
+    <button id="btnOpts" class="tlink">옵션</button>
   </div>
 </div>
 
@@ -563,6 +580,19 @@
   <div class="tutskip">Esc — 그만두기 · Enter — 이 단계 건너뛰기</div>
 </div>
 <div id="tutCue"></div>
+<!-- 옵션. 시작 화면을 깔끔하게 두려고 따로 뺐다 (F1 안에도 같은 항목이 있다) -->
+<div id="opts">
+  <div class="oinner">
+    <h2>옵션</h2>
+    <div class="setrow"><span class="setk">3인칭 조준</span><span class="chips" data-set="aim"></span></div>
+    <div class="setd" id="aimDesc2"></div>
+    <div class="setrow"><span class="setk">시점 (C)</span><span class="chips" data-set="cam"></span></div>
+    <div class="setrow"><span class="setk">시야 (P)</span><span class="chips" data-set="view"></span></div>
+    <div class="setrow"><span class="setk">화면</span><span class="chips" data-set="ui"></span></div>
+    <div class="setd" id="uiDesc2"></div>
+    <div class="cbtns"><button id="btnOptsBack" class="primary">닫기</button></div>
+  </div>
+</div>
 <div id="crosshair"></div>
 <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
 <div id="objective">
@@ -752,7 +782,7 @@
         <dt><b>공중 콤보</b></dt><dd>띄운 뒤 <kbd>좌클릭</kbd>을 계속 넣으면 <b>같이 떠올라</b> 이어친다<br>
           이어치는 동안 체공이 계속 채워지고, 멈추면 둘 다 내려온다<br>
           뜬 적은 <b>아무것도 못 한다</b> — 착지 후에도 0.9초는 못 일어난다</dd>
-        <dt><b>거미줄 연계</b></dt><dd><kbd>F</kbd> 잡기 · <kbd>X</kbd> 끌어오기도 <b>콤보에 얹힌다</b><br>
+        <dt><b>거미줄 연계</b></dt><dd><kbd>F</kbd> 잡기 · <kbd>R</kbd> 끌어오기도 <b>콤보에 얹힌다</b><br>
           끌어와서 <kbd>좌클릭</kbd>으로 차면 그 적도 공중 상태가 된다</dd>
         <dt><b>콤보 보상</b></dt><dd><b>5 / 10 / 20타</b>에서 단계가 오른다 (화면의 <b>!</b> 개수)<br>
           단계가 오를수록 타격이 무거워지고 <b>궁극기가 빨리 찬다</b> (최대 2.6배)<br>
@@ -818,6 +848,6 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mto7phk1"></script>
+<script type="module" src="./game3d.js?v=mtob5a7k"></script>
 </body>
 </html>

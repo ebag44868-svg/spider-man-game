@@ -1034,6 +1034,7 @@ let web = null;
 const spiderGroup = new THREE.Group();
 const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.6 });
 const headMat = new THREE.MeshStandardMaterial({ color: 0xe11d2e, roughness: 0.5 });
+const headMat2 = headMat;      // 캐릭터 색을 바꿀 때 쓰는 이름 (가로등 headMat과 구분)
 const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.55, 1.1, 6, 12), bodyMat);
 body.position.y = 1.1;
 spiderGroup.add(body);
@@ -1169,6 +1170,7 @@ const particles = [];
 // 나중에 캐릭터별 고유 기능이 붙을 자리도 여기다.
 const HEROES = [
   { id: 'swinger', name: '스윙어', tag: '웹스윙 특화', color: '#7dffa0', clip: 'Swing',
+    body: '#14532d', head: '#7dffa0',
     mode: null,                       // TAB 없음. 오직 웹스윙
     spd: 1.15, hp: 0.85,
     skills: [
@@ -1178,15 +1180,17 @@ const HEROES = [
       ['추천', '처음 잡는 사람 / 도시를 날아다니고 싶은 사람'],
     ] },
   { id: 'shooter', name: '웹슈터', tag: '거미줄 격투 특화', color: '#ffd24a', clip: 'Punch',
+    body: '#1d4ed8', head: '#e11d2e',
     mode: 'attack',                   // TAB = 웹스윙 <-> 거미줄 격투
     spd: 1.0, hp: 1.0,
     skills: [
-      ['특화', 'TAB으로 거미줄 격투. 조준 사격 · 속박(E) · 잡기(F) · 끌어오기(X)'],
+      ['특화', 'TAB으로 거미줄 격투. 조준 사격 · 속박(E) · 잡기(F) · 끌어오기(R)'],
       ['거리', '멀리서 정리한다. 붙기 전에 묶고 끌어당긴다'],
       ['체력', '보통 (250)'],
       ['추천', '거리를 재며 싸우는 걸 좋아하는 사람'],
     ] },
   { id: 'fighter', name: '파이터', tag: '근접 격투 특화', color: '#ff9a6a', clip: 'Heavy',
+    body: '#3f1420', head: '#ff9a6a',
     mode: 'melee',                    // TAB = 웹스윙 <-> 근접 격투
     spd: 0.95, hp: 1.2,
     skills: [
@@ -1206,6 +1210,13 @@ function applyHero(h) {
   MAX_HP = Math.round(HP_BASE * h.hp * 10) / 10;
   MOVE_SPEED = SPD_BASE * h.spd;
   hp = MAX_HP;
+  // 외형. 모델이 아직 하나뿐이라 색으로라도 갈라야 고른 게 보인다.
+  // 나중에 캐릭터별 모델을 씌우면 이 줄이 그 자리를 대신한다.
+  if (bodyMat) bodyMat.color.setStyle(h.body);
+  if (headMat2) headMat2.color.setStyle(h.head);
+  document.body.classList.toggle("hero-swinger", h.id === "swinger");
+  document.body.classList.toggle("hero-shooter", h.id === "shooter");
+  document.body.classList.toggle("hero-fighter", h.id === "fighter");
   // 이 캐릭터가 못 쓰는 모드에 들어가 있으면 웹스윙으로 되돌린다
   if (h.mode !== 'attack') attackMode = false;
   if (h.mode !== 'melee') { meleeMode = false; clearMelee(); }
@@ -1385,6 +1396,15 @@ let regenT = 0;            // 현재 칸의 진행도 (0..REGEN_TIME)
 
 function damagePlayer(amount) {
   if (invuln > 0 || deadT > 0) return;
+  // 튜토리얼에서는 죽지 않는다. 배우다가 죽으면 배운 게 날아간다.
+  // 피해는 들어가되 한 칸은 남긴다 — 아예 무적이면 위험을 못 배운다.
+  if (tutOn) {
+    combo = 0; comboT = 0;
+    hp = Math.max(1, hp - amount);
+    regenWait = REGEN_DELAY; regenT = 0; invuln = 0.55;
+    hurtFx = 1; shake = Math.max(shake, 0.35); sfxHurt();
+    return;
+  }
   // 맞으면 콤보가 끊긴다. 시간만 보고 끊기면 서서 때리기만 해도 계속 이어진다.
   // 쳐내기(패링)는 damagePlayer를 안 타므로 콤보가 유지된다 — 그게 패링의 보상이다.
   combo = 0; comboT = 0;
@@ -3772,6 +3792,11 @@ addEventListener("keydown", e => {
       lookIdle = 0;
     }
   }
+  // H = 화면 정리 단계 순환. 웹스윙만 하고 싶을 때 전부 치운다.
+  if (e.code === "KeyH" && !e.repeat) {
+    setOpt("ui", (uiMode + 1) % 3);
+    say(["화면 전체", "화면 최소", "화면 없음 — 웹스윙에 집중"][uiMode], 2);
+  }
   // Esc = 시작 화면으로. 캐릭터를 다시 고르거나 튜토리얼을 다시 볼 수 있다.
   if (e.code === "Escape" && menuMode === "play") {
     // F1이 열려 있으면 그것부터 닫는다. 바로 시작 화면으로 튀면 놀란다.
@@ -4086,10 +4111,12 @@ function showMenu(which) {
   titleEl.classList.toggle("show", which === "title");
   // 메뉴가 떠 있는 동안 게임 HUD는 가린다
   document.getElementById("ui").style.display = which === "play" ? "" : "none";
+  optsEl && optsEl.classList.remove("show");
   charEl.classList.toggle("show", which === "char");
   document.body.classList.remove("aimlock");
   if (which !== "play") { document.exitPointerLock(); dragging = false; }
   if (which === "char") { charT = 0; charFlash(); drawCharList(); }
+  else if (charLight) { charLight.intensity = 0; charFill.intensity = 0; }
   if (which === "play") { hpNumEl && updateHud(0); if (aimCenter || firstPerson) requestLook(); }
 }
 
@@ -4153,7 +4180,7 @@ const TUT_ATTACK = [
     p: () => tutHits + " / 3", ok: () => tutHits >= 3 },
   { t: "속박", d: "<b>E</b>로 적을 고치에 가두세요. 갇힌 적은 5초간 아무것도 못 합니다.",
     p: () => tutBinds + " / 1", ok: () => tutBinds >= 1 },
-  { t: "끌어오기", d: "<b>X</b>로 적을 끌어당긴 뒤, 눈앞에 오면 <b>좌클릭</b>으로 차세요.",
+  { t: "끌어오기", d: "<b>R</b>로 적을 끌어당긴 뒤, 눈앞에 오면 <b>좌클릭</b>으로 차세요.",
     p: () => (tutHits >= 5 ? "좋다!" : "X로 끌어오기"), ok: () => tutHits >= 5 },
 ];
 // 근접은 콤보가 전부라 단계도 콤보 갈래를 따라간다.
@@ -4263,8 +4290,12 @@ function tutNext() {
   if (tutStage >= tutList.length) { tutStop("튜토리얼 완료 — 이제 자유롭게 플레이하세요"); return; }
   const st = tutList[tutStage];
   // 전투가 시작되는 단계에서 적을 불러온다
-  if (st.t === "사격") tutBringEnemies(false, 3);
-  if (st.t === "기본 3타") tutBringEnemies(true, 2);
+  // 부(部)에 들어가는 순간 적을 부른다. 배울 때 상대가 이미 있어야 한다.
+  if (st.t === "거미줄 격투") tutBringEnemies(false, 3);
+  if (st.t === "근접 격투") tutBringEnemies(true, 2);
+  if (st.t === "사격" || st.t === "속박" || st.t === "끌어오기") tutBringEnemies(false, 3);
+  if (st.t === "기본 3타" || st.t === "밀어내기" || st.t === "쳐내기" ||
+      st.t === "띄우기" || st.t === "공중 콤보") tutBringEnemies(true, 2);
   // 처형 단계는 체간을 깎아야 해서 체력 많은 격투병이 필요하다
   if (st.t === "차징 강타 → 처형") tutBringEnemies(true, 1);
   tutDraw();
@@ -4331,6 +4362,19 @@ const SETTINGS = {
     ],
     set(v) { camHold = v; camAuto = !v; camMsg = 1.6; },
   },
+  ui: {
+    get: () => uiMode,
+    opts: [
+      { v: 0, label: "전체", desc: "전부 보인다" },
+      { v: 1, label: "최소", desc: "체력·궁·조준점만. 속도계·목표·스킬칸이 사라진다" },
+      { v: 2, label: "없음", desc: "조준점만 남는다. 웹스윙에만 집중하고 싶을 때 (H키)" },
+    ],
+    set(v) {
+      uiMode = v;
+      document.body.classList.toggle("ui-min", v === 1);
+      document.body.classList.toggle("ui-off", v === 2);
+    },
+  },
   view: {
     get: () => firstPerson,
     opts: [
@@ -4357,12 +4401,18 @@ function drawSettings() {
         '<button class="chip' + (o.v === cur ? ' on' : '') + '" data-v="' + i + '">' + o.label + '</button>').join("");
       box.querySelectorAll(".chip").forEach(b => b.onclick = () => setOpt(key, S.opts[+b.dataset.v].v));
     });
-    const d = document.getElementById(key + "Desc");
-    if (d) d.textContent = (S.opts.find(o => o.v === cur) || S.opts[0]).desc;
+    const txt = (S.opts.find(o => o.v === cur) || S.opts[0]).desc;
+    for (const id of [key + "Desc", key + "Desc2"]) {
+      const d = document.getElementById(id);
+      if (d) d.textContent = txt;
+    }
   }
 }
 // aimCenter는 이 아래에서 선언된다. 여기서 바로 부르면 TDZ에 걸리므로 한 박자 미룬다.
 setTimeout(drawSettings, 0);
+const optsEl = document.getElementById("opts");
+document.getElementById("btnOpts").onclick = () => { optsEl.classList.add("show"); drawSettings(); };
+document.getElementById("btnOptsBack").onclick = () => optsEl.classList.remove("show");
 document.getElementById("btnResume").onclick = () => hudEl.classList.remove("show");
 document.getElementById("btnToTitle").onclick = () => { hudEl.classList.remove("show"); tutStop(); showMenu("title"); };
 
@@ -4378,7 +4428,9 @@ document.getElementById("btnCharOk").onclick = () => {
 };
 
 // 시작 화면 배경: 도시 위를 천천히 도는 카메라. 정지 이미지보다 낫고 공짜다.
+let uiMode = 0;                          // 0 전체 · 1 최소 · 2 없음 (H키로 순환)
 let menuAngle = 0;
+let charLight = null, charFill = null;   // 캐릭터 미리보기 전용 조명
 const _menuAt = new THREE.Vector3();
 function updateMenuCamera(dt) {
   menuAngle += dt * (menuMode === "char" ? 0.12 : 0.055);
@@ -4388,6 +4440,22 @@ function updateMenuCamera(dt) {
     // 껐던 상태로 남아 있으면 아무것도 안 보인다).
     // spiderGroup을 renderPos에 맞추는 건 frameBody의 아래쪽인데, 메뉴 중에는
     // 거기까지 안 간다. 안 맞춰주면 모델이 월드 원점에 남아 화면에 안 들어온다.
+    // 배경과 분리되게 모델만 밝힌다. 도시 조명은 밤낮에 따라 어두워서
+    // 그대로 두면 모델이 배경에 묻힌다.
+    if (!charLight) {
+      charLight = new THREE.PointLight(0xfff4e6, 0, 26, 2);
+      scene.add(charLight);
+      charFill = new THREE.PointLight(0x9fc4ff, 0, 22, 2);
+      scene.add(charFill);
+    }
+    charLight.intensity = 900;
+    charFill.intensity = 260;
+    charLight.position.set(player.renderPos.x + Math.sin(menuAngle + 0.7) * 4.5,
+                           player.renderPos.y + 4.2,
+                           player.renderPos.z + Math.cos(menuAngle + 0.7) * 4.5);
+    charFill.position.set(player.renderPos.x + Math.sin(menuAngle - 1.5) * 4.5,
+                          player.renderPos.y + 1.6,
+                          player.renderPos.z + Math.cos(menuAngle - 1.5) * 4.5);
     spiderGroup.visible = true;
     spiderGroup.position.copy(player.renderPos);
     spiderGroup.rotation.y = menuAngle + Math.PI;   // 항상 카메라를 본다
@@ -6205,15 +6273,14 @@ function frameBody(now) {
   const camLabel = camAuto ? "CAM 자동" : "CAM 수동";
   speedEl.textContent =
     `${Math.round(player.vel.length() * 3.6)} km/h · DASH ${hasDash ? "READY" : `${Math.max(dashTimer, 0).toFixed(1)}s`}`
-    + ` · ${camLabel}${camMsg > 0 ? " ←" : ""}`
-    + (!firstPerson ? `  줌 ${(1 / camZoom).toFixed(1)}x` : "")
-    + (!firstPerson ? (aimCenter ? "  ◎ 중앙조준(O)" : "  ✛ 커서조준(O)") : "")
-    + (meleeMode ? "  ✊ 근접 격투" : attackMode ? "  ⚔ 거미줄 격투" : "  (TAB=격투)")
-    + `  적 ${enemies.length}`
+    + (camMsg > 0 ? ` · ${camLabel} ←` : "")
+    + "  " + hero.name
+    + (meleeMode ? " · 근접 격투" : attackMode ? " · 거미줄 격투" : hero.mode ? " · 웹스윙 (TAB)" : " · 웹스윙")
+
     + (lockOn ? `  ◎ ${lockOn.ty.name} ${lockOn.stag > 0 ? "◆ 붕괴! 우클릭 처형" : "체간 " + Math.round((lockOn.post||0) / lockOn.postMax * 100) + "%"}` : "")
     + (combo > 1 ? `  ${combo} COMBO${"!".repeat(comboTier())}` : "")
     + (toastT > 0 ? `   ▸ ${toast}` : "")
-    + (clinging ? (sliding ? "  [벽: 미끄러지는 중 · Ctrl로 붙잡기]" : "  [벽타기: WASD로 이동]") : "");
+    + (clinging ? (sliding ? "  [벽: 미끄러지는 중 · Ctrl로 붙잡기]" : "  [벽타기: WASD]") : "");
   pumpEl.style.opacity = Math.min(1, Math.max(pumpFx, 0) * 6);
   // 급강하 연출: 목표치로 서서히 붙였다 빠진다. 즉시 켜고 끄면 화면이 깜빡인다.
   diveFx += ((diving ? 1 : 0) - diveFx) * Math.min(1, 5 * (1 / 60));
@@ -6498,4 +6565,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, SETTINGS, setOpt, get tutAllModes(){ return tutAllModes; }, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, SETTINGS, setOpt, get MAX_HP(){ return MAX_HP; }, get MOVE_SPEED(){ return MOVE_SPEED; }, get uiMode(){ return uiMode; }, get tutAllModes(){ return tutAllModes; }, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
