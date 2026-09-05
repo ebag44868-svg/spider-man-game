@@ -4,7 +4,7 @@
 // 예전에는 근처에 있는 적이 전부 동시에 덤볐다. 격투병 다섯이면 예고 색이
 // 다섯 개 겹쳐서 무엇을 쳐내고 무엇을 피할지 읽을 수가 없었다.
 //
-// 정한 상한: 근접 2 · 사수 1 · 저격수 1 = 동시에 최대 4명.
+// 정한 상한: 사수 1 · 근접 1 · 저격수 1 = 동시에 최대 3명. 종류별로 한 명씩이다.
 import { T } from "./_harness.mjs";
 const DT = 1 / 120;
 T.syncWorld();
@@ -115,7 +115,7 @@ console.log("===== 1. 동시에 덤비는 인원이 상한을 넘지 않는다 =
   }
 
   ok(maxAll <= T.DIR_MAX, `동시 공격이 ${T.DIR_MAX}명을 넘지 않는다`, `최대 ${maxAll}명`);
-  ok(maxLane[1] <= 2, "근접(돌격병+격투병)은 동시에 최대 2명", `최대 ${maxLane[1]}명`);
+  ok(maxLane[1] <= 1, "근접(돌격병+격투병)은 동시에 1명", `최대 ${maxLane[1]}명`);
   ok(maxLane[0] <= 1, "사수는 동시에 1명", `최대 ${maxLane[0]}명`);
   ok(maxLane[2] <= 1, "저격수는 동시에 1명", `최대 ${maxLane[2]}명`);
   ok(cutShort === 0, "시작한 공격이 도중에 끊기지 않는다", `끊김 ${cutShort}회`);
@@ -125,7 +125,7 @@ console.log("===== 1. 동시에 덤비는 인원이 상한을 넘지 않는다 =
   ok(everAttacked.size > T.DIR_MAX, "상한보다 많은 적이 돌아가며 공격했다",
      `${everAttacked.size}명 / 세운 18명`);
   const meleeAtk = [...everAttacked].filter(e => e.ty.melee).length;
-  ok(meleeAtk >= 4, "근접도 여러 명이 번갈아 들어왔다", `${meleeAtk}명`);
+  ok(meleeAtk >= 3, "근접도 여러 명이 번갈아 들어왔다", `${meleeAtk}명`);
   console.log(`       40초 동안: 세운 18명 중 ${everAttacked.size}명이 공격 (근접 ${meleeAtk}/10)`);
   console.log(`       동시 최대: 전체 ${maxAll} · 사수 ${maxLane[0]} · 근접 ${maxLane[1]} · 저격수 ${maxLane[2]}`);
 }
