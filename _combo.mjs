@@ -298,4 +298,72 @@ console.log("\n===== 11. 맞으면 콤보가 끊긴다 =====");
   T.setCombo(0);
 }
 
+console.log("\n===== 12. 공중 콤보 =====");
+{
+  // 띄워놓고 올려다보기만 하면 띄우는 의미가 없다. 플레이어도 같이 떠서 이어친다.
+  // 새 물리는 안 만들었다 — 이미 있던 hoverT(약한 중력 + 낙하속도 제한)를 쓴다.
+  const e = stage(4);
+  const py0 = T.player.pos.y, ey0 = e.g.position.y;
+  T.setCombo(0);
+  light(); light();
+  const c3 = T.combo;
+  heavy();                                   // 약약강 = 띄우기
+  ok(T.hoverT > 0.5, "띄우면 플레이어도 체공 상태가 된다", `hoverT ${T.hoverT.toFixed(2)}`);
+  ok(T.player.pos.y - py0 > 1.0, "플레이어가 같이 떠오른다", `+${(T.player.pos.y - py0).toFixed(2)}m`);
+  ok(e.air > 0, "적이 공중에 있다");
+
+  // 공중에서 계속 약공격을 넣는다
+  const comboAtLaunch = T.combo;
+  let hits = 0, tries = 0, maxGap = 0;
+  for (let k = 0; k < 6 && e.air > 0; k++) {
+    const before = T.combo;
+    const gap = T.player.pos.distanceTo(e.g.position);
+    maxGap = Math.max(maxGap, gap);
+    light();
+    tries++;
+    if (T.combo > before) hits++;
+  }
+  const airGain = T.combo - comboAtLaunch;
+  ok(tries >= 4, "공중에 머무는 동안 여러 번 칠 시간이 있다", `${tries}번 시도`);
+  ok(hits === tries, "공중에서 넣은 약공격이 전부 들어간다", `${hits}/${tries}`);
+  ok(maxGap < 8, "공중에서 적을 지나쳐 버리지 않는다", `최대 간격 ${maxGap.toFixed(1)}m`);
+  // 공중 타격이 지상 콤보 위에 그대로 얹힌다 (중간에 안 끊긴다)
+  ok(airGain === tries, "공중 타격이 콤보에 그대로 얹힌다", `공중 ${tries}번 시도 -> 콤보 +${airGain}`);
+  ok(T.combo > comboAtLaunch, "콤보가 지상에서 공중으로 이어진다", `${comboAtLaunch} -> ${T.combo}타`);
+
+  // 이어치기를 멈추면 둘 다 내려온다
+  const hpAir = T.hp;
+  let landed = false;
+  for (let i = 0; i < 120 * 5; i++) {
+    T.update(DT); T.updateCamera(DT);
+    if (T.player.grounded && T.player.vel.y <= 0) { landed = true; break; }
+  }
+  ok(landed, "플레이어가 착지한다");
+  ok(Math.abs(T.player.pos.y - py0) < 1.5, "원래 높이로 내려온다",
+     `${(T.player.pos.y - py0).toFixed(2)}m`);
+  // 낙하 피해는 35m부터다. 공중 콤보 높이(수 m)로는 절대 안 들어가야 한다.
+  ok(T.hp === hpAir, "공중 콤보 높이로는 낙하 피해가 안 들어간다", `hp ${hpAir} -> ${T.hp}`);
+  for (let i = 0; i < 120 * 3 && e.air > 0; i++) { T.update(DT); T.updateCamera(DT); }
+  ok(e.air === 0, "적도 내려온다");
+}
+
+console.log("\n===== 13. 공중 콤보가 다른 것을 안 건드린다 =====");
+{
+  // hoverT 미끄러짐 억제는 근접 공격 중(mAtk)에만 걸린다.
+  // 웹스윙은 근접 모드가 아니라서 mAtk 자체가 생기지 않는다.
+  const e = stage(4);
+  T.setCombo(0);
+  // 근접 모드가 아닐 때는 띄우기 자체가 안 나간다
+  const wasMelee = T.meleeMode;
+  for (let i = 0; i < 4 && T.meleeMode; i++) key("Tab");
+  ok(!T.meleeMode, "근접 모드를 벗어났다");
+  const h0 = T.hoverT;
+  T.meleeInput(true);
+  T.update(DT);
+  ok(T.mAtk === null, "근접 모드가 아니면 근접 공격이 아예 안 나간다");
+  ok(T.hoverT <= h0 + 1e-9, "따라서 체공도 안 걸린다");
+  for (let i = 0; i < 4 && !T.meleeMode; i++) key("Tab");
+  ok(T.meleeMode === wasMelee, "근접 모드로 되돌아왔다");
+}
+
 console.log(`\n통과 ${pass} / 실패 ${fail}`);
