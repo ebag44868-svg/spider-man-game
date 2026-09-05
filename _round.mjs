@@ -219,11 +219,17 @@ function dropFrom(h) {
   run(120 * 5);
   return lost;
 }
-ok(dropFrom(15)  === 0, "15m 낙하는 안 아프다");
-ok(dropFrom(40)  === 1, "35m 넘으면 1칸");
-ok(dropFrom(90)  === 2, "75m 넘으면 2칸");
-ok(dropFrom(180) === 3, "130m 넘으면 3칸");
-console.log(`       (문턱 ${T.FALL_H1}/${T.FALL_H2}/${T.FALL_H3}m · 수직 속도 ${T.FALL_MIN_V}m/s 미만이면 면제)`);
+// 낙하 피해는 단계표(FALL_TIERS)로 정해진다. 화면 표시는 칸 x 25다.
+// 예전엔 35m부터 곧바로 1칸(25)이 들어가서 스윙하다 살짝 헛디디기만 해도 아팠다.
+// 낮은 높이는 5~10으로 가볍게, 진짜 옥상에서 뛰어내리면 확실히 아프게 바꿨다.
+const disp = h => Math.round(dropFrom(h) * 25);
+ok(disp(15) === 0, "15m 낙하는 안 아프다");
+ok(disp(40) === 5, "30m 넘으면 5 (헛디딘 수준)", `${disp(40)}`);
+ok(disp(70) === 10, "55m 넘으면 10", `${disp(70)}`);
+ok(disp(110) === 25, "90m 넘으면 25 (중층 옥상)", `${disp(110)}`);
+ok(disp(180) === 50, "150m 넘으면 50", `${disp(180)}`);
+ok(disp(300) === 88, "240m 넘으면 88 (고층에서 그대로 낙하)", `${disp(300)}`);
+console.log(`       (단계 ${T.FALL_TIERS.map(t => `${t.h}m:${Math.round(t.dmg * 25)}`).join(" · ")} · 수직 속도 ${T.FALL_MIN_V}m/s 미만이면 면제)`);
 
 // 스윙 착지는 벌하지 않는다
 T.player.pos.set(0, T.groundHeightAt(0, 0) + 120, 0);

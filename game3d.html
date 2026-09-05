@@ -427,7 +427,7 @@
           <tr><th><kbd>좌클릭</kbd></th>
             <td>거미줄 걸기 <span class="s">(누르는 동안 유지)</span></td>
             <td>거미줄 발사 <span class="s">(1클릭 1발)</span></td>
-            <td><b>탭</b> = 약공격<br><b>홀드</b> = 강공격</td></tr>
+            <td><b>탭</b> = 약공격<br><b>홀드</b> = 강공격<br><span class="s">넣는 시점에 따라 갈린다 — 콤보 표 참고</span></td></tr>
           <tr><th><kbd>우클릭</kbd></th>
             <td colspan="3" class="same">시점 돌리기 — <b>세 모드 모두 똑같다</b></td></tr>
           <tr><th><kbd>E</kbd></th>
@@ -501,6 +501,7 @@
       <h3><span class="tag t3">③</span> 근접 격투 <span class="s">— 소울류</span></h3>
       <dl>
         <dt><kbd>좌클릭</kbd> 탭</dt><dd><b>약공격</b> — 3타 체인. 3타째가 크게 들어간다</dd>
+        <dt><b>콤보 갈래</b></dt><dd>강공격을 <b>언제</b> 넣느냐로 결과가 갈린다 (아래 표 참고)</dd>
         <dt><kbd>좌클릭</kbd> 홀드</dt><dd><b>강공격(차징)</b> — 0.33초 넘게 물면 차오르고 <b>떼는 순간</b> 나간다<br>발밑 고리: <b style="color:#9aa4b2">흐린 회색</b> 아직 약공격 · <b style="color:#ffb347">주황</b> 강공격 · <b>하양 깜빡</b> 최대 차징<br>오래 물수록 세다 (최대 피해 2배 · 체간 1.6배)</dd>
         <dt><kbd>E</kbd></dt><dd><b>쳐내기(패링)</b> — 0.2초 창. 적의 공격과 탄을 튕겨내고 체간을 크게 깎는다<br>헛치면 그 사이에 그대로 맞는다</dd>
         <dt><kbd>Shift</kbd></dt><dd><b>구르기</b> — 앞부분만 무적, 스태미나 소모 (방향은 WASD, 없으면 백스텝)</dd>
@@ -510,6 +511,45 @@
         <dt><b>체력바</b></dt><dd>다친 적과 락온한 적의 머리 위에 뜬다. 체간이 무너지면 <b>하얗게</b> 바뀐다 — 처형 신호</dd>
         <dt><b>조준</b></dt><dd>화면의 <b>에임점이 적 위에 있어야</b> 대미지가 들어간다. 등 뒤는 못 친다<br>락온 중에는 조준점이 어디에 있든 그 적을 친다</dd>
         <dt class="warn">발이 묶임</dt><dd>휘두르거나 구르거나 <b>차징하는 동안</b> 이동 불가. Shift 달리기·공중 대시도 꺼진다</dd>
+      </dl>
+    </div>
+
+    <div class="hs m3box">
+      <h3><span class="tag t3">③</span> 콤보 <span class="s">— 근접 격투 모드</span></h3>
+      <table class="modes">
+        <thead>
+          <tr><th>입력</th><th class="m3">나가는 기술</th><th>쓰는 자리</th></tr>
+        </thead>
+        <tbody>
+          <tr><th><kbd>탭</kbd> <kbd>탭</kbd> <kbd>탭</kbd></th>
+            <td><b>기본 3타</b></td>
+            <td>기본기. 3타째가 크게 들어간다</td></tr>
+          <tr><th><kbd>탭</kbd> <kbd>홀드</kbd></th>
+            <td><b>밀어내기</b></td>
+            <td>크게 민다. 둘러싸였을 때 숨통 트기</td></tr>
+          <tr><th><kbd>탭</kbd> <kbd>탭</kbd> <kbd>홀드</kbd></th>
+            <td><b>띄우기</b> ↑</td>
+            <td>적을 15m까지 올린다. <b>공중 콤보의 시작</b></td></tr>
+          <tr><th><kbd>홀드</kbd> <span class="s">(단독)</span></th>
+            <td><b>차징 강타</b></td>
+            <td>체간을 크게 깎는다. 붕괴시켜 처형으로</td></tr>
+          <tr><th><kbd>우클릭</kbd> <span class="s">(붕괴한 적)</span></th>
+            <td><b>처형</b></td>
+            <td>HP 무관 즉사. 연출 중 무적</td></tr>
+        </tbody>
+      </table>
+      <dl>
+        <dt><b>공중 콤보</b></dt><dd>띄운 뒤 <kbd>좌클릭</kbd>을 계속 넣으면 <b>같이 떠올라</b> 이어친다<br>
+          이어치는 동안 체공이 계속 채워지고, 멈추면 둘 다 내려온다<br>
+          뜬 적은 <b>아무것도 못 한다</b> — 착지 후에도 0.9초는 못 일어난다</dd>
+        <dt><b>거미줄 연계</b></dt><dd><kbd>F</kbd> 잡기 · <kbd>X</kbd> 끌어오기도 <b>콤보에 얹힌다</b><br>
+          끌어와서 <kbd>좌클릭</kbd>으로 차면 그 적도 공중 상태가 된다</dd>
+        <dt><b>콤보 보상</b></dt><dd><b>5 / 10 / 20타</b>에서 단계가 오른다 (화면의 <b>!</b> 개수)<br>
+          단계가 오를수록 타격이 무거워지고 <b>궁극기가 빨리 찬다</b> (최대 2.6배)<br>
+          때리기만 해도 궁이 찬다 — 처치는 필요 없다</dd>
+        <dt class="warn">끊기는 조건</dt><dd><b>맞으면 0으로 초기화</b>. 1.8초 안 때려도 풀린다<br>
+          <b>쳐내기(E)로 막으면 안 끊긴다</b> — 그게 패링의 보상이다</dd>
+        <dt><b>저글링 제한</b></dt><dd>한 번 뜬 적은 <b>4번까지만</b> 다시 띄울 수 있고, 띄울수록 낮아진다</dd>
       </dl>
     </div>
 
@@ -539,9 +579,9 @@
   <div id="uiLeft">
     <div id="portrait"></div>
     <div id="hpWrap">
-      <div id="hpBar"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div id="hpBar"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
       <div id="stamBar"><div id="stamFill"></div></div>
-      <div id="hpNum">200 / 200</div>
+      <div id="hpNum">250 / 250</div>
     </div>
   </div>
 
@@ -568,6 +608,6 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mtnxvfyr"></script>
+<script type="module" src="./game3d.js?v=mtnz385i"></script>
 </body>
 </html>

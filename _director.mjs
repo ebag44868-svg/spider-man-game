@@ -312,4 +312,37 @@ console.log("\n===== 8. 난이도 안전망 =====");
   T.setHp(T.MAX_HP);
 }
 
+console.log("\n===== 9. 근접 적을 떼어낼 수 있다 =====");
+{
+  // 테스터 의견: "근접 적이 많아지면 떼어낼 수가 없다".
+  // 실제로 격투병 추격이 26.1 m/s, 돌격병이 20.8 m/s라 플레이어 걷기(16)보다 빨랐다.
+  // 걷기 19 / 격투병 14.7 / 돌격병 13.0 으로 바꿨다.
+  const melee = T.E_TYPES.filter(t => t.melee);
+  for (const t of melee) {
+    const chase = t.spd * t.chase;
+    ok(chase < T.MOVE_SPEED, `${t.name} 추격(${chase.toFixed(1)})이 걷기(${T.MOVE_SPEED})보다 느리다`,
+       `${chase.toFixed(1)} vs ${T.MOVE_SPEED}`);
+  }
+
+  // 실제로 도망쳐 본다: 근접 적 6명에게 둘러싸인 뒤 한 방향으로 계속 걷는다
+  const fighters = setupFight();
+  const m = fighters.filter(e => e.ty.melee);
+  for (let i = 0; i < 120 * 2; i++) step(fighters);
+  const near0 = Math.min(...m.map(e => e.g.position.distanceTo(T.player.pos)));
+  for (let i = 0; i < 120 * 6; i++) {
+    T.setInvuln(5);
+    T.player.pos.x += T.MOVE_SPEED * DT;      // 걷기 속도로 직진
+    T.player.pos.y = SKY;
+    T.player.prevPos.copy(T.player.pos);
+    T.player.renderPos.copy(T.player.pos);
+    T.player.vel.set(T.MOVE_SPEED, 0, 0);
+    for (const e of fighters) { e.g.position.y = SKY; e.knock.set(0, 0, 0); }
+    T.update(DT);
+    for (const e of fighters) { e.g.position.y = SKY; e.knock.set(0, 0, 0); }
+  }
+  const near1 = Math.min(...m.map(e => e.g.position.distanceTo(T.player.pos)));
+  ok(near1 > near0 + 10, "걷기만으로도 근접 적을 떼어낸다",
+     `가장 가까운 적 ${near0.toFixed(1)}m -> ${near1.toFixed(1)}m`);
+}
+
 console.log(`\n통과 ${pass} / 실패 ${fail}`);

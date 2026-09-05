@@ -1254,14 +1254,17 @@ function makeEnemy(x, y, z, type) {
 // 종류별 성격표. 여기 숫자만 만지면 적 성향이 바뀐다.
 const E_TYPES = [
   { name: '사수',   color: 0xd41f2b, hp: 8, sight: 150, range: 130, aim: 0.95, cd: 2.2,
-    dmg: 1, spd: 5.5, chase: 1.5, strafe: 7,  proj: 117, melee: false, post: 70 },
+    dmg: 0.6, spd: 5.5, chase: 1.5, strafe: 7,  proj: 117, melee: false, post: 70 },
+  // 근접 적의 추격 속도(spd x chase)가 플레이어 걷기보다 빨라서 한 번 붙으면
+  // 떼어낼 수가 없었다. 20.8 -> 13.0. 이제 걸어서도 벌리고 달리면 확실히 뿌린다.
   { name: '돌격병', color: 0xff7a18, hp: 14, sight: 200, range: 7,   aim: 0.45, cd: 1.2,
-    dmg: 1, spd: 8,   chase: 2.6, strafe: 0,  proj: 0,   melee: true,  post: 90 },
+    dmg: 0.8, spd: 6.5, chase: 2.0, strafe: 0,  proj: 0,   melee: true,  post: 90 },
   { name: '저격수', color: 0x9b4dff, hp: 5, sight: 300, range: 280, aim: 1.9,  cd: 3.4,
-    dmg: 2, spd: 3,   chase: 0.7, strafe: 3,  proj: 190, melee: false, post: 60 },
+    dmg: 1.2, spd: 3,   chase: 0.7, strafe: 3,  proj: 190, melee: false, post: 60 },
   // 격투병 — 근접 격투 모드의 상대. 실제로 휘두르고, 예고 색으로 막을 수 있는지가 읽힌다.
+  // 격투병도 같은 이유로 26.1 -> 14.7. 그래도 가만히 서 있으면 붙는다.
   { name: '격투병', color: 0x18d6a8, hp: 32, sight: 130, range: 8,  aim: 0,    cd: 1.05,
-    dmg: 1, spd: 9,   chase: 2.9, strafe: 4,  proj: 0,   melee: true,  post: 170, brawler: true },
+    dmg: 1, spd: 7,   chase: 2.1, strafe: 4,  proj: 0,   melee: true,  post: 170, brawler: true },
 ];
 // 사수를 기본으로 두고 돌격병·저격수를 섞는다
 function rollEnemyType() {
@@ -1303,7 +1306,10 @@ function takeBeam() { for (const b of beamPool) if (!b.visible) { b.visible = tr
 function freeBeam(e) { if (e.beam) { e.beam.visible = false; e.beam = null; } }
 
 // --- 플레이어 체력 ---
-const MAX_HP = 8;
+// 체력은 '칸'으로 센다. 화면에는 칸 x 25로 표시한다 (10칸 = 250).
+// 8칸(200)이었을 때는 사수 한 발이 25, 저격수가 50이라 순식간에 녹았다.
+// 칸은 정수가 아니어도 된다 — 낙하 피해처럼 작은 피해를 주려면 소수가 필요하다.
+const MAX_HP = 10;
 let hp = MAX_HP;
 let hurtFx = 0;      // 화면 붉은 플래시 잔량
 let invuln = 0;      // 연타로 순삭당하지 않게 하는 무적 시간
@@ -1384,17 +1390,18 @@ function canSeePlayer(e) {
 // 그래서 패턴은 색으로 갈린다 — 파랗게 달아오르면 쳐낼 수 있고, 붉으면 무조건 피해야 한다.
 const BRAWL = [
   // 가로베기: 빠르고 가볍다. 쳐내기 연습용.
-  { name: '가로베기', dur: 0.85, hitAt: 0.50, parry: true,  dmg: 1, r: 7.0, kb: 10 },
+  { name: '가로베기', dur: 0.85, hitAt: 0.50, parry: true,  dmg: 0.6, r: 7.0, kb: 10 },
   // 내리침: 느리고 무겁다. 창이 넓어 보이지만 회수가 길어 반격 기회가 크다.
-  { name: '내리침',   dur: 1.20, hitAt: 0.80, parry: true,  dmg: 2, r: 7.6, kb: 20 },
+  { name: '내리침',   dur: 1.20, hitAt: 0.80, parry: true,  dmg: 1.2, r: 7.6, kb: 20 },
   // 지연 페인트: 붉다. 못 막는다. 판정 직전에 한 박자 쉬어 타이밍을 흔든다.
-  { name: '지연',     dur: 1.55, hitAt: 1.10, parry: false, dmg: 2, r: 8.2, kb: 30 },
+  // 못 막는 대신 제일 아프지만 그래도 한 방에 35다 (예전엔 50).
+  { name: '지연',     dur: 1.55, hitAt: 1.10, parry: false, dmg: 1.4, r: 8.2, kb: 30 },
 ];
 const BRAWL_HOLD = 0.22;   // 지연 패턴이 판정 직전에 멈춰 있는 시간
 // --- 공중 / 다운 ---
 // 적은 이미 세로 물리를 갖고 있다 (knock.y · 중력 -46 · 지면 스냅).
 // 없던 것은 상태뿐이라, 지금까지는 띄워놔도 공중에서 걸어다니고 공격했다.
-const AIR_MAX   = 3.0;   // 아무리 띄워도 이 시간을 넘겨 떠 있지 않는다 (안전장치)
+const AIR_MAX   = 4.0;   // 아무리 띄워도 이 시간을 넘겨 떠 있지 않는다 (안전장치)
 const AIR_HITS  = 4;     // 공중에서 이만큼 띄우면 더는 안 뜬다 (무한 저글링 방지)
 const AIR_FALL  = 0.62;  // 연달아 띄울 때마다 높이가 이 비율로 줄어든다
 const DOWN_TIME = 0.9;   // 착지 후 못 일어나는 시간
@@ -1404,12 +1411,20 @@ const DOWN_TIME = 0.9;   // 착지 후 못 일어나는 시간
 // 새 물리를 만들지 않는다 — 이미 있는 hoverT(약한 중력 G*0.16 + 낙하속도 -7 제한)를
 // 그대로 쓴다. update()의 고정 timestep과 웹스윙에는 손대지 않는다.
 // 근접 모드에서만 일어나는 일이라 스윙 상태와 겹칠 수도 없다.
-const AIR_RISE  = 12;    // 띄우는 순간 플레이어가 같이 솟는 속도
-const AIR_HOVER = 1.2;   // 띄운 뒤 떠 있는 시간 (적이 공중에 있는 시간과 맞췄다)
-const AIR_KEEP  = 0.7;   // 공중의 적을 맞힐 때마다 다시 채우는 체공 시간
-const AIR_LIFT  = 4;     // 공중에서 맞힐 때 살짝 따라 올라간다
-const AIR_GRAV  = 0.45;  // 뜬 적에게 걸리는 중력 배율. 1이면 0.8초 만에 떨어져 두 대도 못 친다
-const AIR_HOLD  = 7;     // 공중에서 맞힐 때 적을 받쳐 올리는 세기
+const AIR_RISE  = 26;    // 띄우는 순간 플레이어가 같이 솟는 속도 (M_LAUNCH.launch와 같게)
+const AIR_HOVER = 2.6;   // 띄운 뒤 떠 있는 시간 (적이 공중에 있는 시간과 맞췄다)
+const AIR_KEEP  = 1.1;   // 공중의 적을 맞힐 때마다 다시 채우는 체공 시간
+const AIR_LIFT  = 4;     // 공중에서 맞힐 때 살짝 따라 올라간다 (적의 AIR_HOLD와 같게)
+// 공중 콤보 중 플레이어에게 걸리는 중력 배율.
+// 적은 46 * AIR_GRAV(0.5) = 23을 받는다. 플레이어 기준 중력은 G=72이므로
+// 23 / 72 = 0.32로 맞춰야 둘이 같은 포물선을 탄다. 안 맞추면 적은 15m까지
+// 올라가는데 플레이어는 절반도 못 따라가서 사거리 밖에서 헛친다 (실측: 17.8 vs 7.8).
+const AIR_COMBO_G = 0.32;
+const AIR_COMBO_FALL = 30;   // 공중 콤보 중 낙하 속도 제한. 평소 7이면 내려올 때 뒤처진다
+let airComboT = 0;           // 공중 콤보가 살아 있는 시간. hoverT와 따로 둔다 —
+                             // hoverT는 집라인·잡기에서도 켜지는데 거기선 이 물리를 쓰면 안 된다
+const AIR_GRAV  = 0.5;   // 뜬 적에게 걸리는 중력 배율 (46 * 0.5 = 23). 이걸로 포물선이 잡힌다
+const AIR_HOLD  = 4;     // 공중에서 맞힐 때 받쳐 올리는 세기 (꼭대기에 붙들어 둔다)
 const AIR_SIDE  = 0.25;  // 공중에서는 옆으로 이만큼만 민다. 밀려나면 콤보가 저절로 끊긴다
 
 // 적을 띄운다. 뜬 동안에는 아무것도 못 한다 — 그게 띄우기의 보상이다.
@@ -2190,7 +2205,9 @@ const M_HEAVY  = { dur: 0.62, hit: 0.30, dmg: 2, post: 44, kb: 22, r: 8.6, cance
 // 문 시간까지 보태면 손이 너무 바빠진다.
 const M_SHOVE  = { dur: 0.42, hit: 0.16, dmg: 1, post: 18, kb: 46, r: 8.2, cancel: 0.28 };
 // launch = 위로 밀어올리는 세기. 옆으로 미는 kb와 따로 둔다.
-const M_LAUNCH = { dur: 0.50, hit: 0.20, dmg: 1, post: 26, kb: 10, r: 8.0, cancel: 0.34, launch: 30 };
+// launch = 위로 밀어올리는 세기. 감쇠 없이 중력만 받으므로 포물선이 그대로 나온다.
+// 26이면 꼭대기 약 15m / 왕복 2.3초. "아예 높게 띄웠다가 내려온다"가 목표다.
+const M_LAUNCH = { dur: 0.50, hit: 0.20, dmg: 1, post: 26, kb: 10, r: 8.0, cancel: 0.34, launch: 26 };
 
 // 이번 강공격이 어느 갈래인가. 약공격은 항상 M_LIGHT 체인이다.
 function meleeBranch(heavy, chain) {
@@ -2505,8 +2522,10 @@ function doMeleeHit(a) {
     best.knock.add(_mh.multiplyScalar(side).setY(spec.launch ? 0 : spec.kb * (a.heavy ? 0.42 : 0.2)));
     if (spec.launch && launchEnemy(best, spec.launch)) {
       // 플레이어도 같이 뜬다. 안 그러면 띄워놓고 올려다보기만 하게 된다.
+      // 적과 같은 초속(launch)을 줘야 같은 포물선을 탄다.
       player.vel.y = Math.max(player.vel.y, AIR_RISE);
       hoverT = Math.max(hoverT, AIR_HOVER);
+      airComboT = Math.max(airComboT, AIR_HOVER);
     }
   }
   // 공중의 적을 맞히면 체공이 다시 찬다. 이게 공중 콤보를 잇는 전부다 —
@@ -2514,6 +2533,7 @@ function doMeleeHit(a) {
   if (best.air > 0) {
     best.knock.y = Math.max(best.knock.y, AIR_HOLD);   // 적을 다시 받쳐 올린다
     hoverT = Math.max(hoverT, AIR_KEEP);
+    airComboT = Math.max(airComboT, AIR_KEEP);
     if (!player.grounded) player.vel.y = Math.max(player.vel.y, AIR_LIFT);
   }
   spawnImpact(gripPoint(best, _mImp), killed ? 26 : a.heavy ? 20 : 12, killed ? 'kill' : 'hit');
@@ -3057,6 +3077,7 @@ function updateLungePull(dt) {
   if (pullCd > 0) pullCd -= dt;
   if (kickBuf > 0) kickBuf -= dt;
   if (hoverT > 0) hoverT -= dt;
+  if (airComboT > 0) airComboT -= dt;
   if (glideCd > 0) glideCd -= dt;
   if (camFree > 0) camFree -= dt;
   // 시점에서 손을 뗀 뒤 잠시 지나면 자동 카메라가 다시 붙는다
@@ -3308,7 +3329,7 @@ function updateCombat(dt) {
     if (regenWait > 0) regenWait -= dt;
     else if (hp < MAX_HP) {
       regenT += dt;
-      if (regenT >= REGEN_TIME) { regenT = 0; hp++; sfxRegen(); }
+      if (regenT >= REGEN_TIME) { regenT = 0; hp = Math.min(MAX_HP, hp + 1); sfxRegen(); }
     }
   }
 
@@ -3382,7 +3403,10 @@ function updateCombat(dt) {
       if (blockedAt(e.g.position.x, e.g.position.z, e.g.position.y)) { e.g.position.z = oz; e.knock.z = 0; }
     }
     e.g.position.y += e.knock.y * dt;
-    e.knock.multiplyScalar(Math.exp(-5.5 * dt));
+    // 뜬 적은 세로 속도를 감쇠시키지 않는다. 감쇠하면 포물선이 아니라 스르륵
+    // 멈추는 그림이 되고, 아무리 세게 띄워도 3~4m밖에 안 뜬다. 실제로 그랬다.
+    if (e.air > 0) { const k = Math.exp(-5.5 * dt); e.knock.x *= k; e.knock.z *= k; }
+    else e.knock.multiplyScalar(Math.exp(-5.5 * dt));
     if (e.grip !== 2) {
       const gy = groundHeightAt(e.g.position.x, e.g.position.z, e.g.position.y);
       if (e.g.position.y < gy) { e.g.position.y = gy; e.knock.y = 0; }
@@ -3747,11 +3771,23 @@ addEventListener("keyup", e => { keys[e.code] = false; });
 // 높이로 등급을 나누고, 수직 속도는 "진짜 추락인가"를 가리는 문지기로만 쓴다.
 // (스윙으로 부드럽게 내려앉는 건 수직 속도가 낮아 통째로 면제된다)
 const FALL_MIN_V = 45;                       // 이보다 느리게 내려앉으면 안 아프다
-const FALL_H1 = 35, FALL_H2 = 75, FALL_H3 = 130;   // 떨어진 높이(m)
+// 떨어진 높이(m)와 그때의 피해(칸). 화면 표시는 칸 x 25다.
+// 예전엔 35m부터 곧바로 1칸(25)이 들어가서, 스윙하다 살짝 헛디디기만 해도 아팠다.
+// 웹스윙 게임에서 낙하는 실수라기보다 이동의 일부라 낮은 높이는 가볍게 잡는다.
+// 대신 진짜 옥상에서 뛰어내리면 확실히 아프다.
+const FALL_TIERS = [
+  { h: 30,  dmg: 0.2 },   //  30m -> 5     (헛디딘 수준)
+  { h: 55,  dmg: 0.4 },   //  55m -> 10
+  { h: 90,  dmg: 1.0 },   //  90m -> 25    (중층 건물 옥상)
+  { h: 150, dmg: 2.0 },   // 150m -> 50
+  { h: 240, dmg: 3.5 },   // 240m -> 88    (고층에서 그대로 낙하)
+];
 let fallTopY = 0;                            // 공중에 뜬 뒤 도달한 가장 높은 지점
 const G = 72;        // 무게감. 큰 스케일에서 붕 뜨지 않도록 실제 중력보다 크게 잡는다
 const JUMP_V = 42;   // 중력을 올린 만큼 초속도도 올려 도약 높이를 유지
-const MOVE_SPEED = 16;
+// 근접 적이 붙으면 떼어낼 수가 없다는 얘기가 있어서 올렸다.
+// 적 추격 속도(격투병 14.7 / 돌격병 13.0)보다 걷기만 해도 빠르다.
+const MOVE_SPEED = 19;
 const SPRINT_MULT = 1.85;   // 지상 Shift 달리기 배수
 const ACCEL = 90;
 const AIR_ACCEL = 30;
@@ -4573,6 +4609,12 @@ function update(dt) {
     // 스킬 시전 중에는 중력을 죽이되 완전히 끄지는 않는다.
     // 딱 멈추면 물리가 사라진 것처럼 느껴진다. 천천히 가라앉아야 무게가 남는다.
     if (lunge) { /* 유도가 속도를 직접 지정한다 */ }
+    else if (airComboT > 0) {
+      // 공중 콤보 중에는 적과 같은 포물선을 탄다. 감쇠도 없고 낙하 제한도 느슨하다 —
+      // 올라갈 때도 내려올 때도 붙어 있어야 이어치기가 성립한다.
+      player.vel.y -= G * AIR_COMBO_G * dt;
+      player.vel.y = Math.max(player.vel.y, -AIR_COMBO_FALL);
+    }
     else if (hoverT > 0) {
       player.vel.y -= G * 0.16 * dt;               // 약한 중력
       player.vel.y = Math.max(player.vel.y, -7);   // 천천히 내려오는 속도로 제한
@@ -4794,13 +4836,14 @@ function update(dt) {
   // 진짜로 수직으로 떨어져 박았을 때만 아프다.
   if (!wasGrounded && player.grounded) {
     const drop = Math.max(0, fallTopY - player.pos.y);
-    const fd = fallSpeed < FALL_MIN_V ? 0
-             : drop > FALL_H3 ? 3 : drop > FALL_H2 ? 2 : drop > FALL_H1 ? 1 : 0;
+    // 표에서 떨어진 높이에 해당하는 가장 높은 단계를 고른다
+    let fd = 0;
+    if (fallSpeed >= FALL_MIN_V) for (const t of FALL_TIERS) if (drop > t.h) fd = t.dmg;
     if (fd > 0) {
       damagePlayer(fd);
       shake = Math.max(shake, 0.5 + fd * 0.35);
       spawnImpact(_impV.set(player.pos.x, player.pos.y + 0.2, player.pos.z), 10 + fd * 8, 'kill');
-      say(`낙하 ${drop | 0}m  -${fd}`, 1.1);
+      say(`낙하 ${drop | 0}m  -${Math.round(fd * 25)}`, 1.1);
     }
   }
   if (!wasGrounded && player.grounded) landFx = 0.3;   // Land 애니메이션을 잠깐 재생
@@ -5549,15 +5592,18 @@ function updateHud(dtReal) {
   // 체력: 칸 단위로 꺼진다. 오버워치식으로 남은 칸만 밝게.
   for (let i = 0; i < hpSegEls.length; i++) {
     const el = hpSegEls[i];
-    el.classList.toggle("off", i >= hp);
+    // 칸은 소수일 수 있다. 반쯤 깎인 칸은 꺼지지 않고 흐려진다.
+    el.classList.toggle("off", i >= Math.ceil(hp - 1e-6));
     // 지금 차오르는 중인 칸 하나만 반쯤 켜서 회복 중임을 보여준다
     const filling = i === hp && regenWait <= 0 && hp < MAX_HP;
     el.classList.toggle("regen", filling);
+    const frac = hp - Math.floor(hp);
     if (filling) el.style.opacity = 0.25 + (regenT / REGEN_TIME) * 0.6;
+    else if (frac > 0.001 && i === Math.floor(hp)) el.style.opacity = (0.3 + frac * 0.7).toFixed(2);
     else el.style.opacity = "";
   }
-  hpNumEl.textContent = `${hp * 25} / ${MAX_HP * 25}`;
-  hpNumEl.classList.toggle("low", hp <= 2);
+  hpNumEl.textContent = `${Math.ceil(hp * 25)} / ${MAX_HP * 25}`;
+  hpNumEl.classList.toggle("low", hp <= 2.5);
   // 스태미나 — 초록 막대. 바닥나면 붉게 번쩍여서 이유를 바로 알 수 있게.
   stamBarEl.style.width = (stam / MAX_STAM * 100).toFixed(1) + "%";
   stamWrapEl.classList.toggle("empty", stamEmpty);
@@ -5974,4 +6020,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };

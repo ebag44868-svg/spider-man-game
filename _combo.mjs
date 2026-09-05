@@ -27,6 +27,7 @@ function stage(dist = 4) {
   const y = T.groundHeightAt(0, 0);
   e.hp = 9999; e.bound = 0; e.grip = 0; e.post = 0; e.postMax = 99999; e.stag = 0; e.postHold = 0;
   e.hitT = 0; e.swing = null; e.aimT = 0; e.tok = false;
+  e.air = 0; e.down = 0; e.airHits = 0;
   e.knock.set(0, 0, 0);
   e.g.position.set(0, y, dist);
   T.player.pos.set(0, y, 0); T.player.prevPos.copy(T.player.pos); T.player.renderPos.copy(T.player.pos);
@@ -103,15 +104,19 @@ console.log("\n===== 3. 띄우기가 실제로 적을 띄운다 =====");
   light(); light();
   // 띄우는 순간의 세로 속도를 잡는다
   md(0); run(Math.ceil(0.36 * 120)); mu(0);
-  let peakY = 0, peakUp = 0;
+  let peakY = 0, peakUp = 0, air = 0;
   const y0 = e.g.position.y;
-  for (let i = 0; i < 240; i++) {
+  // 포물선이 2.3초라 고정 프레임 수로는 모자란다. 내려앉을 때까지 돈다.
+  for (let i = 0; i < 120 * 8; i++) {
     T.update(DT); T.updateCamera(DT);
     peakUp = Math.max(peakUp, e.knock.y);
     peakY = Math.max(peakY, e.g.position.y - y0);
+    air = Math.max(air, e.air);
+    if (e.air === 0 && peakY > 1) break;
   }
   ok(peakUp > 20, "띄우는 순간 위로 미는 힘이 걸린다", `knock.y 최대 ${peakUp.toFixed(1)}`);
-  ok(peakY > 2, "적이 실제로 떠오른다", `최고 ${peakY.toFixed(2)}m`);
+  ok(peakY > 10, "적이 높이 떠오른다", `최고 ${peakY.toFixed(2)}m`);
+  ok(air > 1.5, "공중에 오래 머문다 (이어칠 시간이 있다)", `${air.toFixed(2)}초`);
   ok(Math.abs(e.g.position.y - y0) < 0.5, "떴다가 다시 착지한다", `착지 후 ${(e.g.position.y - y0).toFixed(2)}m`);
 
   // 대조군: 그냥 약공격은 이만큼 안 뜬다
@@ -165,7 +170,7 @@ console.log("\n===== 6. 뜬 적은 아무것도 못 한다 =====");
   ok(!e.tok, "띄우는 순간 공격권을 잃는다");
 
   let swung = 0, moved = 0, states = new Set();
-  for (let i = 0; i < 120 * 2 && e.air > 0; i++) {
+  for (let i = 0; i < 120 * 8 && e.air > 0; i++) {
     e.tok = true;                       // 억지로 공격권을 줘도
     T.update(DT); T.updateCamera(DT);
     if (e.swing || e.aimT > 0) swung++;
