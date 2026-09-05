@@ -233,6 +233,22 @@
     transform: translate(-50%, -50%); border: 2px solid rgba(255,255,255,0.55);
     border-radius: 50%; pointer-events: none;
   }
+  /* 중앙 조준 모드: 조준점이 화면 정중앙에 박히므로 OS 커서는 감춰야 한다.
+     포인터 락이 거부되는 상황(Esc 직후 쿨다운 등)에서도 커서가 안 보이게
+     CSS로도 한 번 더 막는다 — 락만 믿으면 "커서가 그대로인데?"가 된다. */
+  body.aimlock, body.aimlock #wrap, body.aimlock canvas { cursor: none !important; }
+  /* 가운데 조준점은 한눈에 다르게. 점 하나를 더해 정확히 어디를 겨누는지 보이게 한다. */
+  body.aimlock #crosshair {
+    width: 22px; height: 22px;
+    border-color: rgba(255,255,255,0.85);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.55), 0 0 6px rgba(0,0,0,0.6);
+  }
+  body.aimlock #crosshair::after {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px;
+    background: #fff; border-radius: 50%;
+    box-shadow: 0 0 3px rgba(0,0,0,0.9);
+  }
   /* 오버워치식 X자 히트마커 — 조준점 위에 겹쳐 뜬다 */
   #hitmarker {
     position: fixed; left: 50%; top: 50%; width: 30px; height: 30px;
@@ -611,6 +627,6 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mtnzhaeh"></script>
+<script type="module" src="./game3d.js?v=mtnzobkt"></script>
 </body>
 </html>

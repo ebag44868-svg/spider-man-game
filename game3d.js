@@ -4179,6 +4179,8 @@ addEventListener("auxclick", e => {
 }, { capture: true });
 
 renderer.domElement.addEventListener("mousedown", e => {
+  // 락이 아직 안 걸렸으면 여기서 다시 잡는다. 키 입력으로는 거부될 때가 있다.
+  if (wantLock && (firstPerson || aimCenter) && !document.pointerLockElement) requestLook();
   initAudio();
   if (e.button === 3 || e.button === 4) return;
   const nowS = performance.now() / 1000;
@@ -4269,7 +4271,12 @@ document.addEventListener("pointerlockerror", () => {
 });
 
 // 락 요청은 프라미스를 반환할 수 있고 거부될 수 있다. 거부돼도 게임이 멈추면 안 된다.
+// 락이 거부되면(Esc 직후 쿨다운 등) 다음 클릭에 다시 시도한다.
+// 거부돼도 조작은 mousemove 이동량으로 계속되지만, 커서가 창 밖으로 나가면
+// 클릭이 게임에 안 들어와서 답답해진다.
+let wantLock = false;
 function requestLook() {
+  wantLock = true;
   try {
     const r = renderer.domElement.requestPointerLock();
     if (r && typeof r.catch === "function") r.catch(() => {});
@@ -5463,6 +5470,9 @@ function updateObjective() {
 }
 
 function updateCrosshair() {
+  // 중앙 조준이면 OS 커서를 감춘다. 매 프레임 맞춰서 어떤 경로로 들어와도 어긋나지 않게.
+  // F1 조작법이 열려 있을 때는 돌려줘야 스크롤을 할 수 있다.
+  document.body.classList.toggle("aimlock", aimCenter && !hudEl.classList.contains("show"));
   // 1인칭 조준점은 항상 화면 정중앙. 매 프레임 강제해서 어떤 경로로도 밀리지 않게 한다.
   if (firstPerson || aimCenter) {
     crosshairEl.style.left = "50%";
