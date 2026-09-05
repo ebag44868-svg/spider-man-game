@@ -33,7 +33,7 @@ const _g=globalThis;
 let _seed = _g.__SEED__ || 12345;
 Math.random = () => { _seed = (_seed * 1664525 + 1013904223) >>> 0; return _seed / 4294967296; };
 function _mkEl(){
-  const e={style:{setProperty(){}},textContent:'',classList:{toggle(){},add(){},remove(){},contains(){return false;}},children:[],appendChild(){},addEventListener(){},requestPointerLock(){},querySelector(){return _mkEl();},getBoundingClientRect(){return {left:0,top:0,width:100,height:100};},dataset:{},closest(){return null;}};
+  const e={style:{setProperty(){}},textContent:'',classList:{toggle(){},add(){},remove(){},contains(){return false;}},children:[],appendChild(){},addEventListener(){},requestPointerLock(){},querySelector(){return _mkEl();},querySelectorAll(){return [];},getBoundingClientRect(){return {left:0,top:0,width:100,height:100};},dataset:{},closest(){return null;}};
   Object.defineProperty(e,"firstElementChild",{get:()=>_mkEl()});
   return e;
 }
@@ -42,7 +42,7 @@ const ctx2d=new Proxy({},{get:(t,k)=>(k==='canvas'?{width:256,height:256}:(k==='
 _g.__handlers={};
 _g.document={createElement:()=>({width:0,height:0,getContext:()=>ctx2d,style:{},addEventListener(){},requestPointerLock(){}}),
   createElementNS:()=>({style:{},getContext:()=>ctx2d,addEventListener(){},setAttribute(){}}),
-  getElementById:()=>_mkEl(),querySelector:()=>_mkEl(),body:{appendChild(){},classList:{add(){},remove(){},toggle(){}}},addEventListener(n,f){ _g.__handlers[n]=f; },exitPointerLock(){},pointerLockElement:null};
+  getElementById:()=>_mkEl(),querySelector:()=>_mkEl(),querySelectorAll:()=>[],body:{appendChild(){},classList:{add(){},remove(){},toggle(){}}},addEventListener(n,f){ _g.__handlers[n]=f; },exitPointerLock(){},pointerLockElement:null};
 _g.location={search:""};   // node에 navigator는 이미 있다(maxTouchPoints undefined)
 _g.innerWidth=1600;_g.innerHeight=900;_g.devicePixelRatio=1;
 _g.__cv={};_g.__win={};_g.addEventListener=(nm,f)=>{ (_g.__win[nm]=_g.__win[nm]||[]).push(f); };_g.performance=_g.performance||{now:()=>Date.now()};

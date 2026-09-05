@@ -3773,28 +3773,18 @@ addEventListener("keydown", e => {
     }
   }
   // Esc = 시작 화면으로. 캐릭터를 다시 고르거나 튜토리얼을 다시 볼 수 있다.
-  if (e.code === "Escape" && menuMode === "play") { tutStop(); showMenu("title"); return; }
+  if (e.code === "Escape" && menuMode === "play") {
+    // F1이 열려 있으면 그것부터 닫는다. 바로 시작 화면으로 튀면 놀란다.
+    if (hudEl.classList.contains("show")) { hudEl.classList.remove("show"); return; }
+    tutStop(); showMenu("title"); return;
+  }
   // Enter = 이 단계 건너뛰기. 막히면 튜토리얼이 감옥이 된다.
   if (e.code === "Enter" && tutOn) { tutNext(); return; }
   // O = 조준 방식 전환 (실험). 커서 조준 <-> 중앙 고정 + 어깨너머.
+  // 단축키도 설정과 같은 경로를 탄다 — 두 군데서 상태를 만지면 반드시 어긋난다.
   if (e.code === "KeyO" && !e.repeat) {
-    aimCenter = !aimCenter;
-    dragging = false;
-    if (aimCenter) {
-      camAuto = false;               // 자동 정렬이 끼어들면 조준이 흔들린다
-      if (!firstPerson) requestLook();
-      crosshairEl.style.left = "50%";
-      crosshairEl.style.top = "50%";
-      say("중앙 조준 · 어깨너머 카메라 (O로 되돌리기)", 3);
-    } else {
-      if (!firstPerson) {
-        document.exitPointerLock();
-        crosshairEl.style.left = `${mx}px`;
-        crosshairEl.style.top = `${my}px`;
-        camAuto = !camHold;
-      }
-      say("커서 조준 (예전 방식) · O로 다시 전환", 3);
-    }
+    setAim(!aimCenter);
+    say(aimCenter ? "중앙 조준 · 어깨너머 카메라 (O 또는 F1 설정)" : "커서 조준 (O 또는 F1 설정)", 2.5);
   }
   // C = 시점 자동/수동. 수동은 C를 다시 누를 때까지 유지된다 (시간이 지나도 안 풀린다).
   if (e.code === "KeyC" || e.code === "KeyZ") {
@@ -3814,7 +3804,8 @@ addEventListener("keydown", e => {
     e.preventDefault();
     hudEl.classList.toggle("show");
     // 조작법을 읽는 동안 커서가 갇혀 있으면 못 읽는다 (1인칭은 포인터 락이 걸려 있다)
-    if (hudEl.classList.contains("show")) document.exitPointerLock();
+    if (hudEl.classList.contains("show")) { document.exitPointerLock(); drawSettings(); }
+    else if ((firstPerson || aimCenter) && menuMode === "play") requestLook();
   }
   if (e.code === "Escape") hudEl.classList.remove("show");
   if (e.code === "Tab") {
@@ -4264,8 +4255,46 @@ function updateTut(dt) {
   }
 }
 
+// ================== 설정 ==================
+// 조준 방식은 시작 화면과 F1(일시정지) 둘 다에서 바꾼다. 어디서 바꾸든 같은
+// 상태 하나(aimCenter)를 만지고, 칩은 그 상태를 다시 그린다.
+const AIM_OPTS = [
+  { v: false, label: "커서", desc: "마우스가 조준점을 옮긴다. 시점은 우클릭 드래그" },
+  { v: true,  label: "중앙", desc: "조준점이 화면 중앙 고정, 마우스 = 시점 (어깨너머 카메라)" },
+];
+function setAim(v) {
+  if (aimCenter === v) return;
+  aimCenter = v;
+  dragging = false;
+  if (aimCenter) {
+    camAuto = false;
+    if (!firstPerson && menuMode === "play") requestLook();
+    crosshairEl.style.left = "50%";
+    crosshairEl.style.top = "50%";
+  } else if (!firstPerson) {
+    document.exitPointerLock();
+    crosshairEl.style.left = mx + "px";
+    crosshairEl.style.top = my + "px";
+    camAuto = !camHold;
+  }
+  drawSettings();
+}
+function drawSettings() {
+  document.querySelectorAll('.chips[data-set="aim"]').forEach(box => {
+    box.innerHTML = AIM_OPTS.map((o, i) =>
+      '<button class="chip' + (o.v === aimCenter ? ' on' : '') + '" data-v="' + i + '">' + o.label + '</button>').join("");
+    box.querySelectorAll(".chip").forEach(b => b.onclick = () => setAim(AIM_OPTS[+b.dataset.v].v));
+  });
+  const d = document.getElementById("aimDesc");
+  if (d) d.textContent = (AIM_OPTS.find(o => o.v === aimCenter) || AIM_OPTS[0]).desc;
+}
+// aimCenter는 이 아래에서 선언된다. 여기서 바로 부르면 TDZ에 걸리므로 한 박자 미룬다.
+setTimeout(drawSettings, 0);
+document.getElementById("btnResume").onclick = () => hudEl.classList.remove("show");
+document.getElementById("btnToTitle").onclick = () => { hudEl.classList.remove("show"); tutStop(); showMenu("title"); };
+
 document.getElementById("btnTut").onclick = () => tutStart();
-document.getElementById("btnPlay").onclick = () => { tutStop(); showMenu("play"); };
+document.getElementById("btnPlay").onclick = () => { tutStop(); showMenu("play"); drawSettings(); };
 document.getElementById("btnChar").onclick = () => showMenu("char");
 document.getElementById("btnCharBack").onclick = () => showMenu("title");
 document.getElementById("btnCharOk").onclick = () => {
@@ -6396,4 +6425,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
