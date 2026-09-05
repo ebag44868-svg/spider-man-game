@@ -2592,6 +2592,8 @@ function doMeleeHit(a) {
     airComboT = Math.max(airComboT, AIR_KEEP);
     if (!player.grounded) player.vel.y = Math.max(player.vel.y, AIR_LIFT);
   }
+  if (a.branch === "shove") tutShoves++;        // 튜토리얼 진행도
+  if (a.branch === "heavy") tutHeavies++;
   spawnImpact(gripPoint(best, _mImp), killed ? 26 : a.heavy ? 20 : 12, killed ? 'kill' : 'hit');
   // 콤보가 쌓이면 타격이 무거워진다. comboHit()이 이미 올려놓은 값을 쓴다.
   hitStop = (a.heavy ? (killed ? 0.17 : 0.12) : (killed ? 0.14 : 0.07)) * COMBO_STOP[comboTier()];
@@ -2673,6 +2675,7 @@ function meleeRoll() {
 
 // ---------- 처형 ----------
 function startExecute(e) {
+  tutExecs++;                    // 튜토리얼 진행도
   execT = EXEC_TIME;
   execTarget = e;
   invuln = Math.max(invuln, EXEC_TIME + 0.15);   // 연출 중에는 아무도 못 건드린다
@@ -4129,6 +4132,8 @@ function drawCharList() {
 // 진행 조건은 전부 이미 있는 상태를 읽는다 — 새 판정을 안 만든다.
 let tutOn = false, tutStage = 0, tutDone = 0, tutList = null;
 let tutSwings = 0, tutHits = 0, tutBinds = 0, tutParries = 0, tutLaunches = 0;
+let tutShoves = 0, tutHeavies = 0, tutExecs = 0;
+let tutT = 0;                    // 이 단계에 머문 시간. 설명만 하는 단계를 자동으로 넘긴다
 const tutEl = document.getElementById("tut");
 
 // 공통(웹스윙) + 캐릭터 특화. 스윙어는 조작이 웹스윙뿐이라 공통이 전부다.
@@ -4150,17 +4155,28 @@ const TUT_ATTACK = [
   { t: "끌어오기", d: "<b>X</b>로 적을 끌어당긴 뒤, 눈앞에 오면 <b>좌클릭</b>으로 차세요.",
     p: () => (tutHits >= 5 ? "좋다!" : "X로 끌어오기"), ok: () => tutHits >= 5 },
 ];
+// 근접은 콤보가 전부라 단계도 콤보 갈래를 따라간다.
+// 갈래는 "강공격을 언제 넣느냐"로 갈린다 — 짧게 친 횟수가 곧 입력 순서다.
 const TUT_MELEE = [
-  { t: "근접 격투", d: "<b>TAB</b>을 눌러 근접 격투 모드로 들어가세요.",
+  { t: "근접 격투", d: "<b>TAB</b>을 눌러 근접 격투 모드로 들어가세요.<br><span style='opacity:.6'>Ctrl로 적을 락온하면 조준이 훨씬 쉽습니다.</span>",
     p: () => (meleeMode ? "들어왔다!" : "TAB"), ok: () => meleeMode },
-  { t: "기본 3타", d: "적에게 붙어 <b>좌클릭을 짧게 3번</b>. 조준점이 적 위에 있어야 맞습니다.<br>Ctrl로 락온하면 훨씬 쉽습니다.",
+  { t: "기본 3타", d: "적에게 붙어 <b>좌클릭을 짧게 3번</b>. 3타째가 크게 들어갑니다.<br>조준점이 적 위에 있어야 맞습니다.",
     p: () => tutHits + " / 3", ok: () => tutHits >= 3 },
-  { t: "쳐내기", d: "적이 <b style='color:#6ab6ff'>파랗게</b> 달아오를 때 <b>E</b>. 붉은 예고는 못 막으니 <b>Shift</b>로 구르세요.",
+  { t: "콤보 갈래", d: "여기서부터가 콤보입니다. <b>강공격(길게 누르기)을 언제 넣느냐</b>로 갈립니다.<br>" +
+      "<b>짧게 → 길게</b> = 밀어내기 · <b>짧게 짧게 → 길게</b> = 띄우기 · <b>길게 단독</b> = 차징 강타",
+    p: () => "읽고 나면 자동으로 넘어갑니다 (" + Math.max(0, 8 - tutT | 0) + "초) · Enter로 바로",
+    ok: () => tutT > 8 },
+  { t: "밀어내기", d: "<b>짧게 한 번 → 길게(0.4초)</b>. 크게 밀어냅니다.<br>둘러싸였을 때 숨통을 트는 용도입니다.",
+    p: () => tutShoves + " / 1", ok: () => tutShoves >= 1 },
+  { t: "쳐내기", d: "적이 <b style='color:#6ab6ff'>파랗게</b> 달아오를 때 <b>E</b>. 붉은 예고는 못 막으니 <b>Shift</b>로 구르세요.<br>쳐내면 콤보가 안 끊깁니다.",
     p: () => tutParries + " / 1", ok: () => tutParries >= 1 },
-  { t: "띄우기", d: "<b>좌클릭 짧게 · 짧게 · 길게(0.4초)</b>. 적이 하늘로 뜹니다.",
+  { t: "띄우기", d: "<b>짧게 · 짧게 · 길게(0.4초)</b>. 적이 15m까지 떠오릅니다.",
     p: () => tutLaunches + " / 1", ok: () => tutLaunches >= 1 },
-  { t: "공중 콤보", d: "띄운 뒤 <b>좌클릭을 계속</b> 넣으세요. 같이 떠올라 이어칩니다.",
-    p: () => tutHits + " / 6", ok: () => tutHits >= 6 },
+  { t: "공중 콤보", d: "띄운 뒤 <b>좌클릭을 계속</b> 넣으세요. 같이 떠올라 이어칩니다.<br>멈추면 둘 다 내려옵니다.",
+    p: () => tutHits + " / 5", ok: () => tutHits >= 5 },
+  { t: "차징 강타 → 처형", d: "<b>길게 단독</b>으로 체간을 깎으세요. 적이 <b>하얗게</b> 무너지면 <b>우클릭</b>으로 처형입니다.",
+    p: () => (enemies.some(e => !e.dead && e.stag > 0) ? "무너졌다! 우클릭" : "강타 " + tutHeavies + "회"),
+    ok: () => tutExecs >= 1 },
 ];
 
 // 전투 단계에 들어가면 적을 앞으로 불러온다. 찾아다니게 하면 튜토리얼이 아니라 산책이다.
@@ -4183,6 +4199,8 @@ function tutBringEnemies(kind, n) {
 function tutStart() {
   tutOn = true; tutStage = 0; tutDone = 0;
   tutSwings = tutHits = tutBinds = tutParries = tutLaunches = 0;
+  tutShoves = tutHeavies = tutExecs = 0;
+  tutT = 0;
   tutList = TUT_SWING.concat(hero.mode === 'attack' ? TUT_ATTACK : hero.mode === 'melee' ? TUT_MELEE : []);
   // 조용한 높은 자리에서 시작한다 — 스윙을 배우려면 떨어질 공간이 필요하다
   const y = groundHeightAt(-600, 600, 1e9);
@@ -4221,11 +4239,14 @@ function tutNext() {
   tutStage++;
   tutDone = 0.9;                      // 잠깐 초록으로 바뀌었다 다음 단계로
   tutHits = 0;                        // 단계마다 다시 센다
+  tutT = 0;
   if (tutStage >= tutList.length) { tutStop("튜토리얼 완료 — 이제 자유롭게 플레이하세요"); return; }
   const st = tutList[tutStage];
   // 전투가 시작되는 단계에서 적을 불러온다
   if (st.t === "사격") tutBringEnemies(false, 3);
   if (st.t === "기본 3타") tutBringEnemies(true, 2);
+  // 처형 단계는 체간을 깎아야 해서 체력 많은 격투병이 필요하다
+  if (st.t === "차징 강타 → 처형") tutBringEnemies(true, 1);
   tutDraw();
   sfxPerfect();
 }
@@ -4234,6 +4255,7 @@ function updateTut(dt) {
   const st = tutList[tutStage];
   if (!st) return;
   if (tutDone > 0) { tutDone -= dt; return; }
+  tutT += dt;
   document.getElementById("tutProg").textContent = st.p ? st.p() : "";
   if (st.ok()) {
     document.querySelector(".tutbox").classList.add("done");
