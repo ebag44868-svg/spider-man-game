@@ -256,6 +256,16 @@
   #charFlash.on { animation: cflash .42s ease-out; }
   @keyframes cflash { 0% { opacity: .55; } 100% { opacity: 0; } }
 
+  /* 슬로모션 중 "지금!" 안내. 타이밍 기술은 글로 읽어선 절대 안 익는다. */
+  #tutCue {
+    position: fixed; left: 50%; top: 41%; transform: translate(-50%,-50%);
+    z-index: 45; pointer-events: none; opacity: 0;
+    font-size: 40px; font-weight: 800; letter-spacing: .04em; color: #6ab6ff;
+    text-shadow: 0 0 18px rgba(0,0,0,.95), 0 0 34px rgba(60,140,255,.7);
+  }
+  #tutCue.on { opacity: 1; animation: cuePulse .38s ease-in-out infinite alternate; }
+  @keyframes cuePulse { from { transform: translate(-50%,-50%) scale(1); } to { transform: translate(-50%,-50%) scale(1.09); } }
+
   /* ================= 튜토리얼 ================= */
   #tut { position: fixed; inset: 0; z-index: 40; display: none; pointer-events: none; color: #e8eef7; }
   #tut.show { display: block; }
@@ -512,6 +522,12 @@
       <span class="setk">3인칭 조준</span>
       <span class="chips" data-set="aim"></span>
     </div>
+    <div class="tset">
+      <span class="setk">시점 (C)</span>
+      <span class="chips" data-set="cam"></span>
+      <span class="setk" style="margin-left:14px">시야 (P)</span>
+      <span class="chips" data-set="view"></span>
+    </div>
   </div>
 </div>
 
@@ -546,6 +562,7 @@
   </div>
   <div class="tutskip">Esc — 그만두기 · Enter — 이 단계 건너뛰기</div>
 </div>
+<div id="tutCue"></div>
 <div id="crosshair"></div>
 <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
 <div id="objective">
@@ -588,6 +605,16 @@
         <span class="setk">3인칭 조준</span>
         <span class="chips" data-set="aim"></span>
         <span class="setd" id="aimDesc"></span>
+      </div>
+      <div class="setrow">
+        <span class="setk">시점 (C)</span>
+        <span class="chips" data-set="cam"></span>
+        <span class="setd" id="camDesc"></span>
+      </div>
+      <div class="setrow">
+        <span class="setk">시야 (P)</span>
+        <span class="chips" data-set="view"></span>
+        <span class="setd" id="viewDesc"></span>
       </div>
       <div class="setrow">
         <span class="setk"></span>
@@ -791,6 +818,6 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mto7lwy4"></script>
+<script type="module" src="./game3d.js?v=mto7phk1"></script>
 </body>
 </html>
