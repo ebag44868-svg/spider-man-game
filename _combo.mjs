@@ -366,4 +366,50 @@ console.log("\n===== 13. 공중 콤보가 다른 것을 안 건드린다 =====")
   ok(T.meleeMode === wasMelee, "근접 모드로 되돌아왔다");
 }
 
+console.log("\n===== 14. 거미줄 연계 =====");
+{
+  // 거미줄 기술로 시작해도 콤보가 이어져야 스파이더맨의 그림이 된다.
+  // 지금까지는 잡기·끌어오기가 콤보 카운터에 아예 안 얹혔다.
+  const e = stage(12);
+  T.setCombo(0);
+  T.setLock(e);
+  T.fireGrab();
+  let grabbed = false;
+  for (let i = 0; i < 240; i++) { T.update(DT); T.updateCamera(DT); if (T.lunge) { grabbed = true; break; } }
+  ok(grabbed, "거미줄 잡기가 걸린다");
+  ok(T.combo >= 1, "잡는 순간이 콤보의 시작이 된다", `${T.combo}타`);
+
+  // 끌어오기도 같다
+  const e2 = stage(12);
+  T.setCombo(0);
+  T.setLock(e2);
+  T.firePull();
+  let pulled = false;
+  for (let i = 0; i < 240; i++) { T.update(DT); T.updateCamera(DT); if (T.pull) { pulled = true; break; } }
+  ok(pulled, "끌어오기가 걸린다");
+  ok(T.combo >= 1, "끌어채는 순간도 콤보에 얹힌다", `${T.combo}타`);
+
+  // 발차기로 찬 적은 공중 상태가 된다 (수치는 그대로, 상태만 붙는다)
+  const e3 = stage(12);
+  e3.hp = 9999;
+  T.setCombo(0);
+  T.setLock(e3);
+  T.firePull();
+  let kicked = false;
+  for (let i = 0; i < 600; i++) {
+    T.update(DT); T.updateCamera(DT);
+    if (T.kickOpen) { T.tryKick(); }
+    if (!T.pull && e3.air > 0) { kicked = true; break; }
+  }
+  ok(kicked, "끌어와서 찬 적이 공중 상태가 된다", `air ${e3.air.toFixed(2)}`);
+  ok(e3.knock.y > 20, "위로 미는 세기는 예전 그대로다 (KICK_KB * 0.42)", `knock.y ${e3.knock.y.toFixed(1)}`);
+  let swungWhileFlying = 0;
+  for (let i = 0; i < 120 * 2 && e3.air > 0; i++) {
+    e3.tok = true;
+    T.update(DT); T.updateCamera(DT);
+    if (e3.swing || e3.aimT > 0) swungWhileFlying++;
+  }
+  ok(swungWhileFlying === 0, "날아가는 동안 반격하지 않는다", `${swungWhileFlying}프레임`);
+}
+
 console.log(`\n통과 ${pass} / 실패 ${fail}`);

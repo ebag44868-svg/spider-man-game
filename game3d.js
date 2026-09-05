@@ -2857,6 +2857,7 @@ function startLunge(e) {
   hitMark = 0.2;
   hitKill = false;
   e.flash = 0.3;                      // 잡힌 적이 번쩍인다
+  comboHit();                         // 거미줄로 걸어도 콤보의 시작이다
   spawnImpact(gripPoint(e, _impV), 16, 'web');
   sfxThwip();
   sfxHit(false);
@@ -2874,6 +2875,7 @@ function startPull(e) {
   hitMark = 0.2;
   hitKill = false;
   e.flash = 0.3;
+  comboHit();                         // 끌어채는 순간도 마찬가지
   spawnImpact(gripPoint(e, _impV), 16, 'web');
   sfxThwip();
   sfxHit(false);
@@ -2900,6 +2902,11 @@ function doKick(e) {
   player.vel.addScaledVector(_lv, -16);
   player.vel.y += 8;
   e.grip = 0;
+  // 찬 적을 공중 상태로 넘긴다. 위로 미는 세기(KICK_KB * 0.42 = 27.7)는
+  // 이미 위에서 준 값 그대로라 수치는 하나도 안 바뀐다 — 상태만 붙는다.
+  // 이걸로 날아가는 동안 반격을 못 하고, 뜬 자세로 그려지고, 공중 콤보로 받을 수 있다.
+  // grip을 푼 뒤에 불러야 한다. launchEnemy는 잡혀 있는 적을 안 띄운다.
+  launchEnemy(e, KICK_KB * 0.42);
   lunge = null; pull = null; kickOpen = false;
 }
 
