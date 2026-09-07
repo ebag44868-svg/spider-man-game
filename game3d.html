@@ -749,8 +749,10 @@
         <dt><kbd>우클릭</kbd></dt><dd>시점 <b>(공격 아님)</b>. 체간이 무너진 적 앞에서만 <b>처형</b>이 나간다</dd>
         <dt><b>체간</b></dt><dd>HP와 별개로 쌓인다. 다 차면 적이 무너지고, 그때 <b>강공격이 처형</b>이 된다<br>(HP 무관 즉사 · 연출 중 무적). 몰아치지 않으면 도로 회복된다</dd>
         <dt><b>체력바</b></dt><dd>다친 적과 락온한 적의 머리 위에 뜬다. 체간이 무너지면 <b>하얗게</b> 바뀐다 — 처형 신호</dd>
-        <dt><b>조준</b></dt><dd>화면의 <b>에임점이 적 위에 있어야</b> 대미지가 들어간다. 등 뒤는 못 친다<br>락온 중에는 조준점이 어디에 있든 그 적을 친다</dd>
-        <dt class="warn">발이 묶임</dt><dd>휘두르거나 구르거나 <b>차징하는 동안</b> 이동 불가. Shift 달리기·공중 대시도 꺼진다</dd>
+        <dt><b>대상 지정</b> <span class="s">(자동)</span></dt><dd><b>WASD가 가리키는 쪽</b>의 적을 알아서 고른다. 안 누르면 <b>보고 있는 쪽</b><br>16m 안이면 휘두르면서 <b>알아서 붙는다</b> — 조준점을 맞출 필요가 없다<br>조준점이 적 위에 있으면 그 적을 더 우선하고, <b>띄운 적</b>도 우선한다<br>등 뒤는 못 친다 · <kbd>Ctrl</kbd> 락온을 걸면 <b>그 적만</b> 친다</dd>
+        <dt><kbd>Shift</kbd> <b>회피 취소</b></dt><dd>판정이 나간 뒤에는 <b>후딜을 구르기로 끊을 수 있다</b><br>구르고 나서도 콤보 체인은 이어진다</dd>
+        <dt><b>선입력</b></dt><dd>휘두르는 <b>도중에 눌러도</b> 다음 타가 예약된다 (0.42초)<br>예약이 있으면 회수 동작을 끊고 바로 이어친다</dd>
+        <dt class="warn">발이 묶임</dt><dd><b>강공격·차징·밀어내기·띄우기</b>만 제자리다<br>약공격은 <b>움직이면서</b> 칠 수 있다 (속도 62%). 구르기·처형 중에는 이동 불가</dd>
       </dl>
     </div>
 
@@ -848,6 +850,6 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mtobakov"></script>
+<script type="module" src="./game3d.js?v=mtrw0ejl"></script>
 </body>
 </html>

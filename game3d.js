@@ -2291,8 +2291,16 @@ function meleeBranch(heavy, chain) {
   return chain === 2 ? M_LAUNCH : chain === 1 ? M_SHOVE : M_HEAVY;
 }
 const M_CHAIN_T = 0.65;   // 이 안에 다음 약공격을 넣어야 체인이 이어진다
-const M_BUF_T   = 0.28;   // 선입력 유지 시간
-const M_STEP    = 26;     // 휘두르며 앞으로 파고드는 속도 (상한)
+// 선입력은 넉넉해야 한다. 사람은 판정 프레임을 보고 누르지 않는다.
+const M_BUF_T   = 0.42;   // 선입력 유지 시간
+const M_STEP    = 26;     // (예전 파고들기 상한 — 지금은 LUNGE_CAP이 쓰인다)
+// --- 파고들기(루트 모션) ---
+// 예전에는 공격 시작 때 속도를 한 번만 줬다. 그래서 목표가 조금만 멀어도
+// 판정 시각에 아직 도착을 못 했고, "쳤는데 안 맞는다"가 됐다.
+// 스파이더맨2는 애니메이션이 캐릭터를 대상까지 끌고 간다. 그 방식을 따라간다 —
+// 판정 프레임까지 남은 시간으로 필요한 속도를 매 틱 다시 계산해서 반드시 도착시킨다.
+const LUNGE_MAX = 16;     // 이보다 멀면 붙지 않는다 (그 거리는 F 거미줄 접근의 몫)
+const LUNGE_CAP = 58;     // 파고드는 속도 상한
 const MELEE_STAND = 5.0;  // 목표 앞 이 거리에 서려고 한다. 3.4였을 때는 서로 몸이 겹쳤다.
 
 let mAtk = null;          // { spec, t, hit, heavy, idx }
@@ -2353,6 +2361,24 @@ let dashIn = 0, dashInE = null;
 let swingFx = 0, swingFxDur = 0.3, swingFxHit = 0.1, swingHeavy = false, swingYaw = 0;
 
 const _mDir = new THREE.Vector3(), _mh = new THREE.Vector3(), _mImp = new THREE.Vector3();
+
+// 손이 가리키는 '의도' 방향. 하드 락온 > 이동 입력 > 시선 순.
+// 스파이더맨2에는 락온이 없고 스틱 방향이 곧 대상 지정이다. 그 자리를 이 함수가 맡는다.
+function meleeIntent(out) {
+  if (lockOn && !lockOn.dead) {
+    out.set(lockOn.g.position.x - player.pos.x, 0, lockOn.g.position.z - player.pos.z);
+    if (out.lengthSq() > 1e-4) return out.normalize();
+  }
+  if (moveDirWorld(out)) return out;
+  return out.set(Math.sin(viewYaw), 0, Math.cos(viewYaw));
+}
+
+// 공격 중 이동 배수. 약공격은 흐르고, 강공격·밀어내기·띄우기는 발이 묶인다.
+// 스파이더맨은 치면서 움직인다 — 전부 묶으면 소울류가 되지 스파이더맨이 안 된다.
+function meleeMoveMul() {
+  if (!mAtk) return 1;
+  return mAtk.heavy ? 0 : 0.62;
+}
 
 // 근접 공격이 향하는 방향. 락온 중이면 대상 쪽, 아니면 시선 쪽.
 function meleeFacing(out) {
@@ -2429,25 +2455,19 @@ function startMelee(heavy, power) {
       r:    M_HEAVY.r + pw * 0.8,
     });
   }
-  mAtk = { spec, t: 0, hit: false, heavy, branch, idx: heavy ? -1 : mChain };
+  // 대상을 먼저 고른다. 이 대상이 이번 한 방 내내 유지되고, 몸도 파고들기도
+  // 판정도 전부 이 하나를 본다 — 셋이 따로 고르면 반드시 어긋난다.
+  const tgt = findMeleeTarget(LUNGE_MAX, 1.6);
+  mAtk = { spec, t: 0, hit: false, heavy, branch, idx: heavy ? -1 : mChain, tgt };
   if (heavy) { mChain = 0; mChainT = 0; }
   else { mChain = (mChain + 1) % M_LIGHT.length; mChainT = M_CHAIN_T; }
   // 몸이 목표를 본다. 안 돌리면 옆구리를 치는 그림이 나온다.
-  meleeFacing(_mDir);
+  if (tgt) {
+    _mDir.set(tgt.g.position.x - player.pos.x, 0, tgt.g.position.z - player.pos.z);
+    if (_mDir.lengthSq() > 1e-4) _mDir.normalize(); else meleeFacing(_mDir);
+  } else meleeFacing(_mDir);
   bodyYaw = Math.atan2(_mDir.x, _mDir.z);
-  // 살짝 파고든다. 제자리에서 휘두르면 거리가 영영 안 좁혀진다.
-  // 목표를 락온에만 의존하면 안 된다 — 락온이 없을 때 거리를 99로 잡는 바람에
-  // 코앞(3m)의 적에게도 최대 속도로 돌진해 적을 뚫고 지나간 뒤 판정이 나갔다.
-  // 그래서 가까이 붙을수록 오히려 안 맞았다.
-  const tgt = findMeleeTarget(spec.r + 8, 1.6);   // 파고들 대상은 조금 더 너그럽게
-  const d = tgt ? player.pos.distanceTo(tgt.g.position) : MELEE_STAND;
-  const gap = d - MELEE_STAND;
-  if (gap > 0.8) {
-    // 목표 앞 MELEE_STAND 지점에 서도록 필요한 만큼만 민다
-    const push = Math.min(M_STEP, gap * 15) * (heavy ? 0.75 : 1);
-    player.vel.x = _mDir.x * push;
-    player.vel.z = _mDir.z * push;
-  }
+  // 파고들기는 updateMelee가 매 틱 맡는다 (판정 프레임까지 반드시 도착시킨다).
   armPulse = 0.3;
   swingFx = spec.dur; swingFxDur = spec.dur; swingFxHit = spec.hit;
   swingHeavy = !!heavy; swingYaw = bodyYaw;
@@ -2471,9 +2491,10 @@ function execTargetNear() {
 function meleePress() {
   if (!meleeMode || !canAct() || execT > 0) return;
   if (meleeBusy()) {
-    // 회수 구간이면 선입력으로 저장한다 (선입력은 항상 약공격)
-    if (mAtk && mAtk.t >= mAtk.spec.cancel) { mBuf = 1; mBufT = M_BUF_T; }
-    else if (rollT > 0 && rollT < 0.2)      { mBuf = 1; mBufT = M_BUF_T; }
+    // 선입력은 공격이 시작되는 순간부터 받는다. 회수 구간부터만 받으면
+    // "눌렀는데 안 나갔다"가 나온다 — 사람은 판정 프레임을 보고 누르지 않는다.
+    // (선입력은 항상 약공격이다. 강공격은 물고 있어야 나가므로 예약할 수 없다)
+    if (mAtk || rollT > 0) { mBuf = 1; mBufT = M_BUF_T; }
     return;
   }
   charging = true;
@@ -2496,8 +2517,7 @@ function meleeRelease() {
 function meleeInput(heavy) {
   if (!meleeMode || !canAct() || execT > 0) return;
   if (meleeBusy()) {
-    if (mAtk && mAtk.t >= mAtk.spec.cancel) { mBuf = heavy ? 2 : 1; mBufT = M_BUF_T; }
-    else if (rollT > 0 && rollT < 0.2)      { mBuf = heavy ? 2 : 1; mBufT = M_BUF_T; }
+    if (mAtk || rollT > 0) { mBuf = heavy ? 2 : 1; mBufT = M_BUF_T; }
     return;
   }
   startMelee(heavy, heavy ? 1 : 0);
@@ -2552,15 +2572,31 @@ function screenDistToAim(e) {
   return Math.hypot(sx - ax, sy - ay);
 }
 
-// 지금 때릴 수 있는 적. 락온 대상이 사거리 안이면 무조건 그 적이다.
-// 판정과 "파고들 거리 계산"이 같은 함수를 써야 서로 어긋나지 않는다.
+// 지금 때릴 수 있는 적 — '소프트 락온'.
+//
+// 예전에는 "조준점이 적 몸통 상자 안에 있는가"가 필수 조건이었다. 그래서 Ctrl
+// 락온을 안 걸면 대부분 헛쳤고, 락온이 사실상 강제였다. 근접 조작감이 나빴던
+// 가장 큰 이유가 이것이다.
+// 스파이더맨2는 락온이 없다. 스틱 방향(없으면 카메라 정면)으로 매 타격마다 가장
+// 그럴듯한 적을 점수로 고르고, 캐릭터가 그쪽으로 붙는다. 그래서 3타 콤보가 서로
+// 다른 세 명을 훑고 지나간다. 여기서도 화면 판정을 '필수'에서 '가산점'으로 내리고
+// 방향·거리·상태를 함께 점수로 매긴다.
+// 하드 락온(Ctrl)은 남긴다 — "이 놈만 팬다"는 여전히 필요하다.
+const SOFT_CONE   = 0.10;   // 이보다 앞이면 후보 (대략 ±84도)
+const SOFT_W_DIR  = 2.4;    // 의도 방향과 맞을수록
+const SOFT_W_AIM  = 1.0;    // 조준점이 몸에 얹혀 있으면
+const SOFT_W_AIR  = 0.9;    // 띄워둔 / 쓰러진 적을 이어친다
+const SOFT_W_LAST = 0.6;    // 방금 친 적을 조금 우선한다 (콤보가 흩어지지 않게)
+const _mIntent = new THREE.Vector3();
+let lastMeleeTarget = null;
+
 function findMeleeTarget(r, aimPad) {
   if (lockOn && !lockOn.dead && !lockOn.grip
       && player.pos.distanceTo(lockOn.g.position) <= r + 1.5) return lockOn;
   camera.updateMatrixWorld();
-  meleeFacing(_mDir);
+  meleeIntent(_mIntent);
   const pad = MELEE_AIM_PAD * (aimPad || 1);
-  let best = null, bestD = Infinity;
+  let best = null, bestS = -Infinity;
   for (const e of enemies) {
     if (e.dead || e.grip) continue;
     const d = player.pos.distanceTo(e.g.position);
@@ -2569,9 +2605,16 @@ function findMeleeTarget(r, aimPad) {
     // 카메라와 플레이어 사이에 잡혀 화면 중앙에 뜬다 — 화면 판정만으로는 못 거른다.
     _mh.set(e.g.position.x - player.pos.x, 0, e.g.position.z - player.pos.z);
     const h = _mh.length();
-    if (h > 0.3 && _mh.divideScalar(h).dot(_mDir) < 0.1) continue;
-    if (!aimInsideEnemyBox(e, pad)) continue;               // 몸통 상자 밖
-    if (d < bestD) { bestD = d; best = e; }
+    let dot = 1;
+    if (h > 0.3) {
+      dot = _mh.divideScalar(h).dot(_mIntent);
+      if (dot < SOFT_CONE) continue;
+    }
+    let s = dot * SOFT_W_DIR - d / Math.max(1, r);
+    if (aimInsideEnemyBox(e, pad)) s += SOFT_W_AIM;
+    if (e.air > 0 || e.down > 0) s += SOFT_W_AIR;
+    if (e === lastMeleeTarget && !e.dead) s += SOFT_W_LAST;
+    if (s > bestS) { bestS = s; best = e; }
   }
   return best;
 }
@@ -2580,8 +2623,13 @@ function doMeleeHit(a) {
   a.hit = true;
   const spec = a.spec;
   meleeFacing(_mDir);
-  const best = findMeleeTarget(spec.r);
+  // 시작할 때 고른 대상을 그대로 친다. 파고들기가 그 대상에게 붙여줬으므로
+  // 여기서 다시 고르면 애써 붙은 대상을 놓칠 수 있다. 사거리를 벗어났을 때만 다시 고른다.
+  const best = (a.tgt && !a.tgt.dead && !a.tgt.grip
+                && player.pos.distanceTo(a.tgt.g.position) <= spec.r + 2.5)
+             ? a.tgt : findMeleeTarget(spec.r);
   if (!best) return;
+  lastMeleeTarget = best;
 
   addPosture(best, spec.post);
   const killed = best.hp - spec.dmg <= 0;
@@ -2628,7 +2676,7 @@ function doMeleeHit(a) {
 function parry() {
   if (!meleeMode || !canAct()) return;
   if (parryCd > 0 || execT > 0 || rollT > 0) return;
-  if (mAtk && mAtk.t < mAtk.spec.cancel) return;   // 휘두르는 도중엔 못 바꾼다
+  if (mAtk && mAtk.t < mAtk.spec.hit) return;      // 판정 나가기 전에만 막는다
   mAtk = null;
   parryT = PARRY_WIN;
   parryCd = PARRY_CD;
@@ -2668,11 +2716,15 @@ function tryParry(from, parryable) {
 function meleeRoll() {
   if (!meleeMode || !canAct()) return;
   if (rollT > 0 || execT > 0) return;
-  if (mAtk && mAtk.t < mAtk.spec.cancel) return;
+  // 회피는 거의 모든 것을 끊는다. 스파이더맨2의 척추가 이것이다 —
+  // 후딜에 갇히지 않으니 계속 움직이게 된다.
+  // 판정이 나가기 전에만 막는다 (안 그러면 회피가 그냥 공격 취소 버튼이 된다).
+  if (mAtk && mAtk.t < mAtk.spec.hit) return;
   if (stamEmpty || stam < ROLL_STAM) { say("스태미나 부족"); sfxMiss(); stamFx = 1; return; }
   stam -= ROLL_STAM;
   if (stam <= 0) { stam = 0; stamEmpty = true; }
   mAtk = null; parryT = 0; parryRec = 0;
+  if (mChain > 0) mChainT = M_CHAIN_T;   // 회피로 끊어도 콤보는 안 끊긴다
   const d = moveDirWorld(rollDir);
   if (!d) {
     // 방향 입력이 없으면 대상 반대쪽으로 물러난다 — 소울류의 기본 백스텝
@@ -2782,14 +2834,33 @@ function updateMelee(dt) {
     const prev = mAtk.t;
     mAtk.t += dt;
     if (!mAtk.hit && prev < mAtk.spec.hit && mAtk.t >= mAtk.spec.hit) doMeleeHit(mAtk);
-    // 휘두르는 동안 미끄러지지 않게 잡아준다.
-    // 공중 콤보(hoverT) 중에도 잡아야 한다 — 공중에는 마찰이 없어서 관성으로
-    // 적을 지나쳐 버리고, 그러면 다음 타가 사거리 밖에서 헛친다. 실제로 그랬다.
-    if (player.grounded || hoverT > 0) {
-      const k = Math.exp(-6 * dt);
+    const tg = mAtk.tgt;
+    const preHit = !mAtk.hit && mAtk.t < mAtk.spec.hit;
+    if (tg && !tg.dead && !tg.grip && preHit) {
+      // 판정 프레임까지 목표 앞에 '반드시' 선다. 남은 시간으로 필요한 속도를
+      // 매 틱 다시 계산하므로, 적이 도중에 움직여도 따라붙는다.
+      _mh.set(tg.g.position.x - player.pos.x, 0, tg.g.position.z - player.pos.z);
+      const gap = _mh.length() - MELEE_STAND;
+      if (_mh.x || _mh.z) bodyYaw = lerpAngle(bodyYaw, Math.atan2(_mh.x, _mh.z), Math.min(1, 16 * dt));
+      if (gap > 0.4) {
+        _mh.y = 0; _mh.normalize();
+        const left = Math.max(0.03, mAtk.spec.hit - mAtk.t);
+        const need = Math.min(LUNGE_CAP, gap / left);
+        player.vel.x = _mh.x * need;
+        player.vel.z = _mh.z * need;
+      } else { const k = Math.exp(-16 * dt); player.vel.x *= k; player.vel.z *= k; }
+    } else if (player.grounded || hoverT > 0) {
+      // 판정이 끝난 뒤. 강공격은 제자리에 잡아두고, 약공격은 관성을 살린다 —
+      // 발이 묶이면 스파이더맨이 아니다. (지상 이동 입력도 meleeMoveMul이 열어둔다)
+      // 공중 콤보(hoverT) 중에는 여전히 세게 잡는다: 공중에는 마찰이 없어서
+      // 관성으로 적을 지나쳐 버리고, 그러면 다음 타가 사거리 밖에서 헛친다.
+      const k = Math.exp(-(mAtk.heavy || hoverT > 0 ? 6 : 1.4) * dt);
       player.vel.x *= k; player.vel.z *= k;
     }
     if (mAtk.t >= mAtk.spec.dur) mAtk = null;
+    // 선입력이 있으면 회수 구간을 끊고 바로 이어친다. 이 취소가 있어야
+    // 콤보가 "흐른다"고 느껴진다.
+    else if (mBuf && mAtk.hit && mAtk.t >= mAtk.spec.cancel) mAtk = null;
   }
   if (!mAtk && mBuf) { const b = mBuf; mBuf = 0; mBufT = 0; startMelee(b === 2); }
 }
@@ -2830,7 +2901,7 @@ function updateDashIn(dt) {
 
 // 근접 모드에서 빠져나올 때 진행 중이던 동작을 전부 정리한다
 function clearMelee() {
-  mAtk = null; mBuf = 0; mBufT = 0; mChain = 0; mChainT = 0;
+  mAtk = null; mBuf = 0; mBufT = 0; mChain = 0; mChainT = 0; lastMeleeTarget = null;
   parryT = 0; parryRec = 0; parryCd = 0; parryFx = 0; rollT = 0;
   charging = false; chargeT = 0;
   rollFx = 0;
@@ -5168,7 +5239,7 @@ function update(dt) {
   if (player.grounded && dashIn <= 0) {
     // 지상에서 Shift 홀드 = 달리기 (공중 Shift는 아래쪽 대시 로직이 따로 처리)
     const sprinting = !meleeMode && wl > 0 && !!(keys["ShiftLeft"] || keys["ShiftRight"]);
-    const spd = sprinting ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED;
+    const spd = (sprinting ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED) * meleeMoveMul();
     const tx = wx * spd;
     const tz = wz * spd;
     const t = Math.min(1, (ACCEL / MOVE_SPEED) * dt);
@@ -6581,4 +6652,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, spiderGroup, charGlowOn, charGlowOff, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, SETTINGS, setOpt, get MAX_HP(){ return MAX_HP; }, get MOVE_SPEED(){ return MOVE_SPEED; }, get uiMode(){ return uiMode; }, get tutAllModes(){ return tutAllModes; }, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, spiderGroup, charGlowOn, charGlowOff, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, SETTINGS, setOpt, get MAX_HP(){ return MAX_HP; }, get MOVE_SPEED(){ return MOVE_SPEED; }, get uiMode(){ return uiMode; }, get tutAllModes(){ return tutAllModes; }, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE, get lastMeleeTarget(){ return lastMeleeTarget; }, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };

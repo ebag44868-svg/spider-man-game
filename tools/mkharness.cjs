@@ -159,6 +159,9 @@ export const T = {
   get swingLineVisible(){ return swingLine.visible; },
   get chargeRingVisible(){ return chargeRing.visible; }, get parryRingVisible(){ return parryRing.visible; }, get parryRingPos(){ return parryRing.position; }, PARRY_WIN, PARRY_REC,
   get swingFx(){ return swingFx; }, get swingArcVisible(){ return swingArcPivot.visible; }, findMeleeTarget, MELEE_STAND, updateSwingArc,
+  // 근접 1차 개편(소프트 락온/파고들기/이동)
+  meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE,
+  get lastMeleeTarget(){ return lastMeleeTarget; },
   meleeDashIn, get dashIn(){ return dashIn; }, get dashInE(){ return dashInE; }, DASH_IN_MIN, DASH_IN_MAX, DASH_IN_SPEED, dualWebTarget,
   get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get mBuf(){ return mBuf; },
   get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; },

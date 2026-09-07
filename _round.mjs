@@ -59,13 +59,24 @@ md(0); mu(0);
 runPinned(e, Math.ceil(T.M_LIGHT[0].dur*120)+6);
 ok(e.hp < h0, "조준점이 적 위에 있으면 맞는다", `hp ${h0} -> ${e.hp}`);
 
+// 소프트 락온으로 바뀌었다. 조준점은 '필수'가 아니라 '가산점'이다 —
+// 스파이더맨2처럼 보고 있는 쪽(또는 WASD 방향)의 적을 알아서 고른다.
 e = stage(5);
 // 커서를 화면 구석으로 — 조준선이 적에서 크게 벗어난다
 T.setCursor(120, 820);
 h0 = e.hp;
 md(0); mu(0);
 runPinned(e, Math.ceil(T.M_LIGHT[0].dur*120)+6);
-ok(e.hp === h0, "조준점이 딴 데면 사거리 안이어도 안 맞는다", `hp ${h0} -> ${e.hp}`);
+ok(e.hp < h0, "조준점이 딴 데여도 정면의 적은 맞는다 (소프트 락온)", `hp ${h0} -> ${e.hp}`);
+
+// 등 뒤는 여전히 못 친다. 이 선이 무너지면 사방으로 다 맞는 게 된다.
+e = stage(5);
+e.g.position.z = -5;                 // 시선은 +z, 적은 등 뒤
+T.setCursor(800, 450);
+h0 = e.hp;
+md(0); mu(0);
+runPinned(e, Math.ceil(T.M_LIGHT[0].dur*120)+6);
+ok(e.hp === h0, "등 뒤의 적은 소프트 락온으로도 안 맞는다", `hp ${h0} -> ${e.hp}`);
 
 e = stage(5, true);   // 락온
 T.setCursor(120, 820);
