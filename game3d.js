@@ -1414,11 +1414,14 @@ let hurtFx = 0;      // 화면 붉은 플래시 잔량
 let invuln = 0;      // 연타로 순삭당하지 않게 하는 무적 시간
 let deadT = 0;       // 사망 후 리스폰까지
 // --- 스태미나 ---
-const MAX_STAM   = 100;
-const STAM_SWING = 9;    // 스윙 중 초당 소모
-const STAM_GND   = 55;   // 발을 붙이고 있을 때 초당 회복 (빠르게)
-const STAM_AIR   = 11;   // 공중에서 줄을 놓고 있을 때 (느리게)
-const STAM_MIN   = 15;   // 바닥나면 이만큼 찰 때까지 다시 못 건다
+// 스태미나 1.5배. 총량만 늘리면 회복도 1.5배 느려져서 "늘었는데 답답한"
+// 상태가 된다. 회복 속도와 재개 문턱을 같은 비율로 올려서
+// **스윙은 1.5배 길어지고 회복에 걸리는 시간은 그대로**가 되게 맞췄다.
+const MAX_STAM   = 150;  // 100 -> 150
+const STAM_SWING = 9;    // 스윙 중 초당 소모 (그대로 — 총량이 늘어 지속이 1.5배)
+const STAM_GND   = 82;   // 발을 붙이고 있을 때 초당 회복 (55 * 1.5)
+const STAM_AIR   = 16;   // 공중에서 줄을 놓고 있을 때 (11 * 1.5)
+const STAM_MIN   = 22;   // 바닥나면 이만큼 찰 때까지 다시 못 건다 (15 * 1.5)
 let stam = MAX_STAM;
 let stamEmpty = false;   // 바닥난 상태 (STAM_MIN 넘을 때까지 유지)
 let stamFx = 0;          // 바닥났을 때 UI를 붉게 번쩍이는 잔량
@@ -6932,11 +6935,19 @@ function updateCamera(dt) {
     const ol = Math.hypot(ox, oz);
     if (ol > 0.5) {
       const lat = (ox / ol) * rightV.x + (oz / ol) * rightV.z;
-      targetRoll = lat * CAM_ROLL * Math.min(1.35, hsp / 30) * (firstPerson ? 0.7 : 1);
+      targetRoll = lat * CAM_ROLL * Math.min(1.35, hsp / 30);
     }
   }
   camRoll += (targetRoll - camRoll) * Math.min(1, 5 * dt);
-  if (Math.abs(camRoll) > 0.0005) camera.rotateZ(camRoll);
+  // 1인칭에서는 **화면을 기울이지 않는다.** 대신 몸이 기운다.
+  //
+  // 뱅킹은 3인칭에서 스윙 체감의 절반이지만, 1인칭에서는 원인이 화면 밖에
+  // 있어서 "내 몸이 기운다"가 아니라 "세상이 돈다"로 읽힌다. 그게 멀미다.
+  // 이제 1인칭에도 가슴과 다리가 있으니 기울일 대상이 생겼다 —
+  // 시점은 수평을 지키고, 몸이 도는 걸 눈으로 본다.
+  // 몸 기울이기는 여기서 하지 않는다 — updateHands 가 이 아래에서 돌면서
+  // fpBody.rotation 을 통째로 다시 쓴다. 실제 적용은 그 뒤에서 한다.
+  if (!firstPerson && Math.abs(camRoll) > 0.0005) camera.rotateZ(camRoll);
 
   // 고속 진동: 바람에 밀리는 느낌. 피격 흔들림과 겹쳐도 되게 따로 더한다.
   // 임계 이하에서는 0이라 평상시엔 화면이 흔들리지 않는다.
@@ -6957,8 +6968,17 @@ function updateCamera(dt) {
     camera.position.z += (Math.random() - 0.5) * s;
   }
 
-  // 1인칭은 몸 모델이 안 보이므로 시야 자체를 넘겨야 덤블링이 보인다. 3인칭과 같은 뒤로 넘기.
-  if (firstPerson && tumbleT > 0) camera.rotateX(Math.PI * 2 * (1 - tumbleT / tumbleDur));
+  // 1인칭 덤블링 — **시점은 안 돌린다.**
+  //
+  // 예전엔 camera.rotateX 로 화면을 통째로 360도 넘겼다. "1인칭은 몸이 안
+  // 보이니 시야를 넘겨야 덤블링이 보인다"는 이유였는데, 그건 화면 전체가
+  // 뒤집히는 거라 그냥 멀미다. 그리고 그 전제가 이제 틀렸다 — 1인칭에도
+  // 가슴과 다리가 있다 (문서 01 §15).
+  //
+  // 그래서 카메라는 가만히 두고 **몸만** 돈다. fpBody 는 카메라의 자식이라
+  // 여기서 돌려도 시점은 1도 안 움직인다. poseFpBody 는 위(6779행)에서
+  // 이미 돌았으므로 여기서 더해도 덮이지 않는다.
+  // (적용은 updateHands 뒤에서 — poseFpBody 가 덮어쓰기 때문이다)
 
   // 속도 구간을 제곱으로 밟아 고속에서 확 벌어지게 한다 (선형이면 밋밋하다)
   const spN = Math.min(sp / MAX_SPEED, 1.25);
@@ -6975,6 +6995,31 @@ function updateCamera(dt) {
   camera.updateProjectionMatrix();
 
   updateHands(dt, sp);
+
+  // ---------- 1인칭: 시점은 고정, 몸만 돈다 ----------
+  //
+  // 어지러움의 원인은 하나였다. 모델이 돌 때 시점이 같이 돌았다.
+  //   · 덤블링   camera.rotateX 로 화면을 통째로 360도 넘겼다
+  //   · 스윙 뱅킹 camera.rotateZ 로 화면을 기울였다
+  // 3인칭에서는 이게 체감의 절반이지만, 1인칭에서는 원인이 화면 밖에 있어서
+  // "내 몸이 기운다"가 아니라 "세상이 돈다"로 읽힌다. 그게 멀미다.
+  //
+  // 이제 1인칭에도 가슴과 다리가 있으니 기울일 대상이 생겼다. 카메라는
+  // 수평을 지키고, 몸이 도는 걸 눈으로 본다.
+  //
+  // 반드시 updateHands **뒤**여야 한다. poseFpBody 가 매 프레임
+  // fpBody.rotation 을 통째로 다시 쓰기 때문이다 — 앞에서 더하면 사라진다.
+  if (firstPerson && fpBody) {
+    // 1.6 배는 몸이 60도까지 누워서 화면 밖으로 밀려났다. 0.85 면 25도쯤 —
+    // 기울어진 게 보이면서 몸이 프레임 안에 남는다.
+    fpBody.rotation.z -= camRoll * 0.85;            // 스윙 뱅킹을 몸으로
+    if (tumbleT > 0) {                              // 덤블링도 몸으로
+      const spin = Math.PI * 2 * (1 - tumbleT / tumbleDur);
+      fpBody.rotation.x -= spin;
+      if (upperR) upperR.rotation.x -= spin * 0.5;  // 팔은 절반만 — 화면을 가리면 안 된다
+      if (upperL) upperL.rotation.x -= spin * 0.5;
+    }
+  }
 
   if (windActive()) {
     const r = Math.min(sp / MAX_SPEED, 1);
