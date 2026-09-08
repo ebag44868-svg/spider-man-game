@@ -164,16 +164,20 @@ function mirrorInPlace(root) {
 function makeFpBody() {
   const g = new THREE.Group();
 
-  // 눈에서 가슴까지가 실제로는 35cm 남짓이다. 그대로 두면 아래를 볼 때 화면을
-  // 통째로 덮는다 — 처음에 그렇게 만들었다가 빨간 덩어리가 화면을 가렸다.
-  // 게임들이 하는 대로 조금 내리고 뒤로 밀어 시야를 비운다.
+  // 위치 잡기가 두 번 틀렸다. 처음엔 실제 사람 비율(눈~가슴 35cm)로 놨더니
+  // 아래를 볼 때 빨간 덩어리가 화면을 덮었다. 그래서 내리고 뒤로 밀었는데
+  // 이번엔 z 를 +로 보내버렸다 — Three.js 는 -Z 가 앞이라 몸이 **머리 뒤**에
+  // 달렸고, 그래서 아래를 아무리 봐도 안 보였다.
+  //
+  // 지금은 살짝 앞(-Z)에 둔다. 정면을 볼 때는 화면 아래 끝에 걸치고,
+  // 고개를 숙이면 가슴 -> 배 -> 다리 순으로 들어온다.
   const chest = new THREE.Mesh(new THREE.CapsuleGeometry(0.165, 0.24, 4, 10), sleeveMat);
-  chest.position.set(0, -0.60, 0.10);
+  chest.position.set(0, -0.54, -0.22);
   chest.rotation.x = Math.PI / 2;
   g.add(chest);
 
   const belly = new THREE.Mesh(new THREE.CapsuleGeometry(0.128, 0.20, 4, 10), sleeveMat);
-  belly.position.set(0, -0.90, 0.12);
+  belly.position.set(0, -0.84, -0.20);
   belly.rotation.x = Math.PI / 2;
   g.add(belly);
 
@@ -181,7 +185,7 @@ function makeFpBody() {
   const legs = [];
   for (const side of [-1, 1]) {
     const hip = new THREE.Group();
-    hip.position.set(side * 0.115, -1.06, 0.12);
+    hip.position.set(side * 0.115, -1.00, -0.16);
     const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, 0.32, 4, 10), sleeveMat);
     thigh.position.set(0, -0.22, 0);
     hip.add(thigh);
@@ -209,7 +213,10 @@ function makeFpBody() {
 //   lean     좌우 기울기
 function poseFpBody(g, pitch, run, air, lean, t) {
   // 고개를 들어도 몸은 서 있는다. 다만 절반만 되돌려서 완전히 뻣뻣하진 않게.
-  g.rotation.x = -pitch * 0.82;
+  // 보정을 온전히(1.0) 준다. 몸은 카메라의 자식이라 보정이 없으면 고개를
+  // 숙여도 몸이 같이 따라 숙여서 영영 화면에 안 들어온다. 1.0 이면 몸이
+  // 세계 기준으로 똑바로 서 있고, 고개를 숙인 만큼 시야에 들어온다.
+  g.rotation.x = -pitch;
   g.rotation.z = -lean * 0.35;
   const legs = g.userData.legs;
   if (!legs) return;
