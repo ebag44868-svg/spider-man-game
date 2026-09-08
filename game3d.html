@@ -261,6 +261,18 @@
   /* 타이틀 아래 작은 링크 줄 */
   .tlinks { margin-top: 18px; display: flex; gap: 10px; justify-content: center; }
 
+  /* 웹 디버그 패널 (문서 03 §42). F3. 릴리즈 기본 OFF */
+  #wdbg {
+    position: fixed; left: 10px; top: 96px; z-index: 60;
+    display: none; white-space: pre; pointer-events: none;
+    font: 11px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color: #d8f4ff; background: rgba(6,10,18,.72);
+    border: 1px solid rgba(120,200,255,.22); border-radius: 6px;
+    padding: 8px 10px; letter-spacing: .1px;
+    text-shadow: 0 1px 2px rgba(0,0,0,.9);
+  }
+  #wdbg.show { display: block; }
+
   /* 화면 전환. 문서 02 §34 — 150~300ms 짧게. 2초짜리 메뉴 애니메이션은 안 한다 */
   #missions, #result, #opts, #title, #charsel {
     transition: opacity .18s ease, backdrop-filter .18s ease;
@@ -614,6 +626,7 @@
 <!-- 배경은 따로 안 만든다. 뒤에서 실제 도시를 카메라가 천천히 도는 게
      정지 이미지보다 훨씬 낫고, 이미 있는 걸 쓰는 거라 공짜다. -->
 <!-- 부팅 / 로딩 (문서 02 §5.1). 화려할 필요 없다 — 멈춘 게 아니라는 것만 알리면 된다 -->
+<div id="wdbg"></div>
 <div id="boot" class="show">
   <div class="binner">
     <div class="blogo">SPIDER<span>MAN</span></div>
@@ -833,6 +846,7 @@
           <dt><kbd>G</kbd></dt><dd>덤블링 · 공중제비</dd>
           <dt>마우스 <b>뒤쪽</b> 사이드</dt><dd>벽 잡기 · 홀드로 벽타기 <span class="s">(+WASD로 벽면 이동)</span></dd>
           <dt><kbd>+</kbd></dt><dd>야간 / 주간 전환</dd>
+          <dt><kbd>F3</kbd></dt><dd><b>웹 디버그</b> — 거미줄이 걸릴 후보 지점과 점수를 화면에 띄운다.<br><span class="s">초록 = 통과 · 빨강 = 기각 · 노랑 = 채택. 개발용이라 기본은 꺼져 있다</span></dd>
         </dl>
       </div>
 
@@ -991,6 +1005,6 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mts6mx86"></script>
+<script type="module" src="./game3d.js?v=mtsc6mov"></script>
 </body>
 </html>

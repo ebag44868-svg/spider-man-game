@@ -168,6 +168,10 @@ export const T = {
   get speedBase(){ return speedBase; }, timeScale,
   get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; },
   markTutorialProgress, TUT_SWING, TUT_ATTACK, TUT_MELEE,
+  // 웹 디버그
+  toggleWebDbg, updateWebDbg, dbgOn, setDbg, dbgCands, dbgPicked, dbgPickIdx,
+  dbgAccepted, dbgLines, MAX_CAND, findSwingAnchor, scoreAnchor,
+  get scoreWhy(){ return scoreWhy; },
   // 자동 곡예 · 시네마틱 · 해금
   acroTry, get acroCount(){ return acroCount; }, get acroCd(){ return acroCd; },
   ACRO_CLEAR, ACRO_SPEED, cineFire, cineAmt,
