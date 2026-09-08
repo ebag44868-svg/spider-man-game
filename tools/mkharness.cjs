@@ -168,6 +168,12 @@ export const T = {
   get speedBase(){ return speedBase; }, timeScale,
   get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; },
   markTutorialProgress, TUT_SWING, TUT_ATTACK, TUT_MELEE,
+  // 자동 앵커 V2
+  setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; },
+  findSwingAnchorV2, findSwingAnchorLegacy,
+  get autoV2(){ return autoV2; }, setAutoV2(v){ autoV2 = !!v; },
+  get autoHand(){ return autoHand; },
+  intentDir, scoreAnchorV2, fanYaw, A_TUNE, FAN_PITCH,
   // 웹 디버그
   toggleWebDbg, updateWebDbg, dbgOn, setDbg, dbgCands, dbgPicked, dbgPickIdx,
   dbgAccepted, dbgLines, MAX_CAND, findSwingAnchor, scoreAnchor,
