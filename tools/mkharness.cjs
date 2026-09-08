@@ -162,6 +162,8 @@ export const T = {
   // STEP 1 reachTarget (1인칭 팔이 앵커를 향한다)
   initReach, setReach, clearReach, updateReach, getReach, applyReach, armR, armL,
   SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX,
+  soft, ensureUpperArms, linkUpperArm, SHOULDER_R, SHOULDER_L,
+  get upperR(){ return upperR; }, get upperL(){ return upperL; },
   // 근접 1차 개편(소프트 락온/파고들기/이동)
   meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE,
   get lastMeleeTarget(){ return lastMeleeTarget; },

@@ -20,8 +20,13 @@ const SHOOT_T = 0.10;   // 뻗어나가는 시간
 const CATCH_T = 0.13;   // 걸린 직후 반동
 const REL_T   = 0.20;   // 놓고 되돌아오는 시간
 // 팔이 돌아갈 수 있는 한계. 안 걸면 등 뒤 앵커를 향해 어깨가 뒤집힌다.
-const YAW_MAX   = 1.30;
-const PITCH_MAX = 1.15;
+//
+// 예전에는 각도를 그대로 쓰다가 한계에서 뚝 잘랐다. 그래서 시야를 크게 돌리면
+// 팔이 한계에 부딪히는 순간 꺾인 것처럼 보였다. tanh로 눌러서 커질수록 완만하게
+// 포화시킨다 — 작은 각도는 거의 그대로, 큰 각도는 서서히 멈춘다.
+const YAW_MAX   = 0.95;
+const PITCH_MAX = 0.95;
+function soft(a, max) { return max * Math.tanh(a / max); }
 
 let camera = null;
 const _v = new THREE.Vector3();
@@ -98,10 +103,8 @@ function updateReach(dt) {
     camera.worldToLocal(_v);
     s.dist = _v.length();
     if (s.dist < 0.01) { s.yaw = s.pitch = 0; continue; }
-    const yaw = Math.atan2(_v.x, -_v.z);
-    const pitch = Math.atan2(_v.y, Math.hypot(_v.x, _v.z));
-    s.yaw = Math.max(-YAW_MAX, Math.min(YAW_MAX, yaw));
-    s.pitch = Math.max(-PITCH_MAX, Math.min(PITCH_MAX, pitch));
+    s.yaw = soft(Math.atan2(_v.x, -_v.z), YAW_MAX);
+    s.pitch = soft(Math.atan2(_v.y, Math.hypot(_v.x, _v.z)), PITCH_MAX);
   }
 }
 
@@ -120,6 +123,10 @@ function applyReach(arm, side, strength) {
   if (k < 0.001) return s;
   arm.rotation.y += -s.yaw * k;
   arm.rotation.x += s.pitch * k;
+  // 회전만으로 목표를 좇으면 어깨가 제자리에서 비틀린다. 어깨 자체도 목표 쪽으로
+  // 조금 옮겨야 "몸을 튼다"로 보인다 — 이게 없으면 큰 각도에서 팔만 꺾인다.
+  arm.position.x += Math.sin(s.yaw) * 0.12 * k;
+  arm.position.y += Math.sin(s.pitch) * 0.10 * k;
   // 쏘는 순간과 잡히는 순간에 어깨가 앞뒤로 반응한다. 이게 없으면 팔만 돌아가고
   // 몸이 가만히 있어서 "닿았다"가 아니라 "가리킨다"로 보인다.
   arm.position.z -= (s.fire * 0.10 - s.kick * 0.06) * k;
@@ -127,5 +134,5 @@ function applyReach(arm, side, strength) {
   return s;
 }
 
-export { initReach, setReach, clearReach, updateReach, getReach, applyReach,
+export { initReach, setReach, clearReach, updateReach, getReach, applyReach, soft,
          SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX };

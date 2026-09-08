@@ -43,6 +43,41 @@ function makeFinger(len, thick) {
   return root;
 }
 
+// 상완 — 어깨에서 팔꿈치까지.
+//
+// 지금까지는 전완과 손만 있어서 팔이 화면에 둥둥 떠 있었다. 특히 팔을 뻗으면
+// 팔꿈치 아래가 허공에서 끊겼다. 어깨는 화면 밖 아래 모서리에 고정해 두고,
+// 팔꿈치는 팔이 움직이는 대로 따라가므로 둘 사이 거리가 매 프레임 바뀐다.
+// 그래서 길이를 고정하지 않고 늘였다 줄인다 (scale.z).
+//
+// 원통은 +Y로 서 있다. -90도 돌려 -Z를 향하게 하고, 0에서 -1까지 뻗도록
+// 반 칸 밀어둔다. 그러면 group.scale.z 가 곧 길이(m)가 된다.
+function makeUpperArm() {
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.095, 1, 10), sleeveMat);
+  m.rotation.x = -Math.PI / 2;
+  m.position.z = -0.5;
+  g.add(m);
+  return g;
+}
+
+// 어깨와 팔꿈치를 잇는다. 게임 상태를 안 본다 — 팔의 현재 변환만 읽는다.
+// elbowZ = 팔 로컬에서 팔꿈치가 있는 자리(전완 뒤끝). 팔이 뒤집힌 왼손도 z는 그대로다.
+const _elbow = new THREE.Vector3(), _dir = new THREE.Vector3();
+const _FWD = new THREE.Vector3(0, 0, -1);
+function linkUpperArm(up, arm, shoulder, elbowZ) {
+  up.visible = arm.visible;
+  if (!arm.visible) return;
+  _elbow.set(0, 0, (elbowZ === undefined ? 0.40 : elbowZ) * Math.abs(arm.scale.z))
+        .applyEuler(arm.rotation).add(arm.position);
+  up.position.copy(shoulder);
+  _dir.copy(_elbow).sub(shoulder);
+  const len = _dir.length();
+  if (len < 1e-4) { up.visible = false; return; }
+  up.quaternion.setFromUnitVectors(_FWD, _dir.divideScalar(len));
+  up.scale.set(1, 1, len);
+}
+
 // 손은 -Z 방향을 향하고, 손바닥이 하늘(+Y)을 본다.
 // 따라서 손가락은 +X 회전으로 손바닥 쪽(위)으로 말린다.
 function makeHand(mirror) {
@@ -120,6 +155,7 @@ function poseHand(h, spider, grip, splay, fire, k) {
 }
 
 export {
+  makeUpperArm, linkUpperArm,
   makeFinger,
   makeHand,
   poseHand,

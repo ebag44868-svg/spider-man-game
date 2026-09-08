@@ -32,18 +32,20 @@ console.log("===== 1. 방향 — 앵커 쪽을 본다 =====");
   T.setReach("R", P(10, 0, -10));     // 오른쪽 위 45도
   settle(30);
   r = T.getReach("R");
-  ok(r.yaw > 0.7 && r.yaw < 0.9, "오른쪽 앵커면 yaw가 오른쪽(+)이다", `yaw ${r.yaw.toFixed(3)}`);
+  // 45도(0.785)는 소프트 클램프에 눌려 0.65쯤으로 나온다. 눌리는 게 정상이다 —
+  // 그대로 쓰면 시야를 크게 돌릴 때 팔이 한계에서 뚝 꺾인다.
+  ok(r.yaw > 0.5 && r.yaw < 0.8, "오른쪽 앵커면 yaw가 오른쪽(+)이다", `yaw ${r.yaw.toFixed(3)}`);
 
   reset();
   T.setReach("R", P(-10, 0, -10));
   settle(30);
-  ok(T.getReach("R").yaw < -0.7, "왼쪽 앵커면 yaw가 왼쪽(-)이다", `yaw ${T.getReach("R").yaw.toFixed(3)}`);
+  ok(T.getReach("R").yaw < -0.5 && T.getReach("R").yaw > -0.8, "왼쪽 앵커면 yaw가 왼쪽(-)이다", `yaw ${T.getReach("R").yaw.toFixed(3)}`);
 
   reset();
   T.setReach("R", P(0, 10, -10));     // 머리 위쪽 — 스윙 중 대부분이 이 상황이다
   settle(30);
   r = T.getReach("R");
-  ok(r.pitch > 0.7, "위쪽 앵커면 pitch가 위(+)다", `pitch ${r.pitch.toFixed(3)}`);
+  ok(r.pitch > 0.5, "위쪽 앵커면 pitch가 위(+)다", `pitch ${r.pitch.toFixed(3)}`);
   ok(Math.abs(r.dist - Math.hypot(10, 10)) < 0.01, "거리를 정확히 잰다", `dist ${r.dist.toFixed(2)}`);
 
   // 등 뒤 앵커에도 어깨가 뒤집히지 않아야 한다
@@ -53,6 +55,14 @@ console.log("===== 1. 방향 — 앵커 쪽을 본다 =====");
   ok(Math.abs(T.getReach("R").yaw) <= T.YAW_MAX + 1e-6, "등 뒤여도 팔 각도가 한계 안에 든다",
      `yaw ${T.getReach("R").yaw.toFixed(3)} / max ${T.YAW_MAX}`);
   ok(Math.abs(T.getReach("R").pitch) < 1.2, "등 뒤여도 위아래가 뒤집히지 않는다");
+
+  // 소프트 클램프: 각도가 커질수록 완만하게 멈춘다. 뚝 잘리면 팔이 꺾여 보인다.
+  ok(Math.abs(T.soft(0.2, T.YAW_MAX) - 0.2) < 0.02, "작은 각도는 거의 그대로 지나간다",
+     `${T.soft(0.2, T.YAW_MAX).toFixed(3)}`);
+  ok(T.soft(3.0, T.YAW_MAX) < T.YAW_MAX && T.soft(3.0, T.YAW_MAX) > T.YAW_MAX * 0.9,
+     "큰 각도는 한계에 붙되 넘지 않는다", `${T.soft(3.0, T.YAW_MAX).toFixed(3)}`);
+  ok(T.soft(1.0, T.YAW_MAX) > T.soft(0.8, T.YAW_MAX),
+     "한계 근처에서도 단조증가한다 (평평해지면 방향을 못 읽는다)");
 }
 
 console.log("\n===== 2. 위상 — 쏨 → 잡음 → 유지 → 놓음 =====");
@@ -142,6 +152,33 @@ console.log("\n===== 4. 좌우 손은 독립이다 (STEP 4 양손 웹의 토대)
   ok(T.getReach("L").on < 0.02 && T.getReach("R").on > 0.9,
      "한 손을 놔도 다른 손은 그대로다");
   T.clearReach("R"); settle(60);
+}
+
+console.log("\n===== 5. 상완 — 어깨와 팔꿈치가 이어진다 =====");
+{
+  // 지금까지는 전완과 손만 있어서 팔이 팔꿈치 아래에서 끊겨 허공에 떠 보였다.
+  T.ensureUpperArms();
+  const up = T.upperR;
+  ok(!!up, "상완이 만들어진다");
+  T.armR.visible = true;
+  T.armR.position.set(0.5, -0.4, -0.52);
+  T.armR.rotation.set(0.55, 0.2, 0);
+  T.armR.scale.setScalar(0.72);
+  T.linkUpperArm(up, T.armR, T.SHOULDER_R);
+  ok(up.visible, "팔이 보이면 상완도 보인다");
+  ok(up.position.distanceTo(T.SHOULDER_R) < 1e-6, "상완은 어깨에서 시작한다");
+  const len1 = up.scale.z;
+  ok(len1 > 0.1 && len1 < 2, "길이가 그럴듯하다", `${len1.toFixed(3)}m`);
+
+  // 팔을 멀리 뻗으면 상완도 길어져야 한다. 고정 길이면 팔꿈치가 떨어진다.
+  T.armR.position.set(0.5, -0.1, -0.95);
+  T.linkUpperArm(up, T.armR, T.SHOULDER_R);
+  ok(up.scale.z > len1, "팔을 뻗으면 상완이 늘어난다", `${len1.toFixed(3)} -> ${up.scale.z.toFixed(3)}`);
+
+  T.armR.visible = false;
+  T.linkUpperArm(up, T.armR, T.SHOULDER_R);
+  ok(!up.visible, "팔이 안 보이면 상완도 숨는다");
+  T.armR.visible = true;
 }
 
 console.log(`\n최종  통과 ${pass} / 실패 ${fail}`);
