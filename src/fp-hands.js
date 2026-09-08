@@ -129,9 +129,100 @@ function makeHand(mirror) {
   g.userData.fingers = fingers;
   g.userData.thumb = thumb;
   g.userData.curl = [0, 0, 0, 0];   // 손마다 따로 (양손이 서로 값을 덮어쓰지 않게)
-  if (mirror) g.scale.x = -1;
+  if (mirror) mirrorInPlace(g);
   g.visible = false;
   return g;
+}
+
+// 진짜 거울상으로 만든다.
+//
+// 예전에는 scale.x = -1 하나로 뒤집었다. 그게 팔이 기괴하게 꺾인 진짜 원인이다 —
+// 음수 스케일은 그 아래 모든 좌표계의 손잡이(handedness)를 뒤집어서, 회전을 하나
+// 얹을 때마다 화면에서는 반대로 돈다. 포즈를 손으로 맞춰 놓아도 reach 처럼 나중에
+// 회전을 더하는 쪽이 생기면 그때부터 어긋난다. 법선도 뒤집혀 조명이 이상해진다.
+//
+// 대신 자식들의 로컬 변환을 x=0 평면에 대해 반사한다. 각 단계에서 x 위치와
+// y·z 회전을 뒤집으면 전체가 정확히 거울상이 되고, 스케일은 양수로 남는다.
+// 그러면 왼팔도 오른팔과 **똑같은 회전 규칙**을 쓴다.
+function mirrorInPlace(root) {
+  root.traverse(o => {
+    if (o === root) return;
+    o.position.x = -o.position.x;
+    o.rotation.y = -o.rotation.y;
+    o.rotation.z = -o.rotation.z;
+  });
+}
+
+// 1인칭 몸 — 가슴과 다리.
+//
+// 문서 01 §15. "날아다니는 카메라"가 아니라 **몸을 가진 캐릭터의 시점**이어야 한다.
+// 레퍼런스 영상에서도 아래를 보면 다리가 보인다. 팔만 떠 있으면 팔이 어디에
+// 붙어 있는지 안 읽혀서, 같은 팔이라도 더 어색해 보인다.
+//
+// 카메라의 자식으로 달되 고개 각도(pitch)는 되돌린다 — 위를 봐도 다리는 아래에
+// 있어야 한다. 그 되돌리기는 부르는 쪽이 poseFpBody 로 한다.
+function makeFpBody() {
+  const g = new THREE.Group();
+
+  // 눈에서 가슴까지가 실제로는 35cm 남짓이다. 그대로 두면 아래를 볼 때 화면을
+  // 통째로 덮는다 — 처음에 그렇게 만들었다가 빨간 덩어리가 화면을 가렸다.
+  // 게임들이 하는 대로 조금 내리고 뒤로 밀어 시야를 비운다.
+  const chest = new THREE.Mesh(new THREE.CapsuleGeometry(0.165, 0.24, 4, 10), sleeveMat);
+  chest.position.set(0, -0.60, 0.10);
+  chest.rotation.x = Math.PI / 2;
+  g.add(chest);
+
+  const belly = new THREE.Mesh(new THREE.CapsuleGeometry(0.128, 0.20, 4, 10), sleeveMat);
+  belly.position.set(0, -0.90, 0.12);
+  belly.rotation.x = Math.PI / 2;
+  g.add(belly);
+
+  // 다리 — 허벅지와 종아리 두 마디. 무릎에서 접힌다.
+  const legs = [];
+  for (const side of [-1, 1]) {
+    const hip = new THREE.Group();
+    hip.position.set(side * 0.115, -1.06, 0.12);
+    const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, 0.32, 4, 10), sleeveMat);
+    thigh.position.set(0, -0.22, 0);
+    hip.add(thigh);
+    const knee = new THREE.Group();
+    knee.position.set(0, -0.44, 0);
+    const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.070, 0.30, 4, 10), gloveMat);
+    shin.position.set(0, -0.21, 0);
+    knee.add(shin);
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.06, 0.22), gloveMat);
+    foot.position.set(0, -0.42, -0.05);
+    knee.add(foot);
+    hip.add(knee);
+    hip.userData.knee = knee;
+    g.add(hip);
+    legs.push(hip);
+  }
+  g.userData.legs = legs;
+  return g;
+}
+
+// 몸을 자세에 맞춘다.
+//   pitch    카메라 고개 각도 (되돌려서 몸은 서 있게)
+//   run      달리는 정도 0..1 (다리가 번갈아 나온다)
+//   air      공중에 뜬 정도 0..1 (다리를 접는다 — 스윙 자세)
+//   lean     좌우 기울기
+function poseFpBody(g, pitch, run, air, lean, t) {
+  // 고개를 들어도 몸은 서 있는다. 다만 절반만 되돌려서 완전히 뻣뻣하진 않게.
+  g.rotation.x = -pitch * 0.82;
+  g.rotation.z = -lean * 0.35;
+  const legs = g.userData.legs;
+  if (!legs) return;
+  const step = t * 9;
+  for (let i = 0; i < legs.length; i++) {
+    const s = i === 0 ? 1 : -1;
+    const hip = legs[i], knee = hip.userData.knee;
+    // 공중에서는 두 다리를 접어 뒤로 당긴다 (스윙 자세). 지상에서는 번갈아 걷는다.
+    const swing = Math.sin(step + (i ? Math.PI : 0)) * run * 0.55;
+    hip.rotation.x = swing + air * 0.75 + pitch * 0.18;
+    hip.rotation.z = s * (0.04 + air * 0.10);
+    knee.rotation.x = Math.max(0, -swing * 0.8) + air * 0.95;
+  }
 }
 
 // 손 포즈. spider=1이면 중지·약지를 접은 웹슈팅 자세, grip=1이면 벽 짚는 자세.
@@ -155,7 +246,7 @@ function poseHand(h, spider, grip, splay, fire, k) {
 }
 
 export {
-  makeUpperArm, linkUpperArm,
+  makeUpperArm, linkUpperArm, mirrorInPlace, makeFpBody, poseFpBody,
   makeFinger,
   makeHand,
   poseHand,

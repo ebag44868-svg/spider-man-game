@@ -128,9 +128,11 @@ function getReach(side) { return sides[side]; }
 // arm.rotation 규칙: 팔이 가리키는 축은 -Z다.
 //   Ry(θ)·(0,0,-1) = (-sinθ, 0, -cosθ)  →  오른쪽(+X)을 보려면 θ = -yaw
 //   Rx(φ)·(0,0,-1) = (0, sinφ, -cosφ)   →  위(+Y)를 보려면  φ = +pitch
-// mirror: 왼손 모델은 scale.x 가 음수라 좌우가 뒤집혀 그려진다. 회전을 그대로
-// 더하면 화면에서는 반대로 돈다 — 왼팔이 기괴하게 꺾여 보인 진짜 이유다.
-// 뒤집힌 팔에는 y·z 회전의 부호를 같이 뒤집는다.
+// 왼팔도 오른팔과 **같은 회전 규칙**을 쓴다. 예전에는 왼손이 scale.x = -1 로
+// 뒤집혀 있어서 회전을 더할 때마다 화면에서 반대로 돌았고, 그게 팔이 기괴하게
+// 꺾여 보인 원인이었다. 지금은 거울이 기하에 구워져 있어서(fp-hands 의
+// mirrorInPlace) 부호를 나눌 필요가 없다.
+// 혹시 음수 스케일인 팔이 들어와도 안 깨지게 아래 mir 는 남겨둔다.
 function applyReach(arm, side, strength) {
   const s = sides[side];
   const k = s.on * (strength === undefined ? 1 : strength);
