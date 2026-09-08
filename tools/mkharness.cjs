@@ -168,6 +168,11 @@ export const T = {
   get speedBase(){ return speedBase; }, timeScale,
   get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; },
   markTutorialProgress, TUT_SWING, TUT_ATTACK, TUT_MELEE,
+  // 자동 곡예 · 시네마틱 · 해금
+  acroTry, get acroCount(){ return acroCount; }, get acroCd(){ return acroCd; },
+  ACRO_CLEAR, ACRO_SPEED, cineFire, cineAmt,
+  get cineT(){ return cineT; }, get cineKind(){ return cineKind; }, get cineCount(){ return cineCount; },
+  hasAbility, startPractice, stopPractice, get practiceOn(){ return practiceOn; },
   // 3인칭 본 레이어
   init3p, pose3p, bones3p, ready3p, pose3pNow,
   // 미니맵

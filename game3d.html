@@ -261,6 +261,13 @@
   /* 타이틀 아래 작은 링크 줄 */
   .tlinks { margin-top: 18px; display: flex; gap: 10px; justify-content: center; }
 
+  /* 화면 전환. 문서 02 §34 — 150~300ms 짧게. 2초짜리 메뉴 애니메이션은 안 한다 */
+  #missions, #result, #opts, #title, #charsel {
+    transition: opacity .18s ease, backdrop-filter .18s ease;
+  }
+  #missions:not(.show), #result:not(.show), #opts:not(.show) { opacity: 0; }
+  #missions.show, #result.show, #opts.show { opacity: 1; }
+
   /* 미션 목록 */
   #missions { position: fixed; inset: 0; z-index: 62; display: none;
     background: rgba(5,6,10,.93); color: #e8eef7; align-items: center; justify-content: center; }
@@ -984,6 +991,6 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mts6hn5b"></script>
+<script type="module" src="./game3d.js?v=mts6mx86"></script>
 </body>
 </html>

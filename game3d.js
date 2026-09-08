@@ -4383,6 +4383,22 @@ let lClickT = -1, rClickT = -1;
 let diving = false;
 let diveFx = 0;      // 급강하 연출 강도 0..1 (서서히 차오르고 서서히 빠진다)
 let camRoll = 0;
+// ---------- 시네마틱 카메라 ----------
+// 문서 01 §22. 컷신을 남발하지 않는다. 조작을 뺏지 않고 **짧게 얹기만** 한다.
+//   Base Follow + Cinematic Offset = Final Camera
+// 시야각과 거리만 건드린다. 각도를 뺏으면 그 순간이 곧 버그로 읽힌다.
+const CINE_MAX = 0.9;
+let cineT = 0, cineKind = "", cineCd = 0, cineCount = 0;
+function cineFire(kind, strength) {
+  if (cineCd > 0) return false;
+  cineT = CINE_MAX * Math.min(1, strength === undefined ? 1 : strength);
+  cineKind = kind;
+  cineCd = 2.4;                    // 최근에 한 번 했으면 가중치를 낮춘다
+  cineCount++;
+  return true;
+}
+// 지금 프레임의 연출 세기 0..1
+function cineAmt() { return cineT > 0 ? cineT / CINE_MAX : 0; }
 let aimPreview = null;
 let aimAuto = false;        // 지금 미리보기가 자동 앵커인가 (조준이 빗나갔다는 뜻)
 let aimTick = 0;
@@ -4691,6 +4707,16 @@ let save = _sv.data;
 let saveFresh = _sv.fresh;
 let saveBroken = _sv.broken;
 let saveTick = 0;                       // 저장했다는 표시 (아이콘 잔량)
+
+// 해금. 문서 02 §27 — 숫자(+3%)가 아니라 **새로운 행동**이 늘어난다.
+// 다만 자유 이동·연습·튜토리얼에서는 전부 열어둔다. 스토리를 시작하지도 않은
+// 사람에게 기능을 잠그면 그건 진행이 아니라 그냥 불편이다.
+function hasAbility(id) {
+  if (!save || !save.unlocked) return true;
+  if (practiceOn || tutOn || tutAllModes) return true;
+  if (!save.story.cleared.length && !save.story.mission) return true;   // 아직 스토리 밖
+  return save.unlocked.abilities.includes(id);
+}
 
 function persist(why) {
   save.lastPlayed = Date.now();
@@ -5010,6 +5036,14 @@ function drawMissionList() {
     };
   });
 }
+// 작은 UI 소리가 '제품 느낌'을 크게 올린다 (문서 02 §35).
+// 모든 버튼에 한 번만 걸어둔다 — 버튼마다 손으로 붙이면 반드시 빠뜨린다.
+addEventListener("click", e => {
+  const t = e.target;
+  if (!t || !t.tagName || t.tagName !== "BUTTON") return;
+  if (t.classList.contains("primary")) sfxPerfect(); else sfxDodge();
+}, true);
+
 function openMissions(tab) {
   mTab = tab || mTab;
   missionsEl.classList.add("show");
@@ -5203,6 +5237,8 @@ function attachWeb(point) {
 }
 
 function releaseWeb() {
+  // 빠르게 놓으면 짧게 시야가 트인다 (문서 01 §22 의 Web Release)
+  if (web && player.vel.length() > 34) cineFire("release", Math.min(1, player.vel.length() / 70));
   web2 = null;
   web = null;
 }
@@ -5376,6 +5412,31 @@ addEventListener("mouseup", e => {
 });
 // 휠 아래로 = 덤블링. 지상이면 구르기(전방 추진), 공중이면 공중제비.
 // 덤블링. 예전엔 휠 아래로였는데 휠을 줌에 내주고 X로 옮겼다.
+// ---------- 자동 곡예 (문서 01 §14) ----------
+// 플레이어가 공중제비 버튼을 외울 필요는 없다. 조건이 맞으면 알아서 나간다.
+// 안전 규칙: **애니메이션은 궤적을 바꾸지 않는다.** tumble 은 연출만 건드린다.
+const ACRO_CLEAR = 26;    // 지면까지 이만큼은 비어 있어야 한다 (낮은 데서 돌면 박는다)
+const ACRO_SPEED = 26;    // 이보다 빨라야 곡예로 읽힌다
+const ACRO_CD    = 2.2;   // 같은 동작이 연달아 나오면 지루하다
+let acroCd = 0, acroCount = 0;
+
+function acroTry(dt) {
+  if (acroCd > 0) { acroCd -= dt; return false; }
+  if (tumbleT > 0 || clinging || player.grounded || web || zip || lunge || pull) return false;
+  if (deadT > 0 || meleeMode) return false;
+  const sp = player.vel.length();
+  if (sp < ACRO_SPEED) return false;
+  // 아래가 충분히 비어 있는가. 낮은 고도에서 돌면 착지가 엉킨다.
+  const gh = groundHeightAt(player.pos.x, player.pos.z, player.pos.y);
+  if (player.pos.y - gh < ACRO_CLEAR) return false;
+  // 위로 솟구치는 동안에만. 떨어지는 중에 돌면 낙하 제어가 안 된다.
+  if (player.vel.y < 2) return false;
+  acroCd = ACRO_CD;
+  acroCount++;
+  tumble();
+  return true;
+}
+
 function tumble() {
   if (tumbleT > 0 || clinging) return;
   const fwd = new THREE.Vector3();
@@ -6029,7 +6090,7 @@ function update(dt) {
     // 보조 웹. 구속하지 않고 방향만 당긴다 — 이게 문서 01 §7이 말한
     // "primary constraint + secondary steering force" 다.
     // 두 번째 constraint 를 걸면 두 줄이 서로를 잡아당겨 진동한다.
-    if (web2Held && !web2) {
+    if (web2Held && !web2 && hasAbility("dual")) {
       // 조준한 곳이 먼저다. 하늘을 보고 있으면 자동 탐색으로 넘어간다 —
       // 주 웹이 그렇게 하고 있고, 보조만 조준을 요구하면 거의 안 붙는다.
       // (실측: 조준 전용으로 두니 붙는 횟수가 0이었다)
@@ -6060,7 +6121,7 @@ function update(dt) {
   // 웹으로 건물 타기. 벽 붙기(clinging)보다 먼저 본다 — 줄이 걸리면 아래
   // 벽 붙기 블록이 !zip 조건에 걸려 저절로 비켜난다.
   if (vcCd > 0) vcCd -= dt;
-  if (climbHeld() && !player.grounded && !clinging && !lunge && !pull
+  if (climbHeld() && !player.grounded && !clinging && !lunge && !pull && hasAbility("vclimb")
       && vclimbShouldFire(player.pos, true, zip ? zip.a : null, vcCd)) {
     // 손이 닿는 거리면 줄을 쏘지 않는다 — 그건 기존 '벽 붙기'의 몫이다.
     // 손이 닿으면 붙고, 안 닿으면 줄을 쏜다. 이 한 줄이 두 기능을 가른다.
@@ -6190,6 +6251,14 @@ function update(dt) {
     }
   }
   prevShift = shiftNow;
+  if (cineCd > 0) cineCd -= dt;
+  if (cineT > 0) cineT = Math.max(0, cineT - dt);
+  // 큰 낙하 — 아래가 한참 비어 있고 빠르게 떨어지는 중
+  if (cineCd <= 0 && !player.grounded && player.vel.y < -46
+      && player.pos.y - groundHeightAt(player.pos.x, player.pos.z, player.pos.y) > 90) {
+    cineFire("drop", 1);
+  }
+  acroTry(dt);
   updateSling(dt);
   updateCombat(dt);
   updateMission(dt);
@@ -6769,7 +6838,11 @@ function updateCamera(dt) {
     + Math.max(dashKick, 0) * 48
     + Math.max(pumpFx, 0) * 30
     + (diving ? 8 + diveFx * 16 : 0);
-  camera.fov += (targetFov - camera.fov) * Math.min(1, 5 * dt);
+  // 시네마틱은 목표 시야각에 얹는다. 카메라 각도는 건드리지 않는다 —
+  // 조작 중에 시점을 뺏으면 그 순간이 곧 버그로 읽힌다 (문서 01 §22).
+  const cineFov = cineT > 0
+    ? (cineKind === "drop" ? 10 : cineKind === "release" ? 7 : 5) * cineAmt() : 0;
+  camera.fov += (targetFov + cineFov - camera.fov) * Math.min(1, 5 * dt);
   camera.updateProjectionMatrix();
 
   updateHands(dt, sp);
@@ -7743,4 +7816,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, getReach, setReach, clearReach, updateReach, applyReach, initReach, get speedBase(){ return speedBase; }, timeScale, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, markTutorialProgress, bootDone, bootStep, TUT_SWING, TUT_ATTACK, TUT_MELEE, init3p, pose3p, bones3p, ready3p, pose3pNow, get rig3pOn(){ return rig3pOn; }, get fpBody(){ return fpBody; }, poseFpBody, updateMinimap, mmPt, MM_R, mmBuildCity, SLING_REEL, get mmTag(){ return mmTagEl ? mmTagEl.innerHTML : ""; }, get slingT(){ return slingT; }, get slingOn(){ return slingOn; }, slingHeld, fireSling, updateSling, SLING_MAX, SLING_MIN, SLING_BOOST, setMid(v){ midDown = v; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, get web2Held(){ return web2Held; }, get tutToStory(){ return tutToStory; }, PRACTICE, startPractice, stopPractice, get practiceOn(){ return practiceOn; }, spawnBoss, clearBoss, updateBossEnemy, BOSS_BRAWL, BOSS_KIND, BOSS_HP, get bossE(){ return bossE; }, get bossDead(){ return bossDead; }, get bossPhase(){ return bossPhase; }, bossCheck, startMission, abortMission, finishMission, updateMission, get mRun(){ return mRun; }, get mResult(){ return mResult; }, get mKills(){ return mKills; }, actsNow, resolveTarget, worldSummary, openMissions, drawMissionList, showResult, closeResult, get resultOpen(){ return resultOpen; }, MISSIONS, CHALLENGES, missionById, challengeById, TUT_PARTS, get save(){ return save; }, get saveFresh(){ return saveFresh; }, persist, newGame, applySavedSettings, drawContinue, saveSummary, attachWeb, get web2(){ return web2; }, get web2Count(){ return web2Count; }, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, releaseWeb2, sideOf, otherSide, WEB2_PULL, WEB2_FADE, vclimbAnchor, vclimbShouldFire, VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD, get vcCount(){ return vcCount; }, get vcCd(){ return vcCd; }, setClimb(v){ climbMouse = v; }, plantCheck, plantImpulse, plantSide, PLANT_TIME, PLANT_MIN_V, PLANT_PUSH, PLANT_KEEP, PLANT_CD, PLANT_LOOK, get plantT(){ return plantT; }, get plantCd(){ return plantCd; }, get plantHand(){ return plantHand; }, get plantCount(){ return plantCount; }, plantPoint, findNearbyWall, get upperR(){ return upperR; }, get upperL(){ return upperL; }, SHOULDER_R, SHOULDER_L, linkUpperArm, ensureUpperArms, spiderGroup, charGlowOn, charGlowOff, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, SETTINGS, setOpt, get MAX_HP(){ return MAX_HP; }, get MOVE_SPEED(){ return MOVE_SPEED; }, get uiMode(){ return uiMode; }, get tutAllModes(){ return tutAllModes; }, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE, get lastMeleeTarget(){ return lastMeleeTarget; }, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, getReach, setReach, clearReach, updateReach, applyReach, initReach, get speedBase(){ return speedBase; }, timeScale, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, markTutorialProgress, bootDone, bootStep, TUT_SWING, TUT_ATTACK, TUT_MELEE, acroTry, get acroCount(){ return acroCount; }, get acroCd(){ return acroCd; }, ACRO_CLEAR, ACRO_SPEED, cineFire, cineAmt, get cineT(){ return cineT; }, get cineKind(){ return cineKind; }, get cineCount(){ return cineCount; }, hasAbility, init3p, pose3p, bones3p, ready3p, pose3pNow, get rig3pOn(){ return rig3pOn; }, get fpBody(){ return fpBody; }, poseFpBody, updateMinimap, mmPt, MM_R, mmBuildCity, SLING_REEL, get mmTag(){ return mmTagEl ? mmTagEl.innerHTML : ""; }, get slingT(){ return slingT; }, get slingOn(){ return slingOn; }, slingHeld, fireSling, updateSling, SLING_MAX, SLING_MIN, SLING_BOOST, setMid(v){ midDown = v; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, get web2Held(){ return web2Held; }, get tutToStory(){ return tutToStory; }, PRACTICE, startPractice, stopPractice, get practiceOn(){ return practiceOn; }, spawnBoss, clearBoss, updateBossEnemy, BOSS_BRAWL, BOSS_KIND, BOSS_HP, get bossE(){ return bossE; }, get bossDead(){ return bossDead; }, get bossPhase(){ return bossPhase; }, bossCheck, startMission, abortMission, finishMission, updateMission, get mRun(){ return mRun; }, get mResult(){ return mResult; }, get mKills(){ return mKills; }, actsNow, resolveTarget, worldSummary, openMissions, drawMissionList, showResult, closeResult, get resultOpen(){ return resultOpen; }, MISSIONS, CHALLENGES, missionById, challengeById, TUT_PARTS, get save(){ return save; }, get saveFresh(){ return saveFresh; }, persist, newGame, applySavedSettings, drawContinue, saveSummary, attachWeb, get web2(){ return web2; }, get web2Count(){ return web2Count; }, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, releaseWeb2, sideOf, otherSide, WEB2_PULL, WEB2_FADE, vclimbAnchor, vclimbShouldFire, VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD, get vcCount(){ return vcCount; }, get vcCd(){ return vcCd; }, setClimb(v){ climbMouse = v; }, plantCheck, plantImpulse, plantSide, PLANT_TIME, PLANT_MIN_V, PLANT_PUSH, PLANT_KEEP, PLANT_CD, PLANT_LOOK, get plantT(){ return plantT; }, get plantCd(){ return plantCd; }, get plantHand(){ return plantHand; }, get plantCount(){ return plantCount; }, plantPoint, findNearbyWall, get upperR(){ return upperR; }, get upperL(){ return upperL; }, SHOULDER_R, SHOULDER_L, linkUpperArm, ensureUpperArms, spiderGroup, charGlowOn, charGlowOff, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, SETTINGS, setOpt, get MAX_HP(){ return MAX_HP; }, get MOVE_SPEED(){ return MOVE_SPEED; }, get uiMode(){ return uiMode; }, get tutAllModes(){ return tutAllModes; }, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE, get lastMeleeTarget(){ return lastMeleeTarget; }, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
