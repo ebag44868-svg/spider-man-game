@@ -24,6 +24,10 @@ import {
   makeFinger, makeHand, poseHand, initHands, makeUpperArm, linkUpperArm,
 } from "./src/fp-hands.js";
 import {
+  vclimbAnchor, vclimbShouldFire,
+  VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD,
+} from "./src/vclimb.js";
+import {
   plantCheck, plantImpulse, plantSide,
   PLANT_LOOK, PLANT_MIN_V, PLANT_TIME, PLANT_KEEP, PLANT_PUSH, PLANT_PUSH_MAX, PLANT_BOUNCE, PLANT_UP, PLANT_CD,
 } from "./src/wallplant.js";
@@ -5031,6 +5035,13 @@ function resolveAxis(axis, bound, dirIn, b) {
 // 공중에서 벽타기 키를 눌렀을 때 잡을 벽을 찾는다.
 // 충돌(lastWall)은 실제로 부딪혀야 생기므로, 살짝 떨어진 벽도 잡히게 별도로 탐색한다.
 const _nbW = [];
+// ---------- 웹으로 건물 타기 ----------
+// 벽타기 버튼을 누른 채 공중에서 벽 옆에 있으면, 위쪽에 줄을 걸어 끌려 올라간다.
+// 기존 '벽 붙기'의 기어오르기(CLIMB_SPEED)는 그대로 남는다 — 그쪽은 붙어서
+// 천천히 오르는 것이고, 이쪽은 줄로 훅훅 타고 오르는 것이다.
+let vcCd = 0, vcCount = 0;
+const vcPoint = new THREE.Vector3();
+
 // ---------- 벽 짚기 (Wall Plant) ----------
 // 자동으로 나간다. 키가 없다 — 문서 01이 말한 "플레이어는 의도만 입력"이다.
 // 빠르게 벽으로 가면 알아서 짚고, 속도를 죽이지 않고 방향만 꺾어 밀어낸다.
@@ -5448,6 +5459,26 @@ function update(dt) {
 
     // 자동 릴리즈 없음. 좌클릭을 뗄 때까지 계속 매달려 있는다.
     collideWalls(player.pos.x, player.pos.z);
+  }
+
+  // 웹으로 건물 타기. 벽 붙기(clinging)보다 먼저 본다 — 줄이 걸리면 아래
+  // 벽 붙기 블록이 !zip 조건에 걸려 저절로 비켜난다.
+  if (vcCd > 0) vcCd -= dt;
+  if (climbHeld() && !player.grounded && !clinging && !lunge && !pull
+      && vclimbShouldFire(player.pos, true, zip ? zip.a : null, vcCd)) {
+    // 손이 닿는 거리면 줄을 쏘지 않는다 — 그건 기존 '벽 붙기'의 몫이다.
+    // 손이 닿으면 붙고, 안 닿으면 줄을 쏜다. 이 한 줄이 두 기능을 가른다.
+    const vw = findNearbyWall(WALL_GRAB_REACH) ? null : findNearbyWall(VC_NEAR);
+    const va = vclimbAnchor(player.pos, vw, player.r);
+    if (va) {
+      releaseWeb();
+      clearGrip();
+      zip = { a: vcPoint.set(va.x, va.y, va.z).clone(), t: 0, charge: ZIP_CHARGE * 0.4 };
+      armPulse = 0.35;
+      vcCount++;
+      vcCd = VC_CD;
+      sfxThwip();
+    }
   }
 
   // 벽 짚기. 기존 충돌 해결을 대체하지 않는다 — 그 전에 속도의 방향만 바꿔서
@@ -6739,4 +6770,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, getReach, setReach, clearReach, updateReach, applyReach, initReach, plantCheck, plantImpulse, plantSide, PLANT_TIME, PLANT_MIN_V, PLANT_PUSH, PLANT_KEEP, PLANT_CD, PLANT_LOOK, get plantT(){ return plantT; }, get plantCd(){ return plantCd; }, get plantHand(){ return plantHand; }, get plantCount(){ return plantCount; }, plantPoint, findNearbyWall, get upperR(){ return upperR; }, get upperL(){ return upperL; }, SHOULDER_R, SHOULDER_L, linkUpperArm, ensureUpperArms, spiderGroup, charGlowOn, charGlowOff, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, SETTINGS, setOpt, get MAX_HP(){ return MAX_HP; }, get MOVE_SPEED(){ return MOVE_SPEED; }, get uiMode(){ return uiMode; }, get tutAllModes(){ return tutAllModes; }, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE, get lastMeleeTarget(){ return lastMeleeTarget; }, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, getReach, setReach, clearReach, updateReach, applyReach, initReach, vclimbAnchor, vclimbShouldFire, VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD, get vcCount(){ return vcCount; }, get vcCd(){ return vcCd; }, setClimb(v){ climbMouse = v; }, plantCheck, plantImpulse, plantSide, PLANT_TIME, PLANT_MIN_V, PLANT_PUSH, PLANT_KEEP, PLANT_CD, PLANT_LOOK, get plantT(){ return plantT; }, get plantCd(){ return plantCd; }, get plantHand(){ return plantHand; }, get plantCount(){ return plantCount; }, plantPoint, findNearbyWall, get upperR(){ return upperR; }, get upperL(){ return upperL; }, SHOULDER_R, SHOULDER_L, linkUpperArm, ensureUpperArms, spiderGroup, charGlowOn, charGlowOff, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, SETTINGS, setOpt, get MAX_HP(){ return MAX_HP; }, get MOVE_SPEED(){ return MOVE_SPEED; }, get uiMode(){ return uiMode; }, get tutAllModes(){ return tutAllModes; }, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE, get lastMeleeTarget(){ return lastMeleeTarget; }, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };

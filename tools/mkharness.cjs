@@ -163,6 +163,10 @@ export const T = {
   initReach, setReach, clearReach, updateReach, getReach, applyReach, armR, armL,
   SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX,
   soft, ensureUpperArms, linkUpperArm, SHOULDER_R, SHOULDER_L,
+  // STEP 3 웹으로 건물 타기
+  vclimbAnchor, vclimbShouldFire, VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD,
+  get vcCount(){ return vcCount; }, get vcCd(){ return vcCd; },
+  setClimb(v){ climbMouse = v; },
   // STEP 2 벽 짚기
   plantCheck, plantImpulse, plantSide, findNearbyWall, plantPoint,
   PLANT_TIME, PLANT_MIN_V, PLANT_PUSH, PLANT_KEEP, PLANT_CD, PLANT_LOOK,
