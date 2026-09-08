@@ -41,9 +41,13 @@ function stepObj(o, w, dt, base) {
   o.t += dt;
   switch (s.type) {
     case "defeat":
-    case "boss":
       o.n = Math.max(0, (w.killed || 0) - (base.killed || 0));
       if (o.n >= o.need) o.done = true;
+      break;
+    case "boss":
+      // 잡몹 처치 수로 세면 안 된다. 보스전 중에 부하를 잡아도 끝나 버린다.
+      o.n = w.bossDead ? 1 : 0;
+      if (o.n >= 1) o.done = true;
       break;
     case "reach":
       if (near(w, s, s.r)) { o.n = 1; o.done = true; }

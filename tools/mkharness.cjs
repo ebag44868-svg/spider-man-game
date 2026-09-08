@@ -167,6 +167,9 @@ export const T = {
   get speedBase(){ return speedBase; }, timeScale,
   get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; },
   markTutorialProgress, TUT_SWING, TUT_ATTACK, TUT_MELEE,
+  // 보스
+  spawnBoss, clearBoss, updateBossEnemy, BOSS_BRAWL, BOSS_KIND, BOSS_HP, bossCheck,
+  get bossE(){ return bossE; }, get bossDead(){ return bossDead; }, get bossPhase(){ return bossPhase; },
   // 미션 / 챌린지
   startMission, abortMission, updateMission, actsNow, resolveTarget, worldSummary,
   get mRun(){ return mRun; }, get mResult(){ return mResult; }, get mKills(){ return mKills; },
