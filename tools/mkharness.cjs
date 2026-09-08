@@ -163,6 +163,12 @@ export const T = {
   initReach, setReach, clearReach, updateReach, getReach, applyReach, armR, armL,
   SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX,
   soft, ensureUpperArms, linkUpperArm, SHOULDER_R, SHOULDER_L,
+  // STEP 2 벽 짚기
+  plantCheck, plantImpulse, plantSide, findNearbyWall, plantPoint,
+  PLANT_TIME, PLANT_MIN_V, PLANT_PUSH, PLANT_KEEP, PLANT_CD, PLANT_LOOK,
+  PLANT_BOUNCE, PLANT_PUSH_MAX,
+  get plantT(){ return plantT; }, get plantCd(){ return plantCd; },
+  get plantHand(){ return plantHand; }, get plantCount(){ return plantCount; },
   get upperR(){ return upperR; }, get upperL(){ return upperL; },
   // 근접 1차 개편(소프트 락온/파고들기/이동)
   meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE,
