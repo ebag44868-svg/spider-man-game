@@ -163,6 +163,9 @@ export const T = {
   initReach, setReach, clearReach, updateReach, getReach, applyReach, armR, armL,
   SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX,
   soft, ensureUpperArms, linkUpperArm, SHOULDER_R, SHOULDER_L,
+  // 저장 / 이어하기
+  get save(){ return save; }, get saveFresh(){ return saveFresh; },
+  persist, newGame, applySavedSettings, drawContinue,
   // STEP 4 양손 웹
   attachWeb,
   get web2(){ return web2; }, get web2Count(){ return web2Count; },
