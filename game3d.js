@@ -2373,6 +2373,8 @@ let dashIn = 0, dashInE = null;
 let swingFx = 0, swingFxDur = 0.3, swingFxHit = 0.1, swingHeavy = false, swingYaw = 0;
 
 const _mDir = new THREE.Vector3(), _mh = new THREE.Vector3(), _mImp = new THREE.Vector3();
+const _w2v = new THREE.Vector3();      // 보조 웹 방향 계산용
+const _w2s = new THREE.Vector3();      // 보조 웹 줄이 나가는 손 위치
 
 // 손이 가리키는 '의도' 방향. 하드 락온 > 이동 입력 > 시선 순.
 // 스파이더맨2에는 락온이 없고 스틱 방향이 곧 대상 지정이다. 그 자리를 이 함수가 맡는다.
@@ -4650,7 +4652,7 @@ function resolveAnchor() {
 
 function attachWeb(point) {
   const d = Math.max(player.pos.distanceTo(point), ROPE_MIN);
-  web = { a: point.clone(), len: d, base: d, t: 0 };
+  web = { a: point.clone(), len: d, base: d, t: 0, side: sideOf(point) };
   tutSwings++;                     // 튜토리얼 진행도
   hasDash = true;
   armPulse = 0.35;
@@ -4658,6 +4660,7 @@ function attachWeb(point) {
 }
 
 function releaseWeb() {
+  web2 = null;
   web = null;
 }
 
@@ -4769,10 +4772,12 @@ function tryAttach() {
 addEventListener("mousedown", e => {
   if (e.button === 3) { climbMouse = true; e.preventDefault(); }
   else if (e.button === 4) { punch(); e.preventDefault(); }
+  else if (e.button === 1) { web2Held = true; e.preventDefault(); }
 }, { capture: true });
 addEventListener("mouseup", e => {
   if (e.button === 3) { climbMouse = false; e.preventDefault(); }
   else if (e.button === 4) e.preventDefault();
+  else if (e.button === 1) { web2Held = false; e.preventDefault(); }
 }, { capture: true });
 addEventListener("auxclick", e => {
   if (e.button === 3 || e.button === 4) e.preventDefault();
@@ -5035,6 +5040,30 @@ function resolveAxis(axis, bound, dirIn, b) {
 // 공중에서 벽타기 키를 눌렀을 때 잡을 벽을 찾는다.
 // 충돌(lastWall)은 실제로 부딪혀야 생기므로, 살짝 떨어진 벽도 잡히게 별도로 탐색한다.
 const _nbW = [];
+// ---------- 양손 웹 ----------
+// 문서 01 §7. 두 로프를 동시에 구속하면 과구속·진동·에너지 폭주가 난다.
+// 그래서 실제 스윙 constraint 는 '주 웹' 하나만 담당하고, '보조 웹'은 구속 없이
+// 방향만 당긴다. 화면에서는 양손이 각각 다른 곳을 잡고 있는 것으로 보인다.
+//
+// 손 배정: 주 웹이 걸린 쪽이 그 손, 보조 웹은 반대 손. 앵커가 왼쪽에 있으면
+// 왼손으로 잡는다 — 지금까지는 어디에 걸든 늘 오른손이었다.
+const WEB2_PULL = 62;        // 보조 웹이 당기는 가속 (m/s^2)
+const WEB2_FADE = 45;        // 이 거리부터 당기는 힘이 약해진다
+let web2 = null;             // { a, t }
+let web2Held = false;        // 가운데 버튼을 누르고 있는가
+let web2Strand = null;       // 두 번째 줄 (첫 프레임에 만든다 — 난수 때문에)
+let web2Count = 0;
+
+// 이 점이 플레이어의 어느 쪽인가. 잡을 손을 고른다.
+// right = forward x up, forward = (sin, 0, cos) 이므로 오른쪽은 (-cos, 0, sin).
+function sideOf(p) {
+  const rx = -Math.cos(viewYaw), rz = Math.sin(viewYaw);
+  return ((p.x - player.pos.x) * rx + (p.z - player.pos.z) * rz) >= 0 ? "R" : "L";
+}
+function otherSide(s) { return s === "R" ? "L" : "R"; }
+
+function releaseWeb2() { web2 = null; }
+
 // ---------- 웹으로 건물 타기 ----------
 // 벽타기 버튼을 누른 채 공중에서 벽 옆에 있으면, 위쪽에 줄을 걸어 끌려 올라간다.
 // 기존 '벽 붙기'의 기어오르기(CLIMB_SPEED)는 그대로 남는다 — 그쪽은 붙어서
@@ -5457,6 +5486,33 @@ function update(dt) {
       }
     }
 
+    // 보조 웹. 구속하지 않고 방향만 당긴다 — 이게 문서 01 §7이 말한
+    // "primary constraint + secondary steering force" 다.
+    // 두 번째 constraint 를 걸면 두 줄이 서로를 잡아당겨 진동한다.
+    if (web2Held && !web2) {
+      // 조준한 곳이 먼저다. 하늘을 보고 있으면 자동 탐색으로 넘어간다 —
+      // 주 웹이 그렇게 하고 있고, 보조만 조준을 요구하면 거의 안 붙는다.
+      // (실측: 조준 전용으로 두니 붙는 횟수가 0이었다)
+      const p2 = findZipAnchor() || findSwingAnchor();
+      if (p2) {
+        web2 = { a: p2.clone(), t: 0 };
+        web2Count++;
+        armPulse = 0.3;
+        sfxThwip();
+      }
+    } else if (!web2Held && web2) releaseWeb2();
+    if (web2) {
+      web2.t += dt;
+      _w2v.copy(web2.a).sub(player.pos);
+      const d2 = _w2v.length();
+      if (d2 > ROPE_MAX * 1.15) releaseWeb2();      // 너무 멀어지면 저절로 끊긴다
+      else if (d2 > 1) {
+        // 멀수록 약하게. 가까이서 세게 당기면 앵커로 빨려들어가 스윙이 망가진다.
+        const k = WEB2_PULL * Math.min(1, WEB2_FADE / d2);
+        player.vel.addScaledVector(_w2v.divideScalar(d2), k * dt);
+      }
+    }
+
     // 자동 릴리즈 없음. 좌클릭을 뗄 때까지 계속 매달려 있는다.
     collideWalls(player.pos.x, player.pos.z);
   }
@@ -5768,6 +5824,7 @@ function updateZipVisual() {
 
 function updateWebVisual() {
   updateZipVisual();
+  updateWeb2Visual();
   if (!web) {
     webLine.visible = false;
     anchorMark.visible = false;
@@ -5797,6 +5854,23 @@ function updateWebVisual() {
   fillRibbon(webStrand, s, _w4, sag, rad);
 }
 
+// 보조 웹의 줄. 주 웹과 같은 방식으로 그리되 반대 손에서 나간다.
+// 메시는 첫 사용 때 만든다 — 선언 자리에서 만들면 uuid가 난수를 먹어 도시 생성이
+// 통째로 밀린다 (상완에서 이미 한 번 겪었다).
+function updateWeb2Visual() {
+  if (!web2) { if (web2Strand) web2Strand.mesh.visible = false; return; }
+  if (!web2Strand) { web2Strand = makeStrand(); scene.add(web2Strand.mesh); }
+  web2Strand.mesh.visible = true;
+  const s = _w2s;
+  const hand = web && web.side === "R" ? armL : armR;      // 주 웹의 반대 손
+  if (firstPerson && hand.userData.nozzle) hand.userData.nozzle.getWorldPosition(s);
+  else if (firstPerson) handAnchor.getWorldPosition(s);
+  else s.set(player.pos.x, player.pos.y + 1.8, player.pos.z);
+  const shoot = Math.min(1, web2.t / 0.05);
+  _w4.copy(web2.a).sub(s).multiplyScalar(shoot).add(s);
+  fillRibbon(web2Strand, s, _w4, 0.4, 0.034);
+}
+
 // 1인칭 손 포즈. updateCamera 안에 110줄 넘게 섞여 있던 것을 그대로 떼어냈다.
 // 코드는 한 줄도 바꾸지 않았다 — updateCamera에서 부르는 위치도 원래 그 자리다.
 //
@@ -5811,15 +5885,20 @@ function updateHands(dt, sp) {
   // 게임플레이 코어에 훅을 박지 않는다. 이미 있는 상태를 읽어 목표만 정하고,
   // 발사/포착 판정은 reach.js가 목표가 바뀐 것을 보고 스스로 한다.
   // 오른손 = 웹스윙/집라인/거미줄 격투. 왼손은 STEP 4(양손 웹)에서 붙인다.
-  let rTgt = null;
+  // 어느 손이 무엇을 잡는가.
+  // 주 웹은 걸린 쪽 손, 보조 웹은 반대 손. 벽 짚기는 가까운 쪽 손.
+  const tgt = { R: null, L: null };
+  const kind = { R: "web", L: "web" };
+  const pSide = web ? web.side : "R";
+  if (web) tgt[pSide] = web.a;
+  else if (zip) tgt.R = zip.a;
+  else if (lunge && lunge.e && !lunge.e.dead) tgt.R = lunge.e.g.position;
+  else if (pull && pull.e && !pull.e.dead) tgt.R = pull.e.g.position;
+  if (web2) tgt[otherSide(pSide)] = web2.a;
   // 벽을 짚는 순간이 가장 급하다. 웹보다 먼저다.
-  // (왼손 짚기는 STEP 4에서 왼팔에 제대로 된 구동이 생길 때 붙인다)
-  if (plantT > 0) rTgt = plantPoint;
-  else if (web) rTgt = web.a;
-  else if (zip) rTgt = zip.a;
-  else if (lunge && lunge.e && !lunge.e.dead) rTgt = lunge.e.g.position;
-  else if (pull && pull.e && !pull.e.dead) rTgt = pull.e.g.position;
-  setReach("R", rTgt, plantT > 0 ? "wall" : "web");
+  if (plantT > 0) { tgt[plantHand] = plantPoint; kind[plantHand] = "wall"; }
+  setReach("R", tgt.R, kind.R);
+  setReach("L", tgt.L, kind.L);
   updateReach(dt);
 
   armPulse = Math.max(0, armPulse - dt);
@@ -5895,10 +5974,20 @@ function updateHands(dt, sp) {
       armL.rotation.set(0.30 - e2 * 0.30, -0.22 + e2 * 0.22, 0.40 - e2 * 0.40);
       armL.scale.set(-0.72, 0.72, 0.72);
       poseHand(armL, 0, 1, 0, 1, kf);                    // 주먹 쥔 손
+    } else if (firstPerson && getReach("L").on > 0.01) {
+      // 왼손이 무언가를 잡고 있다 (주 웹이 왼쪽이거나, 보조 웹이거나, 벽을 짚거나).
+      // 오른손과 좌우 대칭인 기본 자세를 두고, 그 위에 목표 방향을 얹는다.
+      const lr = getReach("L");
+      armL.visible = true;
+      armL.position.set(-0.5 + 0.14 * lr.on, -0.40 + 0.16 * lr.on, -0.52 - 0.1 * lr.on);
+      armL.rotation.set(0.55 - 0.4 * lr.on, 0, 0.06 * lr.on);
+      applyReach(armL, "L");
+      armL.scale.set(-0.72, 0.72, 0.72);
+      poseHand(armL, 1 - lr.grip, lr.grip, 0.4, lr.fire, kf);
     } else {
       armL.visible = false;
     }
-    const armTarget = firstPerson && (web !== null || armPulse > 0 || plantT > 0) ? 1 : 0;
+    const armTarget = firstPerson && (getReach("R").on > 0.01 || armPulse > 0) ? 1 : 0;
     armExt += (armTarget - armExt) * Math.min(1, 10 * dt);
 
     // 줄에 매달린 동안 팔이 앵커 쪽으로 당겨지고, 장력에 따라 미세하게 떨린다
@@ -6770,4 +6859,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, getReach, setReach, clearReach, updateReach, applyReach, initReach, vclimbAnchor, vclimbShouldFire, VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD, get vcCount(){ return vcCount; }, get vcCd(){ return vcCd; }, setClimb(v){ climbMouse = v; }, plantCheck, plantImpulse, plantSide, PLANT_TIME, PLANT_MIN_V, PLANT_PUSH, PLANT_KEEP, PLANT_CD, PLANT_LOOK, get plantT(){ return plantT; }, get plantCd(){ return plantCd; }, get plantHand(){ return plantHand; }, get plantCount(){ return plantCount; }, plantPoint, findNearbyWall, get upperR(){ return upperR; }, get upperL(){ return upperL; }, SHOULDER_R, SHOULDER_L, linkUpperArm, ensureUpperArms, spiderGroup, charGlowOn, charGlowOff, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, SETTINGS, setOpt, get MAX_HP(){ return MAX_HP; }, get MOVE_SPEED(){ return MOVE_SPEED; }, get uiMode(){ return uiMode; }, get tutAllModes(){ return tutAllModes; }, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE, get lastMeleeTarget(){ return lastMeleeTarget; }, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, getReach, setReach, clearReach, updateReach, applyReach, initReach, attachWeb, get web2(){ return web2; }, get web2Count(){ return web2Count; }, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, releaseWeb2, sideOf, otherSide, WEB2_PULL, WEB2_FADE, vclimbAnchor, vclimbShouldFire, VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD, get vcCount(){ return vcCount; }, get vcCd(){ return vcCd; }, setClimb(v){ climbMouse = v; }, plantCheck, plantImpulse, plantSide, PLANT_TIME, PLANT_MIN_V, PLANT_PUSH, PLANT_KEEP, PLANT_CD, PLANT_LOOK, get plantT(){ return plantT; }, get plantCd(){ return plantCd; }, get plantHand(){ return plantHand; }, get plantCount(){ return plantCount; }, plantPoint, findNearbyWall, get upperR(){ return upperR; }, get upperL(){ return upperL; }, SHOULDER_R, SHOULDER_L, linkUpperArm, ensureUpperArms, spiderGroup, charGlowOn, charGlowOff, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, SETTINGS, setOpt, get MAX_HP(){ return MAX_HP; }, get MOVE_SPEED(){ return MOVE_SPEED; }, get uiMode(){ return uiMode; }, get tutAllModes(){ return tutAllModes; }, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE, get lastMeleeTarget(){ return lastMeleeTarget; }, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };

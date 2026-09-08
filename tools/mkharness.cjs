@@ -163,6 +163,11 @@ export const T = {
   initReach, setReach, clearReach, updateReach, getReach, applyReach, armR, armL,
   SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX,
   soft, ensureUpperArms, linkUpperArm, SHOULDER_R, SHOULDER_L,
+  // STEP 4 양손 웹
+  attachWeb,
+  get web2(){ return web2; }, get web2Count(){ return web2Count; },
+  setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; },
+  releaseWeb2, sideOf, otherSide, WEB2_PULL, WEB2_FADE,
   // STEP 3 웹으로 건물 타기
   vclimbAnchor, vclimbShouldFire, VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD,
   get vcCount(){ return vcCount; }, get vcCd(){ return vcCd; },

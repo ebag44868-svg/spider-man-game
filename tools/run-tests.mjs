@@ -33,6 +33,7 @@ const SUITE = [
   "_reach.mjs",      // 손이 웹 앵커를 향한다 (Shoot/Catch/Hold)
   "_plant.mjs",      // 벽 짚기 (자동 · 속도를 죽이지 않는다)
   "_vclimb.mjs",     // 웹으로 건물 타기 (쏨 → 끌림 → 짚음 → 다시 쏨)
+  "_dual.mjs",       // 양손 웹 (주 웹 손 배정 + 보조 웹 조향)
 ];
 
 // Node가 뱉는 잡음(ESM 경고, 실험 기능 안내)은 결과 판독을 방해한다.
