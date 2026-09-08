@@ -27,6 +27,12 @@ import {
   loadSave, writeSave, clearSave, saveSummary, defaultSave, SCHEMA,
 } from "./src/save.js";
 import {
+  makeRun, updateRun, currentObj, objText, objProgress, makeResult, updateRecord, rankOf,
+} from "./src/mission.js";
+import {
+  CHAPTERS, MISSIONS, CHALLENGES, missionById, challengeById, firstMission, nextMission,
+} from "./src/missions.js";
+import {
   vclimbAnchor, vclimbShouldFire,
   VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD,
 } from "./src/vclimb.js";
@@ -2965,7 +2971,7 @@ const _lv = new THREE.Vector3(), _lv2 = new THREE.Vector3();
 function gripPoint(e, out) { return out.set(e.g.position.x, e.g.position.y + 2.8, e.g.position.z); }
 
 // 리스폰 대기 중에는 입력이 전부 무시돼야 한다. 스킬마다 따로 검사하면 반드시 하나를 빠뜨린다.
-function canAct() { return deadT <= 0; }
+function canAct() { return deadT <= 0 && !resultOpen; }
 
 // ================== 락온 ==================
 // 3인칭에서 커서로 적을 계속 따라가며 맞추는 건 사실상 무리다. 엘든링처럼
@@ -4216,6 +4222,9 @@ let charT = 0;                 // 등장 모션 재생 타이머
 
 // 메뉴가 떠 있는 동안은 물리를 멈춘다. 화면은 계속 그린다.
 function menuOpen() { return menuMode !== "play"; }
+// 결과 화면이 떠 있는 동안. 물리는 계속 돌되 조작만 막는다 —
+// 통째로 얼리면 착지하다 공중에 굳어서 다시 시작할 때 어색하다.
+let resultOpen = false;
 
 function showMenu(which) {
   menuMode = which;
@@ -4577,12 +4586,133 @@ document.getElementById("btnOptsBack").onclick = () => optsEl.classList.remove("
 document.getElementById("btnResume").onclick = () => hudEl.classList.remove("show");
 document.getElementById("btnToTitle").onclick = () => { hudEl.classList.remove("show"); tutStop(); showMenu("title"); };
 
+// ---------- 결과 화면 (문서 02 §5.9) ----------
+const resultEl = document.getElementById("result");
+const missionsEl = document.getElementById("missions");
+const savedTagEl = document.getElementById("savedTag");
+function fmtTime(t) {
+  const m = Math.floor(t / 60), s = t - m * 60;
+  return m > 0 ? m + "분 " + s.toFixed(1) + "초" : s.toFixed(1) + "초";
+}
+function showResult(res) {
+  resultOpen = true;
+  invuln = Math.max(invuln, 999);          // 읽는 동안 맞아 죽지 않게
+  document.exitPointerLock();
+  resultEl.classList.add("show");
+  resultEl.classList.toggle("fail", !res.clear);
+  document.getElementById("rTag").textContent = res.clear
+    ? (res.record ? "CHALLENGE CLEAR" : "MISSION COMPLETE") : "MISSION FAILED";
+  document.getElementById("rTitle").textContent = res.title || "";
+  document.getElementById("rRank").textContent = res.clear ? res.rank : "실패";
+  const rows = [["시간", fmtTime(res.time)]];
+  if (!res.clear) rows.push(["사유", res.reason]);
+  if (res.record) {
+    const rec = save.challenges[res.id];
+    if (rec) rows.push(["최고 기록", fmtTime(rec.best) + " · " + rec.rank]);
+  }
+  document.getElementById("rRows").innerHTML =
+    rows.map(r => '<div class="rr"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join("");
+  document.getElementById("rReward").textContent =
+    res.clear && res.reward ? "획득 — " + res.reward.text : "";
+  document.getElementById("btnNextM").hidden = !(res.clear && res.next);
+}
+function closeResult() {
+  resultOpen = false;
+  invuln = 0;
+  resultEl.classList.remove("show");
+}
+document.getElementById("btnRetry").onclick = () => {
+  const id = mResult && mResult.id;
+  closeResult();
+  const def = missionById(id) || challengeById(id);
+  if (def) { hp = MAX_HP; startMission(def, !!def.record); }
+};
+document.getElementById("btnNextM").onclick = () => {
+  const nx = mResult && mResult.next ? missionById(mResult.next) : null;
+  closeResult();
+  if (nx) { hp = MAX_HP; startMission(nx, false); } else showMenu("title");
+};
+document.getElementById("btnToCity").onclick = () => { closeResult(); abortMission(); showMenu("play"); };
+
+// ---------- 미션 · 챌린지 · 튜토리얼 목록 ----------
+// 셋이 같은 화면을 쓴다. 화면을 세 벌 만들면 손댈 곳이 세 배가 된다.
+let mTab = "story";
+const TUT_PARTS = [
+  { id: "swing",  name: "웹스윙",       desc: "줄을 걸고 놓는 리듬" },
+  { id: "attack", name: "거미줄 격투",  desc: "사격 · 속박 · 잡기 · 끌어오기" },
+  { id: "melee",  name: "근접 격투",    desc: "약/강 · 쳐내기 · 띄우기 · 공중 콤보" },
+];
+function drawMissionList() {
+  const el = document.getElementById("mList");
+  const cleared = save.story.cleared;
+  let html = "";
+  if (mTab === "story") {
+    let prevDone = true;
+    MISSIONS.forEach((m, i) => {
+      const done = cleared.includes(m.id);
+      const open = done || prevDone;                 // 앞을 깨야 다음이 열린다
+      const ch = CHAPTERS.find(c => c.id === m.chapter);
+      html += '<div class="mrow' + (open ? "" : " lock") + '" data-id="' + m.id + '" data-k="story">'
+        + '<div class="mno">' + (ch ? "CH" + ch.id : "") + "</div>"
+        + '<div class="mtitle">' + m.title + "<small>" + (m.brief || "") + "</small></div>"
+        + '<div class="mmark">' + (done ? "<b>완료</b>" : open ? "시작" : "잠김") + "</div></div>";
+      prevDone = done;
+    });
+  } else if (mTab === "chal") {
+    CHALLENGES.forEach(c => {
+      const rec = save.challenges[c.id];
+      html += '<div class="mrow" data-id="' + c.id + '" data-k="chal">'
+        + '<div class="mno">' + (rec ? rec.rank : "-") + "</div>"
+        + '<div class="mtitle">' + c.title + "<small>" + (c.brief || "") + "</small></div>"
+        + '<div class="mmark">' + (rec ? fmtTime(rec.best) : "기록 없음") + "</div></div>";
+    });
+  } else {
+    TUT_PARTS.forEach(t => {
+      const done = save.tutorial.done.includes(t.id);
+      html += '<div class="mrow" data-id="' + t.id + '" data-k="tut">'
+        + '<div class="mno">' + (done ? "✓" : "") + "</div>"
+        + '<div class="mtitle">' + t.name + "<small>" + t.desc + "</small></div>"
+        + '<div class="mmark">' + (done ? "<b>완료</b>" : "배우기") + "</div></div>";
+    });
+  }
+  el.innerHTML = html;
+  el.querySelectorAll(".mrow").forEach(row => {
+    if (row.classList.contains("lock")) return;
+    row.onclick = () => {
+      const id = row.dataset.id, k = row.dataset.k;
+      missionsEl.classList.remove("show");
+      if (k === "story") { hp = MAX_HP; startMission(missionById(id), false); }
+      else if (k === "chal") { hp = MAX_HP; startMission(challengeById(id), true); }
+      else tutStart();
+    };
+  });
+}
+function openMissions(tab) {
+  mTab = tab || mTab;
+  missionsEl.classList.add("show");
+  document.querySelectorAll(".mtabs button").forEach(b =>
+    b.classList.toggle("on", b.dataset.t === mTab));
+  drawMissionList();
+}
+document.getElementById("btnMissions").onclick = () => openMissions("story");
+document.getElementById("btnMBack").onclick = () => missionsEl.classList.remove("show");
+document.querySelectorAll(".mtabs button").forEach(b => {
+  b.onclick = () => openMissions(b.dataset.t);
+});
+
 // 이어하기 카드 (문서 02 §5.3). 저장본이 없으면 버튼째 숨는다.
 const btnCont = document.getElementById("btnCont");
 const contCard = document.getElementById("contCard");
 function drawContinue() {
   const has = !saveFresh && (save.story.mission || save.story.cleared.length || save.tutorial.done.length);
   if (btnCont) btnCont.hidden = !has;
+  // 큰 버튼은 셋까지. 이어하기가 생기면 새 게임은 아래 작은 링크로 내려간다.
+  const bn = document.getElementById("btnNew"), links = document.getElementById("tlinks");
+  const tb = document.querySelector(".tbtns");
+  if (bn && links && tb) {
+    bn.className = has ? "tlink" : "primary";
+    (has ? links : tb).insertBefore(bn, has ? links.firstChild : tb.children[1] || null);
+  }
   if (!contCard) return;
   contCard.hidden = !has;
   if (!has) return;
@@ -4596,14 +4726,18 @@ function drawContinue() {
 if (btnCont) btnCont.onclick = () => {
   if (save.character) { const h = HEROES.find(x => x.id === save.character); if (h) applyHero(h); }
   tutStop();
-  showMenu("play");
-  say("이어하기 — 챕터 " + (save.story.chapter || 1), 2.5);
+  // 하던 미션이 있으면 거기서 잇는다. 없으면 그냥 도시로 나간다.
+  const m = save.story.mission ? missionById(save.story.mission) : null;
+  if (m) { hp = MAX_HP; startMission(m, false); }
+  else { showMenu("play"); say("이어하기 — 챕터 " + (save.story.chapter || 1), 2.5); }
 };
 document.getElementById("btnNew").onclick = () => {
   if (!saveFresh && !confirm("새로 시작하면 지금까지의 진행도가 사라진다. 계속할까?")) return;
   newGame();
   drawContinue();
-  say("새 게임", 2);
+  abortMission();
+  hp = MAX_HP;
+  tutStart();                     // 새 게임은 튜토리얼부터 (문서 02 §26)
 };
 document.getElementById("btnTut").onclick = () => tutStart();
 document.getElementById("btnPlay").onclick = () => { tutStop(); showMenu("play"); drawSettings(); };
@@ -5732,6 +5866,7 @@ function update(dt) {
   }
   prevShift = shiftNow;
   updateCombat(dt);
+  updateMission(dt);
   if (dashTimer > 0) dashTimer -= dt;
   if (dashKick > 0) dashKick -= dt;
   if (player.grounded) hasDash = true;
@@ -6299,8 +6434,113 @@ function updateCamera(dt) {
   }
 }
 
+// ================== 미션 ==================
+// 판정은 전부 src/mission.js 가 한다. 여기서는 '세상의 요약'을 만들어 넘기고
+// 결과를 화면에 옮길 뿐이다. 미션마다 if 문을 세우지 않기 위한 경계다.
+let mRun = null;              // 진행 중인 미션
+let mDef = null;              // 그 정의 (좌표가 풀린 사본)
+let mIsChal = false;
+let mKills = 0;               // 전역 누적 처치 수
+let mResult = null;
+
+// 행동 횟수. 이미 튜토리얼용으로 세고 있던 값들을 그대로 쓴다 —
+// 새 훅을 박으면 셀 자리가 두 군데가 되고 반드시 어긋난다.
+function actsNow() {
+  return {
+    parry: tutParries, launch: tutLaunches, exec: tutExecs,
+    bind: tutBinds, swing: tutSwings, hit: tutHits,
+    plant: plantCount, vclimb: vcCount, dual: web2Count,
+  };
+}
+
+// {zone: n} 을 실제 좌표로 바꾼다. 미션 정의에 좌표를 안 박기 위한 다리다.
+function resolveTarget(o) {
+  const out = Object.assign({}, o);
+  if (o.zone !== undefined && zones.length) {
+    const z = zones[((o.zone % zones.length) + zones.length) % zones.length];
+    out.x = z.cx; out.z = z.cz; out.zoneName = z.name;
+  }
+  if (o.points) out.points = o.points.map(resolveTarget);
+  return out;
+}
+
+function worldSummary() {
+  return {
+    x: player.pos.x, y: player.pos.y, z: player.pos.z,
+    killed: mKills, alive: enemies.filter(e => !e.dead).length,
+    hp, maxHp: MAX_HP, acts: actsNow(), hostage: "safe",
+  };
+}
+
+function startMission(def, isChal) {
+  if (!def) return false;
+  mDef = Object.assign({}, def, { objectives: (def.objectives || []).map(resolveTarget) });
+  mIsChal = !!isChal;
+  mRun = makeRun(mDef, { killed: mKills, acts: actsNow() });
+  mResult = null;
+  if (!isChal) { save.story.mission = def.id; save.story.chapter = def.chapter || save.story.chapter; persist("mission"); }
+  showMenu("play");
+  say(def.title + " — " + (def.brief || ""), 4.5);
+  return true;
+}
+
+function abortMission() { mRun = null; mDef = null; mResult = null; }
+
+function finishMission() {
+  const res = makeResult(mRun);
+  mResult = res;
+  if (res.clear) {
+    if (mIsChal) {
+      const rec = save.challenges[res.id];
+      if (updateRecord(rec, res)) {
+        save.challenges[res.id] = { best: res.time, rank: res.rank, runs: (rec ? rec.runs : 0) + 1 };
+      } else if (rec) rec.runs++;
+      else save.challenges[res.id] = { best: res.time, rank: res.rank, runs: 1 };
+    } else {
+      if (!save.story.cleared.includes(res.id)) save.story.cleared.push(res.id);
+      save.story.mission = res.next;
+      const nx = res.next ? missionById(res.next) : null;
+      if (nx) save.story.chapter = nx.chapter;
+      if (res.reward && res.reward.ability && !save.unlocked.abilities.includes(res.reward.ability)) {
+        save.unlocked.abilities.push(res.reward.ability);
+      }
+    }
+    persist("clear");
+  }
+  mRun = null;
+  showResult(res);
+}
+
+function updateMission(dt) {
+  // 처치 수. 적이 되살아나도 두 번 세지 않는다.
+  for (const e of enemies) {
+    if (e.dead && !e._ct) { e._ct = 1; mKills++; }
+    else if (!e.dead && e._ct) e._ct = 0;
+  }
+  if (!mRun || menuMode !== "play" || tutOn) return;
+  if (updateRun(mRun, worldSummary(), dt) !== "run") finishMission();
+}
+
 const _objV = new THREE.Vector3();
 function updateObjective() {
+  // 미션 중에는 구역 안내 대신 미션 목표를 띄운다.
+  if (mRun) {
+    const o = currentObj(mRun);
+    objEl.classList.remove("done");
+    objNameEl.textContent = (mDef && mDef.title ? mDef.title + " — " : "") + (o ? objText(o) : "완료");
+    objCntEl.textContent = o ? objProgress(o) : "";
+    const spec = o && o.spec;
+    if (spec && (spec.type === "reach" || spec.type === "checkpoints")) {
+      const p = spec.type === "reach" ? spec : (spec.points || [])[o.idx];
+      if (p) {
+        const d = Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
+        objDistEl.textContent = d > 999 ? (d / 1000).toFixed(1) + "km" : (d | 0) + "m";
+      } else objDistEl.textContent = "";
+    } else objDistEl.textContent = mRun.t.toFixed(1) + "s";
+    const done = mRun.objs.filter(x => x.done).length;
+    objProgEl.style.width = ((done / Math.max(1, mRun.objs.length)) * 100).toFixed(1) + "%";
+    return;
+  }
   if (!activeZone) {
     objEl.classList.add("done");
     objNameEl.textContent = "모든 구역 정화 완료";
@@ -6519,6 +6759,13 @@ function updateHud(dtReal) {
   stamWrapEl.classList.toggle("empty", stamEmpty);
   stamWrapEl.classList.toggle("flash", stamFx > 0);
 
+  // updateHud 가 받는 건 dtReal 이다 (게임 시간이 아니라 실제 흐른 시간).
+  // 여기에 dt 를 쓰다가 ReferenceError 를 냈다 — 미션 진행은 게임 시간으로
+  // 재야 하므로 아래 update() 안에서 따로 돈다.
+  if (saveTick > 0) {
+    saveTick -= dtReal;
+    if (savedTagEl) savedTagEl.classList.toggle("on", saveTick > 0);
+  }
   updateObjective();
   updateSwingPreview();
   if (touchMode && window.__touchCd) window.__touchCd();
@@ -6940,4 +7187,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, getReach, setReach, clearReach, updateReach, applyReach, initReach, get save(){ return save; }, get saveFresh(){ return saveFresh; }, persist, newGame, applySavedSettings, drawContinue, saveSummary, attachWeb, get web2(){ return web2; }, get web2Count(){ return web2Count; }, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, releaseWeb2, sideOf, otherSide, WEB2_PULL, WEB2_FADE, vclimbAnchor, vclimbShouldFire, VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD, get vcCount(){ return vcCount; }, get vcCd(){ return vcCd; }, setClimb(v){ climbMouse = v; }, plantCheck, plantImpulse, plantSide, PLANT_TIME, PLANT_MIN_V, PLANT_PUSH, PLANT_KEEP, PLANT_CD, PLANT_LOOK, get plantT(){ return plantT; }, get plantCd(){ return plantCd; }, get plantHand(){ return plantHand; }, get plantCount(){ return plantCount; }, plantPoint, findNearbyWall, get upperR(){ return upperR; }, get upperL(){ return upperL; }, SHOULDER_R, SHOULDER_L, linkUpperArm, ensureUpperArms, spiderGroup, charGlowOn, charGlowOff, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, SETTINGS, setOpt, get MAX_HP(){ return MAX_HP; }, get MOVE_SPEED(){ return MOVE_SPEED; }, get uiMode(){ return uiMode; }, get tutAllModes(){ return tutAllModes; }, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE, get lastMeleeTarget(){ return lastMeleeTarget; }, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, getReach, setReach, clearReach, updateReach, applyReach, initReach, startMission, abortMission, finishMission, updateMission, get mRun(){ return mRun; }, get mResult(){ return mResult; }, get mKills(){ return mKills; }, actsNow, resolveTarget, worldSummary, openMissions, drawMissionList, showResult, closeResult, get resultOpen(){ return resultOpen; }, MISSIONS, CHALLENGES, missionById, challengeById, TUT_PARTS, get save(){ return save; }, get saveFresh(){ return saveFresh; }, persist, newGame, applySavedSettings, drawContinue, saveSummary, attachWeb, get web2(){ return web2; }, get web2Count(){ return web2Count; }, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, releaseWeb2, sideOf, otherSide, WEB2_PULL, WEB2_FADE, vclimbAnchor, vclimbShouldFire, VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD, get vcCount(){ return vcCount; }, get vcCd(){ return vcCd; }, setClimb(v){ climbMouse = v; }, plantCheck, plantImpulse, plantSide, PLANT_TIME, PLANT_MIN_V, PLANT_PUSH, PLANT_KEEP, PLANT_CD, PLANT_LOOK, get plantT(){ return plantT; }, get plantCd(){ return plantCd; }, get plantHand(){ return plantHand; }, get plantCount(){ return plantCount; }, plantPoint, findNearbyWall, get upperR(){ return upperR; }, get upperL(){ return upperL; }, SHOULDER_R, SHOULDER_L, linkUpperArm, ensureUpperArms, spiderGroup, charGlowOn, charGlowOff, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, SETTINGS, setOpt, get MAX_HP(){ return MAX_HP; }, get MOVE_SPEED(){ return MOVE_SPEED; }, get uiMode(){ return uiMode; }, get tutAllModes(){ return tutAllModes; }, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE, get lastMeleeTarget(){ return lastMeleeTarget; }, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };

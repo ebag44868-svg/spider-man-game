@@ -245,6 +245,53 @@
   }
   .tlink:hover { color: #fff; border-color: rgba(255,255,255,.4); }
 
+  /* 타이틀 아래 작은 링크 줄 */
+  .tlinks { margin-top: 18px; display: flex; gap: 10px; justify-content: center; }
+
+  /* 미션 목록 */
+  #missions { position: fixed; inset: 0; z-index: 62; display: none;
+    background: rgba(5,6,10,.93); color: #e8eef7; align-items: center; justify-content: center; }
+  #missions.show { display: flex; }
+  .minner { width: 680px; max-width: 92vw; }
+  .minner h2 { margin: 0 0 14px; font-size: 26px; }
+  .mtabs { display: flex; gap: 8px; margin-bottom: 12px; }
+  .mtabs button { font: inherit; font-size: 12.5px; padding: 6px 16px; cursor: pointer;
+    color: rgba(232,238,247,.6); background: none; border: 1px solid rgba(255,255,255,.14);
+    border-radius: 999px; }
+  .mtabs button.on { color: #050608; background: #e8eef7; border-color: #e8eef7; }
+  #mList { max-height: 52vh; overflow-y: auto; }
+  .mrow { display: flex; align-items: center; gap: 12px; padding: 11px 4px;
+    border-top: 1px solid rgba(255,255,255,.09); cursor: pointer; }
+  .mrow:hover { background: rgba(255,255,255,.05); }
+  .mrow.lock { opacity: .35; cursor: default; }
+  .mrow.lock:hover { background: none; }
+  .mrow .mno { width: 34px; font-size: 11px; opacity: .5; letter-spacing: .1em; }
+  .mrow .mtitle { flex: 1; font-size: 14.5px; }
+  .mrow .mtitle small { display: block; font-size: 11.5px; opacity: .55; margin-top: 2px; }
+  .mrow .mmark { font-size: 12px; opacity: .75; white-space: nowrap; }
+  .mrow .mmark b { color: #7dffa0; }
+
+  /* 결과 화면 */
+  #result { position: fixed; inset: 0; z-index: 63; display: none;
+    background: rgba(5,6,10,.94); color: #e8eef7; align-items: center; justify-content: center; }
+  #result.show { display: flex; }
+  .rinner { width: 460px; max-width: 90vw; text-align: center; }
+  .rtag { font-size: 11.5px; letter-spacing: .3em; opacity: .6; }
+  #result h2 { margin: 6px 0 10px; font-size: 30px; }
+  .rrank { font-size: 74px; font-weight: 800; line-height: 1; margin: 6px 0 14px; color: #ffd24a; }
+  #result.fail .rrank { color: #ff6a6a; font-size: 44px; }
+  .rrows { border-top: 1px solid rgba(255,255,255,.1); }
+  .rrows .rr { display: flex; justify-content: space-between; padding: 8px 2px;
+    border-bottom: 1px solid rgba(255,255,255,.07); font-size: 13.5px; }
+  .rrows .rr span:last-child { opacity: .85; }
+  .rreward { margin: 14px 0 4px; font-size: 13px; color: #7dffa0; min-height: 18px; }
+
+  /* 저장됨 표시 */
+  #savedTag { position: fixed; right: 16px; bottom: 14px; z-index: 40;
+    font-size: 11px; letter-spacing: .12em; opacity: 0; transition: opacity .25s;
+    color: rgba(232,238,247,.75); pointer-events: none; }
+  #savedTag.on { opacity: 1; }
+
   /* 옵션 화면 */
   #opts { position: fixed; inset: 0; z-index: 61; display: none;
     background: rgba(5,6,10,.9); color: #e8eef7; align-items: center; justify-content: center; }
@@ -540,14 +587,17 @@
     <p class="sub">뉴욕 · 9구역 · 적 216</p>
     <div class="tbtns">
       <button id="btnCont" class="primary" hidden>이어하기</button>
-      <button id="btnNew">새 게임</button>
-      <button id="btnTut">튜토리얼</button>
+      <button id="btnNew" class="primary">새 게임</button>
+      <button id="btnMissions">미션</button>
       <button id="btnChar">캐릭터</button>
-      <button id="btnPlay">자유 이동</button>
     </div>
     <p class="thint" id="contCard" hidden></p>
     <p class="thint">선택 중인 캐릭터 — <b id="titleHero">파이터</b></p>
-    <button id="btnOpts" class="tlink">옵션</button>
+    <div class="tlinks" id="tlinks">
+      <button id="btnPlay" class="tlink">자유 이동</button>
+      <button id="btnTut" class="tlink">튜토리얼</button>
+      <button id="btnOpts" class="tlink">옵션</button>
+    </div>
   </div>
 </div>
 
@@ -596,6 +646,35 @@
     <div class="cbtns"><button id="btnOptsBack" class="primary">닫기</button></div>
   </div>
 </div>
+<!-- 미션 · 챌린지 · 튜토리얼 아카이브. 셋이 같은 화면을 쓴다 (문서 02 §5.7·5.10) -->
+<div id="missions">
+  <div class="minner">
+    <h2>미션</h2>
+    <div class="mtabs">
+      <button data-t="story" class="on">스토리</button>
+      <button data-t="chal">챌린지</button>
+      <button data-t="tut">튜토리얼</button>
+    </div>
+    <div id="mList"></div>
+    <div class="cbtns"><button id="btnMBack" class="primary">닫기</button></div>
+  </div>
+</div>
+
+<!-- 미션 결과 (문서 02 §5.9) -->
+<div id="result">
+  <div class="rinner">
+    <div class="rtag" id="rTag">MISSION COMPLETE</div>
+    <h2 id="rTitle">—</h2>
+    <div class="rrank" id="rRank">A</div>
+    <div class="rrows" id="rRows"></div>
+    <div class="rreward" id="rReward"></div>
+    <div class="cbtns">
+      <button id="btnRetry">다시</button>
+      <button id="btnNextM" class="primary">다음</button>
+      <button id="btnToCity">도시로</button>
+    </div>
+  </div>
+</div>
 <div id="crosshair"></div>
 <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
 <div id="objective">
@@ -604,6 +683,7 @@
   <div id="objBar"><div id="objProg"></div></div>
 </div>
 <div id="spiderSense"></div>
+<div id="savedTag">저장됨</div>
 
 <div id="touchUI">
   <div id="stickBase"><div id="stickKnob"></div></div>
@@ -856,6 +936,6 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mts2m0mf"></script>
+<script type="module" src="./game3d.js?v=mts2t0nt"></script>
 </body>
 </html>

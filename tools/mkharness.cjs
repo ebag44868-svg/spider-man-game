@@ -163,6 +163,11 @@ export const T = {
   initReach, setReach, clearReach, updateReach, getReach, applyReach, armR, armL,
   SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX,
   soft, ensureUpperArms, linkUpperArm, SHOULDER_R, SHOULDER_L,
+  // 미션 / 챌린지
+  startMission, abortMission, updateMission, actsNow, resolveTarget, worldSummary,
+  get mRun(){ return mRun; }, get mResult(){ return mResult; }, get mKills(){ return mKills; },
+  get resultOpen(){ return resultOpen; }, closeResult,
+  MISSIONS, CHALLENGES, missionById, challengeById,
   // 저장 / 이어하기
   get save(){ return save; }, get saveFresh(){ return saveFresh; },
   persist, newGame, applySavedSettings, drawContinue,
