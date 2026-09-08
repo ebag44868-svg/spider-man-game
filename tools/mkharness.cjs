@@ -168,6 +168,8 @@ export const T = {
   get speedBase(){ return speedBase; }, timeScale,
   get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; },
   markTutorialProgress, TUT_SWING, TUT_ATTACK, TUT_MELEE,
+  // 3인칭 본 레이어
+  init3p, pose3p, bones3p, ready3p, pose3pNow,
   // 미니맵
   updateMinimap, mmPt, MM_R,
   // 슬링샷 (좌+우+가운데)
