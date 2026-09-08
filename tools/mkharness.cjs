@@ -159,6 +159,9 @@ export const T = {
   get swingLineVisible(){ return swingLine.visible; },
   get chargeRingVisible(){ return chargeRing.visible; }, get parryRingVisible(){ return parryRing.visible; }, get parryRingPos(){ return parryRing.position; }, PARRY_WIN, PARRY_REC,
   get swingFx(){ return swingFx; }, get swingArcVisible(){ return swingArcPivot.visible; }, findMeleeTarget, MELEE_STAND, updateSwingArc,
+  // STEP 1 reachTarget (1인칭 팔이 앵커를 향한다)
+  initReach, setReach, clearReach, updateReach, getReach, applyReach, armR, armL,
+  SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX,
   // 근접 1차 개편(소프트 락온/파고들기/이동)
   meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE,
   get lastMeleeTarget(){ return lastMeleeTarget; },

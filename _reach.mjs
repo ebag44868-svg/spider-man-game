@@ -1,0 +1,148 @@
+// STEP 1 — reachTarget: 손이 실제로 웹 앵커를 향하는가.
+//
+// 여기서 재는 것은 표현 계층 하나뿐이다. 물리는 건드리지 않았으므로
+// 이 파일은 카메라와 팔만 놓고 본다 — 도시도 적도 필요 없다.
+import { T } from "./_harness.mjs";
+const DT = 1 / 120;
+let pass = 0, fail = 0;
+const ok = (c, m, x = "") => { if (c) { pass++; console.log("  OK   " + m); } else { fail++; console.log("  FAIL " + m + "  " + x); } };
+
+// 카메라를 원점에 두고 -Z를 보게 한다. reach는 이 축을 정면으로 친다.
+function aimCam() {
+  T.camera.position.set(0, 0, 0);
+  T.camera.rotation.set(0, 0, 0);
+  T.camera.updateMatrixWorld(true);
+}
+// 목표는 {x,y,z}면 된다 — reach.js는 THREE 타입을 요구하지 않는다.
+// (Fab 모델로 갈아끼워도 이 인터페이스는 그대로다)
+const P = (x, y, z) => ({ x, y, z });
+function settle(n) { for (let i = 0; i < n; i++) T.updateReach(DT); }
+function reset() { T.clearReach("R"); settle(60); aimCam(); }
+
+console.log("===== 1. 방향 — 앵커 쪽을 본다 =====");
+{
+  reset();
+  T.setReach("R", P(0, 0, -10));      // 정면
+  settle(30);
+  let r = T.getReach("R");
+  ok(Math.abs(r.yaw) < 0.02, "정면 앵커면 좌우 각이 0이다", `yaw ${r.yaw.toFixed(3)}`);
+  ok(Math.abs(r.pitch) < 0.02, "정면 앵커면 위아래 각이 0이다", `pitch ${r.pitch.toFixed(3)}`);
+
+  reset();
+  T.setReach("R", P(10, 0, -10));     // 오른쪽 위 45도
+  settle(30);
+  r = T.getReach("R");
+  ok(r.yaw > 0.7 && r.yaw < 0.9, "오른쪽 앵커면 yaw가 오른쪽(+)이다", `yaw ${r.yaw.toFixed(3)}`);
+
+  reset();
+  T.setReach("R", P(-10, 0, -10));
+  settle(30);
+  ok(T.getReach("R").yaw < -0.7, "왼쪽 앵커면 yaw가 왼쪽(-)이다", `yaw ${T.getReach("R").yaw.toFixed(3)}`);
+
+  reset();
+  T.setReach("R", P(0, 10, -10));     // 머리 위쪽 — 스윙 중 대부분이 이 상황이다
+  settle(30);
+  r = T.getReach("R");
+  ok(r.pitch > 0.7, "위쪽 앵커면 pitch가 위(+)다", `pitch ${r.pitch.toFixed(3)}`);
+  ok(Math.abs(r.dist - Math.hypot(10, 10)) < 0.01, "거리를 정확히 잰다", `dist ${r.dist.toFixed(2)}`);
+
+  // 등 뒤 앵커에도 어깨가 뒤집히지 않아야 한다
+  reset();
+  T.setReach("R", P(0, 0, 10));
+  settle(30);
+  ok(Math.abs(T.getReach("R").yaw) <= T.YAW_MAX + 1e-6, "등 뒤여도 팔 각도가 한계 안에 든다",
+     `yaw ${T.getReach("R").yaw.toFixed(3)} / max ${T.YAW_MAX}`);
+  ok(Math.abs(T.getReach("R").pitch) < 1.2, "등 뒤여도 위아래가 뒤집히지 않는다");
+}
+
+console.log("\n===== 2. 위상 — 쏨 → 잡음 → 유지 → 놓음 =====");
+{
+  reset();
+  ok(T.getReach("R").phase === "idle", "잡은 게 없으면 idle이다");
+  T.setReach("R", P(0, 8, -8));
+  T.updateReach(DT);
+  ok(T.getReach("R").phase === "shoot", "걸면 shoot으로 시작한다");
+  ok(T.getReach("R").fire > 0.5, "쏘는 동안 fire가 살아 있다");
+
+  settle(Math.ceil(T.SHOOT_T * 120) + 1);
+  ok(T.getReach("R").phase === "catch", "쏨이 끝나면 catch로 넘어간다");
+  ok(T.getReach("R").kick > 0.3, "잡히는 순간 반동이 있다", `kick ${T.getReach("R").kick.toFixed(2)}`);
+
+  settle(Math.ceil(T.CATCH_T * 120) + 1);
+  ok(T.getReach("R").phase === "hold", "반동이 끝나면 hold로 간다");
+  ok(T.getReach("R").grip > 0.6, "잡고 있는 동안 손을 움켜쥔다", `grip ${T.getReach("R").grip.toFixed(2)}`);
+
+  // 같은 앵커를 계속 주면 다시 쏘지 않는다 (매 프레임 부르는 구조라 중요하다)
+  for (let i = 0; i < 30; i++) { T.setReach("R", P(0, 8, -8)); T.updateReach(DT); }
+  ok(T.getReach("R").phase === "hold", "같은 앵커를 계속 줘도 다시 쏘지 않는다");
+
+  // 앵커가 크게 옮겨가면 새로 쏜다
+  T.setReach("R", P(9, 8, -8));
+  T.updateReach(DT);
+  ok(T.getReach("R").phase === "shoot", "앵커가 바뀌면 새로 쏜다");
+
+  T.clearReach("R");
+  T.updateReach(DT);
+  ok(T.getReach("R").phase === "release", "놓으면 release로 간다");
+  settle(Math.ceil(T.REL_T * 120) + 1);
+  ok(T.getReach("R").phase === "idle", "되돌아오면 idle이다");
+  settle(120);
+  ok(T.getReach("R").on < 0.02, "놓고 나면 기본 자세로 완전히 돌아온다", `on ${T.getReach("R").on.toFixed(3)}`);
+}
+
+console.log("\n===== 3. 팔에 실제로 먹는가 =====");
+{
+  reset();
+  // 기본 자세를 흉내 낸다 (게임의 웹스윙 분기가 세팅하는 값과 같은 자리)
+  const base = { y: 0, x: 0.55, z: -0.52 };
+  const put = () => { T.armR.rotation.set(base.x, base.y, 0); T.armR.position.set(0.5, -0.4, base.z); };
+
+  put();
+  T.applyReach(T.armR, "R");
+  ok(Math.abs(T.armR.rotation.y - base.y) < 1e-6, "잡은 게 없으면 팔을 안 건드린다");
+
+  T.setReach("R", P(10, 0, -10));   // 오른쪽
+  settle(40);
+  put();
+  T.applyReach(T.armR, "R");
+  ok(T.armR.rotation.y < base.y - 0.5,
+     "오른쪽 앵커면 팔이 오른쪽으로 돈다 (-Z축 규칙상 rotation.y는 음수)",
+     `y ${T.armR.rotation.y.toFixed(3)}`);
+
+  reset();
+  T.setReach("R", P(0, 10, -10));   // 위쪽
+  settle(40);
+  put();
+  T.applyReach(T.armR, "R");
+  ok(T.armR.rotation.x > base.x + 0.5, "위쪽 앵커면 팔이 위로 든다", `x ${T.armR.rotation.x.toFixed(3)}`);
+
+  // 세기를 줄이면 덜 돈다 (거미줄 격투 분기가 0.55로 쓴다)
+  reset();
+  T.setReach("R", P(10, 0, -10));
+  settle(40);
+  put(); T.applyReach(T.armR, "R", 1);
+  const full = T.armR.rotation.y;
+  put(); T.applyReach(T.armR, "R", 0.55);
+  const half = T.armR.rotation.y;
+  ok(Math.abs(half - base.y) < Math.abs(full - base.y) * 0.8,
+     "세기를 줄이면 덜 돈다", `full ${full.toFixed(3)} / half ${half.toFixed(3)}`);
+}
+
+console.log("\n===== 4. 좌우 손은 독립이다 (STEP 4 양손 웹의 토대) =====");
+{
+  reset();
+  T.clearReach("L"); settle(60);
+  T.setReach("R", P(10, 0, -10));
+  T.setReach("L", P(-10, 0, -10));
+  settle(40);
+  ok(T.getReach("R").yaw > 0.5 && T.getReach("L").yaw < -0.5,
+     "두 손이 서로 다른 곳을 본다",
+     `R ${T.getReach("R").yaw.toFixed(2)} / L ${T.getReach("L").yaw.toFixed(2)}`);
+  T.clearReach("L"); settle(150);      // 놓은 팔은 천천히(6/s) 돌아온다
+  ok(T.getReach("L").on < 0.02 && T.getReach("R").on > 0.9,
+     "한 손을 놔도 다른 손은 그대로다");
+  T.clearReach("R"); settle(60);
+}
+
+console.log(`\n최종  통과 ${pass} / 실패 ${fail}`);
+process.exit(fail ? 1 : 0);
