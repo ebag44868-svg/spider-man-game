@@ -148,5 +148,67 @@ console.log("\n===== 5. 왼손에도 구동이 생겼다 =====");
   for (let i = 0; i < 150; i++) T.updateReach(DT);
 }
 
+console.log("\n===== 6. 슬링샷 (좌 + 우 + 가운데) =====");
+{
+  // 집라인이 우클릭 한 번이면 이동이 전부 그것만 된다. 세 버튼으로 문턱을 올렸다.
+  const P = T.player;
+  // 도심 한복판 상공. _input.mjs 가 집라인을 검증할 때 쓰는 자리와 같다 —
+  // 여기서는 조준선에 확실히 건물이 걸린다.
+  const put = () => {
+    // 앞선 집라인이 아직 당기고 있으면 다음 측정이 그 힘에 오염된다.
+    // 실제로 "한 틱만 물었다 뗀 건 무시한다"가 그것 때문에 실패했다.
+    T.releaseWeb();
+    for (let i = 0; i < 400 && T.zip; i++) T.update(DT);
+    P.pos.set(0, 150, 0);
+    P.prevPos.copy(P.pos); P.renderPos.copy(P.pos); P.vel.set(0, 0, 24);
+    P.grounded = false;
+    T.setClinging(null); T.releaseWeb();
+    T.aimYaw(0.6); T.setPitch(-0.1); T.syncWorld();
+  };
+  T.setMouseL(false); T.setMouseR(false); T.setMid(false);
+  put();
+  for (let i = 0; i < 5; i++) T.update(DT);
+
+  T.setMouseL(true); T.setMouseR(true);
+  for (let i = 0; i < 30; i++) T.update(DT);
+  ok(T.slingT === 0, "두 버튼만으로는 힘이 안 모인다 (가운데까지 필요하다)");
+
+  T.setMid(true);
+  const sp0 = P.vel.length();
+  for (let i = 0; i < Math.ceil(T.SLING_MAX * 120) + 4; i++) T.update(DT);
+  ok(T.slingT >= T.SLING_MAX - 1e-6, "세 버튼을 물면 최대까지 찬다", `${T.slingT.toFixed(2)}초`);
+  const spHold = P.vel.length();
+  ok(spHold < sp0, "물고 있는 동안 속도가 죽는다 (잡아 땡기는 느낌)",
+     `${sp0.toFixed(1)} -> ${spHold.toFixed(1)}`);
+
+  T.setMid(false);
+  T.update(DT);
+  const spGo = P.vel.length();
+  ok(spGo > spHold + 10, "떼면 튀어나간다", `${spHold.toFixed(1)} -> ${spGo.toFixed(1)}`);
+  T.setMouseL(false); T.setMouseR(false);
+
+  // 살짝 스친 건 무시한다
+  put();
+  T.setMouseL(true); T.setMouseR(true); T.setMid(true);
+  T.update(DT);
+  const spB = P.vel.length();
+  T.setMid(false); T.update(DT);
+  ok(P.vel.length() < spB + 5, "한 틱만 물었다 뗀 건 무시한다",
+     `${spB.toFixed(1)} -> ${P.vel.length().toFixed(1)}`);
+  T.setMouseL(false); T.setMouseR(false);
+}
+
+console.log("\n===== 7. 미니맵 좌표 =====");
+{
+  const S = 176;
+  const c = T.mmPt(0, 0, S);
+  ok(Math.abs(c[0] - S / 2) < 0.01 && Math.abs(c[1] - S / 2) < 0.01, "원점은 한가운데다");
+  const r = T.mmPt(T.MM_R, 0, S);
+  ok(r[0] > S / 2 + 60, "+X 는 오른쪽으로 간다", `${r[0].toFixed(0)}`);
+  const up = T.mmPt(0, -T.MM_R, S);
+  ok(up[1] < S / 2 - 60, "-Z(북쪽)는 위로 간다", `${up[1].toFixed(0)}`);
+  ok(r[0] <= S && up[1] >= 0, "가장자리 여백 안에 들어온다");
+}
+
 console.log(`\n최종  통과 ${pass} / 실패 ${fail}`);
 process.exit(fail ? 1 : 0);

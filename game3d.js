@@ -45,7 +45,7 @@ import {
 } from "./src/wallplant.js";
 import {
   initReach, setReach, clearReach, updateReach, getReach, applyReach, soft,
-  SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX,
+  SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX, YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN,
 } from "./src/reach.js";
 import {
   makeFacadeTexture, makeGlassTexture, makeConcreteFacadeTexture, makeIndustrialTexture, makeConcreteTexture, makeWebStrandTexture, makeWebGloveTexture, setTextureRenderer,
@@ -1588,7 +1588,7 @@ function spawnBoss(x, z) {
   e.boss = makeBoss(BOSS_HP);
   e.g.scale.setScalar(1.75);
   bossE = e; bossDead = false; bossPhase = 1;
-  say("보스 등장 — 1페이즈 · 빨간 예고는 못 막는다. 피해라", 5);
+  say("보스 등장 — 1페이즈 · 빨간 예고는 못 막는다. 피해라 (미니맵의 빨간 점)", 5);
   shake = Math.max(shake, 1.2);
   sfxUlt();
   return e;
@@ -3971,6 +3971,19 @@ function ensureUpperArms() {
 }
 const SHOULDER_R = new THREE.Vector3(0.40, -0.74, -0.14);
 const SHOULDER_L = new THREE.Vector3(-0.40, -0.74, -0.14);
+// 매 프레임 계산한 어깨 자리. 손이 향하는 쪽으로 어깨도 조금 따라간다.
+const _shR = new THREE.Vector3(), _shL = new THREE.Vector3();
+function shoulderFor(out, base, r, side) {
+  out.copy(base);
+  if (!r || r.on < 0.001) return out;
+  // 바깥쪽으로 벌릴 때만 어깨가 크게 따라간다. 몸을 가로지를 때 어깨까지
+  // 따라가면 어깨가 가슴 앞으로 넘어와서 더 이상해진다.
+  const outward = (r.yaw >= 0) === (side > 0);
+  out.x += Math.sin(r.yaw) * (outward ? 0.30 : 0.10) * r.on;
+  out.y += Math.sin(r.pitch) * 0.20 * r.on;
+  out.z -= Math.max(0, Math.cos(r.yaw) - 0.7) * 0.10 * r.on;
+  return out;
+}
 
 const handAnchor = new THREE.Object3D();
 handAnchor.position.set(0.36, -0.3, -0.78);
@@ -4115,9 +4128,9 @@ const JUMP_V = 42;   // 중력을 올린 만큼 초속도도 올려 도약 높�
 // 적 추격 속도(격투병 14.7 / 돌격병 13.0)보다 걷기만 해도 빠르다.
 let MOVE_SPEED = 19;
 const SPRINT_MULT = 1.85;   // 지상 Shift 달리기 배수
-const ACCEL = 90;
-const AIR_ACCEL = 30;
-const PUMP_ACCEL = 44;   // E 홀드 속도 증강
+const ACCEL = 118;       // 지상 가속. 90이었을 때는 출발이 무거웠다
+const AIR_ACCEL = 42;    // 공중 조작 가속. 30이었을 때는 스윙 중 방향 전환이 굼떴다
+const PUMP_ACCEL = 58;   // E 홀드 속도 증강
 const ROPE_MIN = 12;
 // 이보다 가까운 곳에 걸면 그네가 되지 않는다. 자동·수동 앵커가 같은 값을 쓴다.
 const SWING_MIN_LEN = 18;
@@ -4199,7 +4212,7 @@ const GRIP_TIME = 0.13;     // 로프가 완전히 물리기까지. 붙는 순�
 const REEL_RATE = 40;       // 로프 길이가 목표를 따라가는 속도 (m/s)
 const REEL_MANUAL = 26;     // Space 홀드 시 줄을 감는 속도 (m/s)
 const PUMP_DEPTH = 0.12;    // 호 바닥에서 로프가 줄어드는 비율 = 자동 펌핑 강도
-const SWING_CONVERT = 0.985; // 낙하(반경) 속도를 접선 속도로 되돌리는 비율. 1이면 무손실
+const SWING_CONVERT = 0.995; // 낙하(반경) 속도를 접선 속도로 되돌리는 비율. 1이면 무손실
 const CAM_ROLL = 0.5;       // 뱅킹 롤 강도
 // 3인칭 카메라 충돌. 지금까지 아무 검사가 없어서 벽을 끼고 돌면 카메라가
 // 건물 안으로 들어가 화면이 통째로 벽면으로 덮였다.
@@ -4297,6 +4310,44 @@ let mouseDownL = false;
 let mouseDownR = false;
 // 좌우 동시 클릭 판정 여유. 사람이 두 손가락을 정확히 같은 밀리초에 누르지는 못한다.
 const ZIP_CHORD = 0.34;
+// ---------- 슬링샷 (좌 + 우 + 가운데 동시 홀드) ----------
+// 집라인이 너무 쉬웠다. 우클릭 한 번이면 어디든 날아가서 이동이 전부 그것만
+// 되는 양상이 있었다. 세 버튼을 같이 물고 있어야 하도록 올린다 —
+// 물고 있는 동안 속도가 죽고(잡아 땡기는 느낌), 떼는 순간 그만큼 튀어나간다.
+const SLING_MAX   = 0.85;   // 최대 충전 시간
+const SLING_MIN   = 0.14;   // 이보다 짧으면 그냥 스친 것으로 본다
+const SLING_BOOST = 46;     // 최대 충전에서 더해지는 속도 (m/s)
+const SLING_DRAG  = 5.2;    // 물고 있는 동안 속도가 죽는 세기
+let midDown = false;
+let slingT = 0, slingOn = false;
+function slingHeld() { return mouseDownL && mouseDownR && midDown; }
+const _slv = new THREE.Vector3();
+
+function fireSling() {
+  const k = slingT / SLING_MAX;
+  slingT = 0; slingOn = false;
+  if (k < SLING_MIN / SLING_MAX) return false;
+  if (!tryZip()) return false;
+  // 잡아 땡긴 만큼 튀어나간다. zip 자체의 당김은 그대로 두고 초기 속도만 얹는다.
+  _slv.copy(zip.a).sub(player.pos);
+  const d = _slv.length();
+  if (d > 0.5) player.vel.addScaledVector(_slv.divideScalar(d), SLING_BOOST * k);
+  zip.charge = 0;                      // 이미 충전했다. 또 멈칫하면 손맛이 죽는다
+  shake = Math.max(shake, 0.5 * k);
+  sfxDash();
+  return true;
+}
+
+function updateSling(dt) {
+  if (slingHeld() && !clinging && canAct()) {
+    slingOn = true;
+    slingT = Math.min(SLING_MAX, slingT + dt);
+    // 물고 있는 동안 속도가 죽는다. 이 정지가 있어야 다음 순간의 가속이 크게 느껴진다.
+    const k2 = Math.exp(-SLING_DRAG * dt);
+    player.vel.x *= k2; player.vel.z *= k2;
+    if (player.vel.y < 0) player.vel.y *= k2;
+  } else if (slingOn) fireSling();
+}
 let lClickT = -1, rClickT = -1;
 let diving = false;
 let diveFx = 0;      // 급강하 연출 강도 0..1 (서서히 차오르고 서서히 빠진다)
@@ -4486,15 +4537,30 @@ function tutStart() {
   tutDraw();
 }
 function tutStop(msg) {
+  const wasOn = tutOn;
   tutOn = false;
+  tutStage = 0;                  // 다음에 켤 때 이어지지 않게 확실히 되돌린다
   tutAllModes = false;
   tutCueEl.classList.remove("on");
   // 이 캐릭터가 못 쓰는 모드에 남아 있으면 되돌린다
   if (hero.mode !== 'attack') attackMode = false;
   if (hero.mode !== 'melee') { meleeMode = false; clearMelee(); }
   tutEl.classList.remove("show");
+  // 안내장이 남아 있으면 튜토리얼이 아닌 곳에서도 떠 있다.
+  // 실제로 새 게임에 들어갔는데 튜토리얼 카드가 그대로 남아 있었다.
+  const tp = document.getElementById("tutProg");
+  if (tp) tp.textContent = "";
   if (msg) say(msg, 3);
+  // 튜토리얼을 마치고 나면 곧바로 첫 미션으로 잇는다 (문서 02 §26).
+  // 배운 기술을 바로 쓰게 하는 게 튜토리얼과 스토리를 잇는 방법이다.
+  if (wasOn && tutToStory) {
+    tutToStory = false;
+    const m = missionById(save.story.mission || "m1") || firstMission();
+    if (m) { hp = MAX_HP; startMission(m, false); }
+  }
 }
+// 튜토리얼이 끝나면 스토리로 이어갈지. 새 게임에서만 켠다.
+let tutToStory = false;
 function tutDraw() {
   const st = tutList[tutStage];
   if (!st) return;
@@ -4909,7 +4975,7 @@ function drawMissionList() {
       if (k === "story") { hp = MAX_HP; startMission(missionById(id), false); }
       else if (k === "chal") { hp = MAX_HP; startMission(challengeById(id), true); }
       else if (k === "prac") startPractice(id);
-      else tutStart();
+      else { tutToStory = false; tutStart(); }   // 복습은 복습이다. 미션으로 안 넘긴다
     };
   });
 }
@@ -4962,8 +5028,13 @@ document.getElementById("btnNew").onclick = () => {
   newGame();
   drawContinue();
   abortMission();
+  stopPractice();
   hp = MAX_HP;
-  tutStart();                     // 새 게임은 튜토리얼부터 (문서 02 §26)
+  // 새 게임은 깨끗한 시작이다. 튜토리얼이 남아 있으면 확실히 끈 뒤 다시 켠다 —
+  // 안 그러면 하던 단계가 이어져서 "새 게임인데 튜토리얼 이어하기"가 된다.
+  tutStop();
+  tutToStory = true;
+  tutStart();                     // 배우고 나면 tutStop 이 첫 미션으로 넘긴다
 };
 document.getElementById("btnTut").onclick = () => tutStart();
 document.getElementById("btnPlay").onclick = () => { tutStop(); showMenu("play"); drawSettings(); };
@@ -5213,12 +5284,12 @@ function tryAttach() {
 addEventListener("mousedown", e => {
   if (e.button === 3) { climbMouse = true; e.preventDefault(); }
   else if (e.button === 4) { punch(); e.preventDefault(); }
-  else if (e.button === 1) { web2Held = true; e.preventDefault(); }
+  else if (e.button === 1) { midDown = true; e.preventDefault(); }
 }, { capture: true });
 addEventListener("mouseup", e => {
   if (e.button === 3) { climbMouse = false; e.preventDefault(); }
   else if (e.button === 4) e.preventDefault();
-  else if (e.button === 1) { web2Held = false; e.preventDefault(); }
+  else if (e.button === 1) { midDown = false; e.preventDefault(); }
 }, { capture: true });
 addEventListener("auxclick", e => {
   if (e.button === 3 || e.button === 4) e.preventDefault();
@@ -5233,15 +5304,12 @@ renderer.domElement.addEventListener("mousedown", e => {
   if (e.button === 2) {
     mouseDownR = true;
     rClickT = nowS;
-    // 3인칭 우클릭은 오직 시점이다. 근접 격투에서도 예외가 없다 —
-    // 다른 기능과 겹치면 시점을 못 돌리는 순간이 생기고, 그게 곧 버그로 읽힌다.
-    // (근접 강공격은 좌클릭 홀드 차징으로 옮겼다)
-    if (firstPerson) {
-      releaseWeb();          // 좌클릭이 먼저 걸어둔 줄이 있으면 취소
-      tryZip();
-    } else {
-      dragging = true;
-    }
+    // 우클릭 = 급선회용 두 번째 거미줄. 주 웹에 매달려 있을 때만 나간다.
+    // 집라인은 세 버튼 홀드(슬링샷)로 옮겼다 — 우클릭 한 번으로 날아갈 수
+    // 있으면 이동이 전부 그것만 된다.
+    if (web && !player.grounded) { web2Held = true; return; }
+    // 매달린 게 없으면 예전대로. 3인칭은 시점 드래그, 1인칭은 시점이 이미 마우스다.
+    if (!firstPerson) dragging = true;
     return;
   }
   if (e.button !== 0) return;
@@ -5273,7 +5341,7 @@ addEventListener("mouseup", e => {
     if (meleeMode) meleeRelease();                 // 문 시간이 약/강을 가른다
     else if (!lunge && !pull) releaseWeb();        // 떼면 즉시 손 놓기
   }
-  if (e.button === 2) { mouseDownR = false; dragging = false; }
+  if (e.button === 2) { mouseDownR = false; dragging = false; web2Held = false; }
 });
 // 휠 아래로 = 덤블링. 지상이면 구르기(전방 추진), 공중이면 공중제비.
 // 덤블링. 예전엔 휠 아래로였는데 휠을 줌에 내주고 X로 옮겼다.
@@ -5330,7 +5398,7 @@ function requestLook() {
 }
 
 addEventListener("contextmenu", e => e.preventDefault());
-addEventListener("blur", () => { dragging = false; mouseDownL = false; mouseDownR = false; releaseWeb(); });
+addEventListener("blur", () => { dragging = false; mouseDownL = false; mouseDownR = false; midDown = false; web2Held = false; slingT = 0; slingOn = false; releaseWeb(); });
 
 document.addEventListener("mousemove", e => {
   // 1인칭은 포인터 락 성공 여부와 관계없이 이동량으로 시점을 돌린다.
@@ -6091,6 +6159,7 @@ function update(dt) {
     }
   }
   prevShift = shiftNow;
+  updateSling(dt);
   updateCombat(dt);
   updateMission(dt);
   if (dashTimer > 0) dashTimer -= dt;
@@ -6282,7 +6351,10 @@ function updateWebVisual() {
   // 손목 웹슈터 노즐에서 정확히 나가야 한다.
   // 예전엔 카메라에 고정된 handAnchor를 썼는데, 손은 스웨이·반동·재장전으로 계속
   // 움직이므로 줄이 손에서 떨어진 허공에서 시작하는 것처럼 보였다.
-  if (firstPerson && armR.userData.nozzle) armR.userData.nozzle.getWorldPosition(s);
+  // 줄은 '잡은 손'에서 나가야 한다. 지금까지는 어디에 걸든 오른손 노즐에서
+  // 나갔다 — 왼손이 뻗어 있는데 줄만 오른쪽에서 나오는 그림이 됐다.
+  const wHand = web.side === "L" ? armL : armR;
+  if (firstPerson && wHand.userData.nozzle) wHand.userData.nozzle.getWorldPosition(s);
   else if (firstPerson) handAnchor.getWorldPosition(s);
   else s.set(player.pos.x, player.pos.y + 1.8, player.pos.z);
 
@@ -6469,9 +6541,15 @@ function updateHands(dt, sp) {
   }
 
   // 어깨~팔꿈치를 잇는다. 분기마다 팔 위치가 다르므로 전부 끝난 뒤 한 번만 한다.
+  //
+  // 어깨를 고정해 두면 팔을 크게 뻗을 때 상완과 전완이 V자로 꺾인다 — 사람 팔이
+  // 아니라 부러진 막대로 보인다. 어깨도 같은 방향으로 조금 따라 옮기면 둘이
+  // 한 줄에 가까워져서 팔꿈치가 자연스럽게 편다.
   ensureUpperArms();
-  linkUpperArm(upperR, armR, SHOULDER_R);
-  linkUpperArm(upperL, armL, SHOULDER_L);
+  shoulderFor(_shR, SHOULDER_R, getReach("R"), 1);
+  shoulderFor(_shL, SHOULDER_L, getReach("L"), -1);
+  linkUpperArm(upperR, armR, _shR);
+  linkUpperArm(upperL, armL, _shL);
 }
 
 function updateCamera(dt) {
@@ -6719,9 +6797,9 @@ function bossCheck() {
   if (!mRun) return;
   const o = currentObj(mRun);
   if (!o || o.spec.type !== "boss") return;
-  if (bossE && !bossDead) return;
   if (bossDead) return;
-  const zx = mDef && mDef.objectives.find(s => s.zone !== undefined);
+  if (bossE && !bossE.dead) return;
+  // 보고 있는 쪽 30m. 등 뒤에 세우면 "어디 있냐"가 된다.
   spawnBoss(player.pos.x + Math.sin(viewYaw) * 30, player.pos.z + Math.cos(viewYaw) * 30);
 }
 
@@ -6765,6 +6843,125 @@ function updateMission(dt) {
   if (!mRun || menuMode !== "play" || tutOn) return;
   bossCheck();
   if (updateRun(mRun, worldSummary(), dt) !== "run") finishMission();
+}
+
+// ================== 미니맵 ==================
+// 문서 02 §7. 항상 모든 걸 보여주지 않는다 — 지금 찾아가야 할 것만 찍는다.
+// 보스를 못 찾겠다는 말이 나온 게 이 화면이 없어서다.
+const mmCv = document.getElementById("mmCv");
+// 하네스(Node)의 DOM 스텁에는 getContext 가 없다. 있는지 보고 쓴다 —
+// 없으면 미니맵만 안 그려질 뿐 게임은 그대로 돈다.
+const mmCtx = mmCv && mmCv.getContext ? mmCv.getContext("2d") : null;
+const mmTagEl = document.getElementById("mmTag");
+const MM_R = Math.max(N_AVE * AVE_SPACING, N_ST * ST_SPACING) * 0.5 + 200;  // 도시 반경
+const MM_PAD = 8;
+
+// 월드 좌표를 미니맵 픽셀로. 북쪽(-z)이 위로 가게 둔다.
+function mmPt(x, z, size) {
+  const r = size * 0.5 - MM_PAD;
+  return [size * 0.5 + (x / MM_R) * r, size * 0.5 + (z / MM_R) * r];
+}
+function mmDot(c, x, z, size, color, rad, ring) {
+  const p = mmPt(x, z, size);
+  c.beginPath(); c.arc(p[0], p[1], rad, 0, Math.PI * 2);
+  c.fillStyle = color; c.fill();
+  if (ring) { c.lineWidth = 1.5; c.strokeStyle = ring; c.stroke(); }
+  return p;
+}
+// 화면 밖이면 가장자리에 붙여 방향만 알려준다. 이게 없으면 멀리 있는 목표가 안 보인다.
+function mmEdge(c, x, z, size, color) {
+  const r = size * 0.5 - MM_PAD;
+  const d = Math.hypot(x, z) / MM_R;
+  if (d <= 1) return null;
+  const a = Math.atan2(x, z);
+  const px = size * 0.5 + Math.sin(a) * r, py = size * 0.5 + Math.cos(a) * r;
+  c.save();
+  c.translate(px, py); c.rotate(-a);
+  c.beginPath(); c.moveTo(0, -5); c.lineTo(4, 4); c.lineTo(-4, 4); c.closePath();
+  c.fillStyle = color; c.fill();
+  c.restore();
+  return [px, py];
+}
+
+let mmT = 0;
+function updateMinimap(dtReal) {
+  if (!mmCtx) return;
+  // 매 프레임 다시 그릴 이유가 없다. 20Hz면 충분하고 프레임을 안 갉는다.
+  mmT -= dtReal;
+  if (mmT > 0) return;
+  mmT = 0.05;
+
+  const S = mmCv.width || 176;
+  const c = mmCtx;
+  c.clearRect(0, 0, S, S);
+
+  // 구역 격자
+  c.strokeStyle = "rgba(255,255,255,.10)";
+  c.lineWidth = 1;
+  for (const z of zones) {
+    const a = mmPt(z.cx - ZONE_W / 2, z.cz - ZONE_D / 2, S);
+    const b = mmPt(z.cx + ZONE_W / 2, z.cz + ZONE_D / 2, S);
+    c.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+    if (z.cleared) {
+      c.fillStyle = "rgba(125,255,160,.07)";
+      c.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+    }
+  }
+
+  // 적 — 가까운 것만. 전부 찍으면 점이 216개라 아무것도 안 읽힌다.
+  c.fillStyle = "rgba(255,120,120,.55)";
+  let shown = 0;
+  for (const e of enemies) {
+    if (e.dead || e.boss) continue;
+    const dx = e.g.position.x - player.pos.x, dz = e.g.position.z - player.pos.z;
+    if (dx * dx + dz * dz > 400 * 400) continue;
+    const p = mmPt(e.g.position.x, e.g.position.z, S);
+    c.fillRect(p[0] - 1, p[1] - 1, 2, 2);
+    if (++shown > 60) break;
+  }
+
+  let tag = "";
+
+  // 미션 목표
+  if (mRun) {
+    const o = currentObj(mRun);
+    const sp = o && o.spec;
+    let t = null;
+    if (sp && sp.type === "reach") t = sp;
+    else if (sp && sp.type === "checkpoints") t = (sp.points || [])[o.idx];
+    if (t) {
+      mmDot(c, t.x, t.z, S, "rgba(255,210,74,.9)", 4, "rgba(0,0,0,.6)");
+      mmEdge(c, t.x - player.pos.x, t.z - player.pos.z, S, "rgba(255,210,74,.9)");
+      const d = Math.hypot(t.x - player.pos.x, t.z - player.pos.z);
+      tag = "목표 " + (d > 999 ? (d / 1000).toFixed(1) + "km" : (d | 0) + "m");
+    }
+  }
+
+  // 보스 — 제일 눈에 띄어야 한다
+  if (bossE && !bossE.dead) {
+    const bx = bossE.g.position.x, bz = bossE.g.position.z;
+    const p = mmPt(bx, bz, S);
+    c.beginPath(); c.arc(p[0], p[1], 6.5, 0, Math.PI * 2);
+    c.fillStyle = "rgba(255,60,60,.92)"; c.fill();
+    c.lineWidth = 2; c.strokeStyle = "#fff"; c.stroke();
+    mmEdge(c, bx - player.pos.x, bz - player.pos.z, S, "rgba(255,60,60,.95)");
+    const d = Math.hypot(bx - player.pos.x, bz - player.pos.z);
+    tag = "<b>보스</b> " + (d > 999 ? (d / 1000).toFixed(1) + "km" : (d | 0) + "m")
+        + " · " + bossPhase + "페이즈";
+  }
+
+  // 나 — 삼각형으로 보는 방향까지
+  const me = mmPt(player.pos.x, player.pos.z, S);
+  c.save();
+  c.translate(me[0], me[1]);
+  c.rotate(-viewYaw);
+  c.beginPath(); c.moveTo(0, -6); c.lineTo(4.2, 5); c.lineTo(0, 3); c.lineTo(-4.2, 5);
+  c.closePath();
+  c.fillStyle = "#e8eef7"; c.fill();
+  c.lineWidth = 1; c.strokeStyle = "rgba(0,0,0,.7)"; c.stroke();
+  c.restore();
+
+  if (mmTagEl) mmTagEl.innerHTML = tag;
 }
 
 const _objV = new THREE.Vector3();
@@ -7013,6 +7210,7 @@ function updateHud(dtReal) {
     if (savedTagEl) savedTagEl.classList.toggle("on", saveTick > 0);
   }
   updateObjective();
+  updateMinimap(dtReal);
   updateSwingPreview();
   if (touchMode && window.__touchCd) window.__touchCd();
   updateSense(Math.min(1, 6 * dtReal));
@@ -7435,4 +7633,4 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, getReach, setReach, clearReach, updateReach, applyReach, initReach, get speedBase(){ return speedBase; }, timeScale, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, markTutorialProgress, bootDone, bootStep, TUT_SWING, TUT_ATTACK, TUT_MELEE, PRACTICE, startPractice, stopPractice, get practiceOn(){ return practiceOn; }, spawnBoss, clearBoss, updateBossEnemy, BOSS_BRAWL, BOSS_KIND, BOSS_HP, get bossE(){ return bossE; }, get bossDead(){ return bossDead; }, get bossPhase(){ return bossPhase; }, bossCheck, startMission, abortMission, finishMission, updateMission, get mRun(){ return mRun; }, get mResult(){ return mResult; }, get mKills(){ return mKills; }, actsNow, resolveTarget, worldSummary, openMissions, drawMissionList, showResult, closeResult, get resultOpen(){ return resultOpen; }, MISSIONS, CHALLENGES, missionById, challengeById, TUT_PARTS, get save(){ return save; }, get saveFresh(){ return saveFresh; }, persist, newGame, applySavedSettings, drawContinue, saveSummary, attachWeb, get web2(){ return web2; }, get web2Count(){ return web2Count; }, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, releaseWeb2, sideOf, otherSide, WEB2_PULL, WEB2_FADE, vclimbAnchor, vclimbShouldFire, VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD, get vcCount(){ return vcCount; }, get vcCd(){ return vcCd; }, setClimb(v){ climbMouse = v; }, plantCheck, plantImpulse, plantSide, PLANT_TIME, PLANT_MIN_V, PLANT_PUSH, PLANT_KEEP, PLANT_CD, PLANT_LOOK, get plantT(){ return plantT; }, get plantCd(){ return plantCd; }, get plantHand(){ return plantHand; }, get plantCount(){ return plantCount; }, plantPoint, findNearbyWall, get upperR(){ return upperR; }, get upperL(){ return upperL; }, SHOULDER_R, SHOULDER_L, linkUpperArm, ensureUpperArms, spiderGroup, charGlowOn, charGlowOff, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, SETTINGS, setOpt, get MAX_HP(){ return MAX_HP; }, get MOVE_SPEED(){ return MOVE_SPEED; }, get uiMode(){ return uiMode; }, get tutAllModes(){ return tutAllModes; }, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE, get lastMeleeTarget(){ return lastMeleeTarget; }, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };
+window.__dbg = { scene, camera, renderer, PBR, cityMeshes, ground, sidewalkMesh, buildings, groundAt: groundHeightAt, blocks, AVE_SPACING, ST_SPACING, AVE_ROAD_W, ST_ROAD_W, cars, player, updateCars, carBodyMesh, resolveAnchor, armR, armL, webStrand, get web(){ return web; }, get zip(){ return zip; }, tryZip, setNight, get night(){ return night; }, HDRI, applyHdri, get streetDetailCount(){ return streetDetailCount; }, get lunge(){ return lunge; }, get pull(){ return pull; }, get attackMode(){ return attackMode; }, get kickOpen(){ return kickOpen; }, get punchT(){ return punchT; }, get hoverT(){ return hoverT; }, get slowmo(){ return slowmo; }, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, HEROES, applyHero, get hero(){ return hero; }, getReach, setReach, clearReach, updateReach, applyReach, initReach, get speedBase(){ return speedBase; }, timeScale, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, markTutorialProgress, bootDone, bootStep, TUT_SWING, TUT_ATTACK, TUT_MELEE, updateMinimap, mmPt, MM_R, get mmTag(){ return mmTagEl ? mmTagEl.innerHTML : ""; }, get slingT(){ return slingT; }, get slingOn(){ return slingOn; }, slingHeld, fireSling, updateSling, SLING_MAX, SLING_MIN, SLING_BOOST, setMid(v){ midDown = v; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, get web2Held(){ return web2Held; }, get tutToStory(){ return tutToStory; }, PRACTICE, startPractice, stopPractice, get practiceOn(){ return practiceOn; }, spawnBoss, clearBoss, updateBossEnemy, BOSS_BRAWL, BOSS_KIND, BOSS_HP, get bossE(){ return bossE; }, get bossDead(){ return bossDead; }, get bossPhase(){ return bossPhase; }, bossCheck, startMission, abortMission, finishMission, updateMission, get mRun(){ return mRun; }, get mResult(){ return mResult; }, get mKills(){ return mKills; }, actsNow, resolveTarget, worldSummary, openMissions, drawMissionList, showResult, closeResult, get resultOpen(){ return resultOpen; }, MISSIONS, CHALLENGES, missionById, challengeById, TUT_PARTS, get save(){ return save; }, get saveFresh(){ return saveFresh; }, persist, newGame, applySavedSettings, drawContinue, saveSummary, attachWeb, get web2(){ return web2; }, get web2Count(){ return web2Count; }, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, releaseWeb2, sideOf, otherSide, WEB2_PULL, WEB2_FADE, vclimbAnchor, vclimbShouldFire, VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD, get vcCount(){ return vcCount; }, get vcCd(){ return vcCd; }, setClimb(v){ climbMouse = v; }, plantCheck, plantImpulse, plantSide, PLANT_TIME, PLANT_MIN_V, PLANT_PUSH, PLANT_KEEP, PLANT_CD, PLANT_LOOK, get plantT(){ return plantT; }, get plantCd(){ return plantCd; }, get plantHand(){ return plantHand; }, get plantCount(){ return plantCount; }, plantPoint, findNearbyWall, get upperR(){ return upperR; }, get upperL(){ return upperL; }, SHOULDER_R, SHOULDER_L, linkUpperArm, ensureUpperArms, spiderGroup, charGlowOn, charGlowOff, showMenu, get menuMode(){ return menuMode; }, tutStart, tutStop, tutNext, get tutOn(){ return tutOn; }, get tutStage(){ return tutStage; }, get tutList(){ return tutList; }, get aimCenter(){ return aimCenter; }, setAim, drawSettings, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, camStandDist, tumble, get dodgeCount(){ return dodgeCount; }, get perfectCount(){ return perfectCount; }, incomingThreat, DODGE_PERFECT, DODGE_IFRAME, get diving(){ return diving; }, punch, get lungeCd(){ return lungeCd; }, get pullCd(){ return pullCd; }, fireGrab, firePull, tryKick, findZipAnchor, get toast(){ return toastT > 0 ? toast : ""; }, enemies, eProjectiles, get hp(){ return hp; }, get stam(){ return stam; }, zones, get activeZone(){ return activeZone; }, fireUlt, get ultRing(){ return ultRing; }, senseFoeLv, senseObjLv, senseSector, SENSE_R, E_TYPES, ULT_R, get ult(){ return ultFake; }, setUlt(v){ ultFake = v; }, get zonesCleared(){ return zonesCleared; }, zoneRemaining, pickZone, get stamEmpty(){ return stamEmpty; }, MAX_STAM, damagePlayer, get deadT(){ return deadT; }, E_SIGHT, E_RANGE, E_AIM, E_ACTIVE, E_STANDOFF, E_WAIT_RING, HIT_REACT, FALL_TIERS, SETTINGS, setOpt, get MAX_HP(){ return MAX_HP; }, get MOVE_SPEED(){ return MOVE_SPEED; }, get uiMode(){ return uiMode; }, get tutAllModes(){ return tutAllModes; }, FALL_MIN_V, MAX_HP, MOVE_SPEED, AIR_MAX, AIR_HITS, AIR_FALL, DOWN_TIME, AIR_RISE, AIR_HOVER, AIR_KEEP, AIR_LIFT, AIR_GRAV, AIR_HOLD, AIR_SIDE, AIR_COMBO_G, get airComboT(){ return airComboT; }, launchEnemy, updateEnemyAI, updateRigs, poseRig, rigPool, updateDirector, DIR_LANES, DIR_LANE_OF, DIR_MAX, DIR_REST, DIR_HOLD, DIR_MELEE_RING, dirHeld, get lampCount(){ return lampCount; }, get meleeMode(){ return meleeMode; }, get heroClips(){ return Object.keys(heroActions); }, update, updateCamera, updateCrosshair, meleePress, meleeRelease, startMelee, findMeleeTarget, get charging(){ return charging; }, updateHpBars, get hpBarCount(){ return hpBarBg.count; }, get psBarCount(){ return psBarFill.count; }, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, screenDistToAim, aimInsideEnemyBox, findMeleeTarget, get chargeT(){ return chargeT; }, CHARGE_MIN, get meleeBusy(){ return meleeBusy(); }, get heroClip(){ return heroCurrentClip; }, get lockOn(){ return lockOn; }, toggleLock, setLock(e){ lockOn = e; }, setView(y,p){ viewYaw = y; viewPitch = p; }, aimYaw(v){ viewYaw = v; bodyYaw = v; }, setCursor(x,y){ mx = x; my = y; }, meleeInput, parry, meleeRoll, meleeDashIn, get mAtk(){ return mAtk; }, get mChain(){ return mChain; }, get parryT(){ return parryT; }, get parryRec(){ return parryRec; }, get parryCd(){ return parryCd; }, get rollT(){ return rollT; }, get execT(){ return execT; }, get dashIn(){ return dashIn; }, M_LIGHT, M_HEAVY, M_SHOVE, M_LAUNCH, meleeBranch, meleeIntent, meleeMoveMul, LUNGE_MAX, LUNGE_CAP, SOFT_CONE, get lastMeleeTarget(){ return lastMeleeTarget; }, get combo(){ return combo; }, comboTier, COMBO_TIERS, COMBO_STOP, COMBO_ULT, COMBO_ULT_HIT, get mChainT(){ return mChainT; }, BRAWL, get hitStop(){ return hitStop; }, get slowmoNow(){ return slowmo; }, canAct };

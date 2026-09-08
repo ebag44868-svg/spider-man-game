@@ -39,7 +39,9 @@ console.log("===== 1. 방향 — 앵커 쪽을 본다 =====");
   reset();
   T.setReach("R", P(-10, 0, -10));
   settle(30);
-  ok(T.getReach("R").yaw < -0.5 && T.getReach("R").yaw > -0.8, "왼쪽 앵커면 yaw가 왼쪽(-)이다", `yaw ${T.getReach("R").yaw.toFixed(3)}`);
+  // 오른손이 왼쪽(몸 안쪽)을 향하는 건 사람 어깨가 잘 못 하는 동작이다.
+  // 바깥쪽(0.65)보다 훨씬 눌려 나오는 게 정상이다 — 안 누르면 가슴을 뚫는다.
+  ok(T.getReach("R").yaw < -0.3 && T.getReach("R").yaw > -0.45, "왼쪽 앵커면 yaw가 왼쪽(-)이고 크게 눌린다", `yaw ${T.getReach("R").yaw.toFixed(3)}`);
 
   reset();
   T.setReach("R", P(0, 10, -10));     // 머리 위쪽 — 스윙 중 대부분이 이 상황이다
@@ -55,6 +57,28 @@ console.log("===== 1. 방향 — 앵커 쪽을 본다 =====");
   ok(Math.abs(T.getReach("R").yaw) <= T.YAW_MAX + 1e-6, "등 뒤여도 팔 각도가 한계 안에 든다",
      `yaw ${T.getReach("R").yaw.toFixed(3)} / max ${T.YAW_MAX}`);
   ok(Math.abs(T.getReach("R").pitch) < 1.2, "등 뒤여도 위아래가 뒤집히지 않는다");
+
+  // 어깨는 좌우가 대칭이 아니다. 같은 45도라도 바깥쪽이 훨씬 크게 열린다.
+  reset();
+  T.setReach("R", P(10, 0, -10)); settle(30);
+  const outR = T.getReach("R").yaw;
+  reset();
+  T.setReach("R", P(-10, 0, -10)); settle(30);
+  const inR = Math.abs(T.getReach("R").yaw);
+  ok(outR > inR * 1.4, "바깥쪽이 안쪽보다 훨씬 크게 열린다",
+     `바깥 ${outR.toFixed(2)} / 안쪽 ${inR.toFixed(2)}`);
+  ok(T.YAW_IN < T.YAW_OUT && T.PITCH_DN < T.PITCH_UP, "안쪽·아래쪽 한계가 더 좁다");
+
+  // 왼손은 반대다. 왼쪽이 바깥이다.
+  reset();
+  T.setReach("L", P(-10, 0, -10)); settle(30);
+  const outL = Math.abs(T.getReach("L").yaw);
+  reset();
+  T.setReach("L", P(10, 0, -10)); settle(30);
+  const inL = Math.abs(T.getReach("L").yaw);
+  T.clearReach("L"); settle(150);
+  ok(outL > inL * 1.4, "왼손은 왼쪽이 바깥이다 (좌우가 뒤집힌다)",
+     `바깥 ${outL.toFixed(2)} / 안쪽 ${inL.toFixed(2)}`);
 
   // 소프트 클램프: 각도가 커질수록 완만하게 멈춘다. 뚝 잘리면 팔이 꺾여 보인다.
   ok(Math.abs(T.soft(0.2, T.YAW_MAX) - 0.2) < 0.02, "작은 각도는 거의 그대로 지나간다",
@@ -110,6 +134,21 @@ console.log("\n===== 3. 팔에 실제로 먹는가 =====");
   put();
   T.applyReach(T.armR, "R");
   ok(Math.abs(T.armR.rotation.y - base.y) < 1e-6, "잡은 게 없으면 팔을 안 건드린다");
+
+  // 거울: 왼팔은 scale.x 가 음수라 회전을 그대로 더하면 화면에서 반대로 돈다.
+  T.setReach("L", P(-10, 0, -10)); settle(40);
+  T.armL.rotation.set(0.55, 0, 0);
+  T.armL.scale.set(-0.72, 0.72, 0.72);
+  T.applyReach(T.armL, "L");
+  const lrot = T.armL.rotation.y;
+  T.armL.rotation.set(0.55, 0, 0);
+  T.armL.scale.set(0.72, 0.72, 0.72);      // 거울이 아닌 척 해본다
+  T.applyReach(T.armL, "L");
+  ok(Math.sign(lrot) !== Math.sign(T.armL.rotation.y),
+     "거울인 팔은 회전 부호가 뒤집힌다 (왼팔이 기괴하게 꺾이던 원인)",
+     `${lrot.toFixed(3)} vs ${T.armL.rotation.y.toFixed(3)}`);
+  T.armL.scale.set(-0.72, 0.72, 0.72);
+  T.clearReach("L"); settle(150);
 
   T.setReach("R", P(10, 0, -10));   // 오른쪽
   settle(40);

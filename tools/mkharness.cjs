@@ -162,11 +162,19 @@ export const T = {
   // STEP 1 reachTarget (1인칭 팔이 앵커를 향한다)
   initReach, setReach, clearReach, updateReach, getReach, applyReach, armR, armL,
   SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX,
+  YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN,
   soft, ensureUpperArms, linkUpperArm, SHOULDER_R, SHOULDER_L,
   // 설정 · 시간 배속 · 튜토리얼 진행도
   get speedBase(){ return speedBase; }, timeScale,
   get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; },
   markTutorialProgress, TUT_SWING, TUT_ATTACK, TUT_MELEE,
+  // 미니맵
+  updateMinimap, mmPt, MM_R,
+  // 슬링샷 (좌+우+가운데)
+  get slingT(){ return slingT; }, get slingOn(){ return slingOn; }, slingHeld, fireSling, updateSling,
+  SLING_MAX, SLING_MIN, SLING_BOOST,
+  setMid(v){ midDown = v; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; },
+  get tutToStory(){ return tutToStory; },
   // 보스
   spawnBoss, clearBoss, updateBossEnemy, BOSS_BRAWL, BOSS_KIND, BOSS_HP, bossCheck,
   get bossE(){ return bossE; }, get bossDead(){ return bossDead; }, get bossPhase(){ return bossPhase; },

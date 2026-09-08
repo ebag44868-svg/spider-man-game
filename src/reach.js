@@ -21,11 +21,18 @@ const CATCH_T = 0.13;   // 걸린 직후 반동
 const REL_T   = 0.20;   // 놓고 되돌아오는 시간
 // 팔이 돌아갈 수 있는 한계. 안 걸면 등 뒤 앵커를 향해 어깨가 뒤집힌다.
 //
-// 예전에는 각도를 그대로 쓰다가 한계에서 뚝 잘랐다. 그래서 시야를 크게 돌리면
-// 팔이 한계에 부딪히는 순간 꺾인 것처럼 보였다. tanh로 눌러서 커질수록 완만하게
-// 포화시킨다 — 작은 각도는 거의 그대로, 큰 각도는 서서히 멈춘다.
-const YAW_MAX   = 0.95;
-const PITCH_MAX = 0.95;
+// 각도를 그대로 쓰다가 한계에서 뚝 자르면 팔이 꺾인 것처럼 보인다. tanh로 눌러
+// 커질수록 완만하게 포화시킨다 — 작은 각도는 거의 그대로, 큰 각도는 서서히 멈춘다.
+//
+// 사람 어깨는 좌우가 대칭이 아니다. 바깥(몸에서 멀어지는 쪽)으로는 크게 벌어지지만
+// 안쪽(몸을 가로지르는 쪽)으로는 얼마 못 간다. 한 값으로 두면 오른팔이 왼쪽
+// 앵커를 향할 때 가슴을 뚫고 지나가는 그림이 나온다 — 실제로 그렇게 보였다.
+const YAW_OUT   = 1.00;   // 바깥쪽 (오른손이 오른쪽을 볼 때)
+const YAW_IN    = 0.42;   // 안쪽 (몸을 가로지른다)
+const PITCH_UP  = 1.05;   // 위로는 잘 올라간다
+const PITCH_DN  = 0.60;   // 아래로는 겨드랑이가 막는다
+const YAW_MAX   = YAW_OUT;
+const PITCH_MAX = PITCH_UP;
 function soft(a, max) { return max * Math.tanh(a / max); }
 
 let camera = null;
@@ -103,8 +110,12 @@ function updateReach(dt) {
     camera.worldToLocal(_v);
     s.dist = _v.length();
     if (s.dist < 0.01) { s.yaw = s.pitch = 0; continue; }
-    s.yaw = soft(Math.atan2(_v.x, -_v.z), YAW_MAX);
-    s.pitch = soft(Math.atan2(_v.y, Math.hypot(_v.x, _v.z)), PITCH_MAX);
+    // 어느 쪽이 바깥인가는 손마다 다르다. 오른손은 +yaw 가 바깥이다.
+    const rawYaw = Math.atan2(_v.x, -_v.z);
+    const outward = (k === "R") === (rawYaw >= 0);
+    const rawPitch = Math.atan2(_v.y, Math.hypot(_v.x, _v.z));
+    s.yaw = soft(rawYaw, outward ? YAW_OUT : YAW_IN);
+    s.pitch = soft(rawPitch, rawPitch >= 0 ? PITCH_UP : PITCH_DN);
   }
 }
 
@@ -117,11 +128,15 @@ function getReach(side) { return sides[side]; }
 // arm.rotation 규칙: 팔이 가리키는 축은 -Z다.
 //   Ry(θ)·(0,0,-1) = (-sinθ, 0, -cosθ)  →  오른쪽(+X)을 보려면 θ = -yaw
 //   Rx(φ)·(0,0,-1) = (0, sinφ, -cosφ)   →  위(+Y)를 보려면  φ = +pitch
+// mirror: 왼손 모델은 scale.x 가 음수라 좌우가 뒤집혀 그려진다. 회전을 그대로
+// 더하면 화면에서는 반대로 돈다 — 왼팔이 기괴하게 꺾여 보인 진짜 이유다.
+// 뒤집힌 팔에는 y·z 회전의 부호를 같이 뒤집는다.
 function applyReach(arm, side, strength) {
   const s = sides[side];
   const k = s.on * (strength === undefined ? 1 : strength);
   if (k < 0.001) return s;
-  arm.rotation.y += -s.yaw * k;
+  const mir = arm.scale && arm.scale.x < 0 ? -1 : 1;
+  arm.rotation.y += -s.yaw * k * mir;
   arm.rotation.x += s.pitch * k;
   // 회전만으로 목표를 좇으면 어깨가 제자리에서 비틀린다. 어깨 자체도 목표 쪽으로
   // 조금 옮겨야 "몸을 튼다"로 보인다 — 이게 없으면 큰 각도에서 팔만 꺾인다.
@@ -135,4 +150,4 @@ function applyReach(arm, side, strength) {
 }
 
 export { initReach, setReach, clearReach, updateReach, getReach, applyReach, soft,
-         SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX };
+         SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX, YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN };

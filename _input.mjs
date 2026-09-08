@@ -21,8 +21,19 @@ T.setFP(true); T.aimYaw(0.6); T.setPitch(-0.1);
 place(0, 150, 0, 10, 10);
 for(let i=0;i<40;i++){ T.updateCamera(DT); T.update(DT); }
 T.syncWorld();
+// 집라인은 좌+우+가운데 세 버튼 홀드(슬링샷)로 옮겼다. 우클릭 한 번으로
+// 어디든 날아갈 수 있으면 이동이 전부 그것만 된다 — 그래서 문턱을 올렸다.
 md(2);
-ok(!!T.zip, "우클릭 단독으로 양손 거미줄이 나간다");
+ok(!T.zip, "우클릭 단독으로는 집라인이 안 나간다");
+mu(2);
+// 세 버튼을 물고 힘을 모았다가 떼면 나간다
+T.setMouseL(true); T.setMouseR(true); T.setMid(true);
+for (let i = 0; i < Math.ceil(T.SLING_MAX * 120) + 4; i++) T.update(DT);
+ok(T.slingT > T.SLING_MIN, "세 버튼을 물고 있으면 힘이 모인다", `${T.slingT.toFixed(2)}초`);
+T.setMid(false);
+T.update(DT);
+ok(!!T.zip, "떼면 슬링샷이 나간다");
+T.setMouseL(false); T.setMouseR(false);
 mu(2); clearZip();
 
 const y1 = T.viewYaw;
