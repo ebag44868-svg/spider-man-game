@@ -245,6 +245,19 @@
   }
   .tlink:hover { color: #fff; border-color: rgba(255,255,255,.4); }
 
+  /* 부팅 화면 */
+  #boot { position: fixed; inset: 0; z-index: 90; display: none;
+    background: #05060a; color: #e8eef7; align-items: center; justify-content: center;
+    transition: opacity .3s; }
+  #boot.show { display: flex; }
+  #boot.gone { opacity: 0; pointer-events: none; }
+  .binner { text-align: center; width: 320px; max-width: 80vw; }
+  .blogo { font-size: 30px; font-weight: 800; letter-spacing: .12em; }
+  .blogo span { color: #e11d2e; }
+  .bbar { height: 3px; background: rgba(255,255,255,.12); border-radius: 2px; margin: 18px 0 10px; overflow: hidden; }
+  #bootProg { height: 100%; width: 0%; background: #e8eef7; transition: width .25s; }
+  .bmsg { font-size: 12px; opacity: .55; }
+
   /* 타이틀 아래 작은 링크 줄 */
   .tlinks { margin-top: 18px; display: flex; gap: 10px; justify-content: center; }
 
@@ -581,6 +594,15 @@
 <!-- ================= 시작 화면 ================= -->
 <!-- 배경은 따로 안 만든다. 뒤에서 실제 도시를 카메라가 천천히 도는 게
      정지 이미지보다 훨씬 낫고, 이미 있는 걸 쓰는 거라 공짜다. -->
+<!-- 부팅 / 로딩 (문서 02 §5.1). 화려할 필요 없다 — 멈춘 게 아니라는 것만 알리면 된다 -->
+<div id="boot" class="show">
+  <div class="binner">
+    <div class="blogo">SPIDER<span>MAN</span></div>
+    <div class="bbar"><div id="bootProg"></div></div>
+    <div class="bmsg" id="bootMsg">도시를 세우는 중…</div>
+  </div>
+</div>
+
 <div id="title" class="show">
   <div class="tinner">
     <h1>SPIDER<span>MAN</span></h1>
@@ -643,6 +665,10 @@
     <div class="setrow"><span class="setk">시야 (P)</span><span class="chips" data-set="view"></span></div>
     <div class="setrow"><span class="setk">화면</span><span class="chips" data-set="ui"></span></div>
     <div class="setd" id="uiDesc2"></div>
+    <div class="setrow"><span class="setk">게임 속도</span><span class="chips" data-set="speed"></span></div>
+    <div class="setd" id="speedDesc2"></div>
+    <div class="setrow"><span class="setk">화면 흔들림</span><span class="chips" data-set="shake"></span></div>
+    <div class="setrow"><span class="setk">소리</span><span class="chips" data-set="audio"></span></div>
     <div class="cbtns"><button id="btnOptsBack" class="primary">닫기</button></div>
   </div>
 </div>
@@ -732,6 +758,8 @@
       <div class="setrow">
         <span class="setk"></span>
         <button class="setbtn" id="btnResume">계속하기</button>
+        <button class="setbtn" id="btnPauseMission">미션</button>
+        <button class="setbtn" id="btnPauseTut">튜토리얼</button>
         <button class="setbtn" id="btnToTitle">시작 화면으로</button>
       </div>
     </div>
@@ -936,6 +964,6 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mts2t0nt"></script>
+<script type="module" src="./game3d.js?v=mts2zfn4"></script>
 </body>
 </html>

@@ -163,6 +163,10 @@ export const T = {
   initReach, setReach, clearReach, updateReach, getReach, applyReach, armR, armL,
   SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX,
   soft, ensureUpperArms, linkUpperArm, SHOULDER_R, SHOULDER_L,
+  // 설정 · 시간 배속 · 튜토리얼 진행도
+  get speedBase(){ return speedBase; }, timeScale,
+  get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; },
+  markTutorialProgress, TUT_SWING, TUT_ATTACK, TUT_MELEE,
   // 미션 / 챌린지
   startMission, abortMission, updateMission, actsNow, resolveTarget, worldSummary,
   get mRun(){ return mRun; }, get mResult(){ return mResult; }, get mKills(){ return mKills; },

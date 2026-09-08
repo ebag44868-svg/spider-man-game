@@ -8,6 +8,15 @@
 // game3d.js가 하고, 여기서는 받은 숫자를 노드에 꽂기만 한다.
 
 let actx = null;
+// 소리 끄기 (문서 02 §35 · §9). sfx 함수가 스무 개라 하나씩 고치지 않는다.
+// 전부 actx 를 먼저 보므로, 꺼져 있으면 그 관문에서 null 로 보이게 한다.
+let audioEnabled = true;
+let actxReal = null;
+function setAudioEnabled(v) {
+  audioEnabled = !!v;
+  if (audioEnabled) { if (actxReal) actx = actxReal; }
+  else { if (actx) actxReal = actx; actx = null; }
+}
 let windGain = null;
 let windFilter = null;
 
@@ -223,6 +232,8 @@ function initAudio() {
   if (actx) return;
   try {
     actx = new (window.AudioContext || window.webkitAudioContext)();
+    actxReal = actx;
+    if (!audioEnabled) actx = null;      // 꺼둔 채로 시작했으면 그대로 둔다
     const len = actx.sampleRate * 2;
     const buf = actx.createBuffer(1, len, actx.sampleRate);
     const d = buf.getChannelData(0);
@@ -309,7 +320,7 @@ function setWind(gain, freq) {
 }
 
 export {
-  initAudio,
+  initAudio, setAudioEnabled,
   windActive, setWind,
   sfxZoneClear, sfxMiss, sfxEnemyShot, sfxRegen, sfxDodge, sfxPerfect, sfxHurt, sfxShot, sfxHit, sfxReload, sfxBind, sfxUlt, sfxWhoosh, sfxThwip, sfxThud, sfxDash,
 };
