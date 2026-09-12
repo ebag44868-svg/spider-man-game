@@ -139,7 +139,10 @@ console.log("\n===== 5. 손이 벽을 향한다 =====");
   for (let i = 0; i < 90; i++) {
     T.update(DT);
     T.updateCamera(DT);
-    if (T.plantT > 0 && T.getReach("R").kind === "wall") sawWall = true;
+    // 어느 손으로 짚을지는 벽이 어느 쪽에 있는지로 정해진다.
+    // 오른손만 보면 왼쪽 벽을 짚는 경우를 놓친다 (실제로 놓쳤다).
+    if (T.plantT > 0 &&
+        (T.getReach("R").kind === "wall" || T.getReach("L").kind === "wall")) sawWall = true;
   }
   ok(T.plantCount > c0, "다시 짚었다");
   ok(sawWall, "짚는 동안 손의 목표가 벽 접촉점이다");

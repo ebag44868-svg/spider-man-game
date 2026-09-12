@@ -21,18 +21,17 @@ T.setFP(true); T.aimYaw(0.6); T.setPitch(-0.1);
 place(0, 150, 0, 10, 10);
 for(let i=0;i<40;i++){ T.updateCamera(DT); T.update(DT); }
 T.syncWorld();
-// 집라인은 좌+우+가운데 세 버튼 홀드(슬링샷)로 옮겼다. 우클릭 한 번으로
-// 어디든 날아갈 수 있으면 이동이 전부 그것만 된다 — 그래서 문턱을 올렸다.
-md(2);
-ok(!T.zip, "우클릭 단독으로는 집라인이 안 나간다");
-mu(2);
-// 세 버튼을 물고 힘을 모았다가 떼면 나간다
+// 슬링샷은 세 버튼(좌+우+가운데)을 물고 힘을 모았다가 떼는 기술이다.
+// **잡고 있는 줄을 타고** 나간다 — 줄이 없으면 아무 일도 없는 게 맞다.
+// 예전에는 줄이 없으면 집라인을 새로 쐈는데, 손에 든 줄을 버리고 딴 데서
+// 줄이 또 나가는 그림이 어색해서 없앴다.
 T.setMouseL(true); T.setMouseR(true); T.setMid(true);
 for (let i = 0; i < Math.ceil(T.SLING_MAX * 120) + 4; i++) T.update(DT);
 ok(T.slingT > T.SLING_MIN, "세 버튼을 물고 있으면 힘이 모인다", `${T.slingT.toFixed(2)}초`);
 T.setMid(false);
 T.update(DT);
-ok(!!T.zip, "떼면 슬링샷이 나간다");
+ok(!T.zip, "잡은 줄이 없으면 아무것도 안 나간다");
+T.setMouseL(false); T.setMouseR(false);
 T.setMouseL(false); T.setMouseR(false);
 mu(2); clearZip();
 
@@ -84,19 +83,12 @@ T.setCursor(800, 450);
 place(0, 150, 0, 10, 10);
 for(let i=0;i<40;i++){ T.updateCamera(DT); T.update(DT); }
 T.syncWorld();
-key("KeyF");
-ok(!!T.zip, "F키로 양손 거미줄이 나간다");
+
 clearZip();
 
-// X = 주먹
-place(0, 150, 0, 0, 0);
-key("KeyX");
-ok(T.punchT > 0, "X키로 근접 주먹이 나간다", `punchT=${T.punchT}`);
 
-// G = 덤블링
-place(0, 150, 0, 0, 0);
-key("KeyG");
-ok(T.tumbleT > 0, "G키로 덤블링이 나간다");
+
+
 
 console.log("\n===== 시점 모드: 자동/수동은 오직 C가 정한다 =====");
 T.setFP(false); T.setAuto(true);
@@ -160,7 +152,11 @@ ok(spin < oldSpin * 0.35, "솟구치는 2초 동안 시점이 거의 안 돈다 
    `지금 ${(spin*57.3).toFixed(1)}도 / 예전 규칙 ${(oldSpin*57.3).toFixed(1)}도`);
 console.log(`       (누적 회전: 지금 ${(spin*57.3).toFixed(1)}도  <-  예전 ${(oldSpin*57.3).toFixed(1)}도)`);
 
-// 반대로 실제로 빠르게 방향을 틀 땐 따라와야 한다
+// 반대로 실제로 빠르게 방향을 틀 땐 따라와야 한다.
+// 자동 카메라는 3인칭 + 커서 조준일 때만 돈다.
+// 이 빌드는 1인칭 · 중앙 조준이 기본이라 둘 다 꺼줘야 한다.
+T.setFP(false);
+T.setAimCenter(false);
 T.setAuto(true); place(0, 600, 0, 0, 0);
 T.aimYaw(0);
 for(let i=0;i<120*2;i++){ T.player.vel.set(50, 0, 0); T.update(DT); T.updateCamera(DT); }

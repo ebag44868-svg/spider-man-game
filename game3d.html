@@ -1,4 +1,3 @@
-<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
@@ -635,58 +634,14 @@
   </div>
 </div>
 
-<div id="title" class="show">
-  <div class="tinner">
-    <h1>SPIDER<span>MAN</span></h1>
-    <p class="sub">뉴욕 · 9구역 · 적 216</p>
-    <div class="tbtns">
-      <button id="btnCont" class="primary" hidden>이어하기</button>
-      <button id="btnNew" class="primary">새 게임</button>
-      <button id="btnMissions">미션</button>
-      <button id="btnChar">캐릭터</button>
-    </div>
-    <p class="thint" id="contCard" hidden></p>
-    <p class="thint">선택 중인 캐릭터 — <b id="titleHero">파이터</b></p>
-    <div class="tlinks" id="tlinks">
-      <button id="btnPlay" class="tlink">자유 이동</button>
-      <button id="btnTut" class="tlink">튜토리얼</button>
-      <button id="btnOpts" class="tlink">옵션</button>
-    </div>
-  </div>
-</div>
 
 <!-- ================= 캐릭터 선택 ================= -->
 <!-- 오버워치식: 왼쪽에 카드, 고른 캐릭터가 오른쪽에서 등장 모션을 돌린다.
      등장 모션은 새 모델이 아니라 기존 플레이어 모델 + 기존 클립을 쓴다. -->
-<div id="charSel">
-  <div class="cinner">
-    <div class="clist" id="charList"></div>
-    <div class="cinfo">
-      <h2 id="cName">파이터</h2>
-      <div class="ctag" id="cTag">근접 격투 특화</div>
-      <div class="cdesc" id="cDesc"></div>
-      <div class="cbtns">
-        <button id="btnCharBack">뒤로</button>
-        <button id="btnCharOk" class="primary">이 캐릭터로</button>
-      </div>
-    </div>
-  </div>
-</div>
 <!-- 캐릭터를 바꾼 순간 한 번 번쩍인다. 모델이 아직 다 같아서 안 그러면
      바뀐 게 티가 안 난다 (모델링을 씌우면 덜 필요해질 연출) -->
-<div id="charFlash"></div>
 
 <!-- ================= 튜토리얼 ================= -->
-<div id="tut">
-  <div class="tutbox">
-    <div class="tutstep" id="tutStep">1 / 3</div>
-    <div class="tuttitle" id="tutTitle">거미줄 걸기</div>
-    <div class="tutdesc" id="tutDesc"></div>
-    <div class="tutprog" id="tutProg"></div>
-  </div>
-  <div class="tutskip">Esc — 그만두기 · Enter — 이 단계 건너뛰기</div>
-</div>
-<div id="tutCue"></div>
 <!-- 옵션. 시작 화면을 깔끔하게 두려고 따로 뺐다 (F1 안에도 같은 항목이 있다) -->
 <div id="opts">
   <div class="oinner">
@@ -705,50 +660,15 @@
   </div>
 </div>
 <!-- 미션 · 챌린지 · 튜토리얼 아카이브. 셋이 같은 화면을 쓴다 (문서 02 §5.7·5.10) -->
-<div id="missions">
-  <div class="minner">
-    <h2>미션</h2>
-    <div class="mtabs">
-      <button data-t="story" class="on">스토리</button>
-      <button data-t="chal">챌린지</button>
-      <button data-t="tut">튜토리얼</button>
-      <button data-t="prac">연습</button>
-    </div>
-    <div id="mList"></div>
-    <div class="cbtns"><button id="btnMBack" class="primary">닫기</button></div>
-  </div>
-</div>
 
 <!-- 미션 결과 (문서 02 §5.9) -->
-<div id="result">
-  <div class="rinner">
-    <div class="rtag" id="rTag">MISSION COMPLETE</div>
-    <h2 id="rTitle">—</h2>
-    <div class="rrank" id="rRank">A</div>
-    <div class="rrows" id="rRows"></div>
-    <div class="rreward" id="rReward"></div>
-    <div class="cbtns">
-      <button id="btnRetry">다시</button>
-      <button id="btnNextM" class="primary">다음</button>
-      <button id="btnToCity">도시로</button>
-    </div>
-  </div>
-</div>
 <div id="crosshair"></div>
-<div id="hitmarker"><i></i><i></i><i></i><i></i></div>
-<div id="objective">
-  <div id="objName">—</div>
-  <div id="objRow"><span id="objCount"></span><span id="objDist"></span></div>
-  <div id="objBar"><div id="objProg"></div></div>
-</div>
 <!-- 미니맵 (오른쪽 위). 전체 도시 · 내 위치와 방향 · 보스 · 미션 목표.
      캔버스 하나로 그린다 — DOM 요소를 수십 개 만들면 매 프레임 갱신이 비싸다 -->
 <div id="minimap">
   <canvas id="mmCv" width="176" height="176"></canvas>
   <div id="mmTag"></div>
 </div>
-<div id="spiderSense"></div>
-<div id="savedTag">저장됨</div>
 
 <div id="touchUI">
   <div id="stickBase"><div id="stickKnob"></div></div>
@@ -804,71 +724,9 @@
     </div>
 
     <!-- 모드별로 같은 버튼이 다른 일을 한다. 그게 한눈에 보여야 한다. -->
-    <div class="hs">
-      <h3>모드 — <kbd>TAB</kbd>으로 순환</h3>
-      <table class="modes">
-        <thead>
-          <tr><th></th><th class="m1">① 웹스윙</th><th class="m2">② 거미줄 격투</th><th class="m3">③ 근접 격투</th></tr>
-        </thead>
-        <tbody>
-          <tr><th><kbd>좌클릭</kbd></th>
-            <td>거미줄 걸기 <span class="s">(누르는 동안 유지)</span></td>
-            <td>거미줄 발사 <span class="s">(1클릭 1발)</span></td>
-            <td><b>탭</b> = 약공격<br><b>홀드</b> = 강공격<br><span class="s">넣는 시점에 따라 갈린다 — 콤보 표 참고</span></td></tr>
-          <tr><th><kbd>우클릭</kbd></th>
-            <td colspan="3" class="same">시점 돌리기 — <b>세 모드 모두 똑같다</b></td></tr>
-          <tr><th><kbd>E</kbd></th>
-            <td>줄 감는 동안 가속</td><td>적 속박 <span class="s">(고치 5초)</span></td><td><b>쳐내기(패링)</b></td></tr>
-          <tr><th><kbd>Shift</kbd></th>
-            <td>달리기 · 공중 대시 · 다이빙</td><td>달리기 · 공중 대시</td><td><b>구르기</b></td></tr>
-          <tr><th><kbd>F</kbd></th>
-            <td colspan="2">양손 거미줄(집라인)</td><td><b>거미줄 접근</b> <span class="s">(락온 대상에게)</span></td></tr>
-          <tr><th><kbd>Space</kbd></th>
-            <td>줄 감기</td><td>점프</td><td>점프</td></tr>
-          <tr><th><kbd>V</kbd></th>
-            <td>—</td><td>재장전</td><td>—</td></tr>
-        </tbody>
-      </table>
-    </div>
 
     <div class="cols2">
-      <div class="hs">
-        <h3>어디서나</h3>
-        <dl>
-          <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>이동</dd>
-          <dt><kbd>Ctrl</kbd></dt><dd><b>락온</b> — 시야 안의 적을 문다. 카메라가 알아서 대상을 중앙에 잡고,<br>조준점이 어디에 있든 그 적이 공격 대상이 된다. 다시 누르면 해제</dd>
-          <dt><kbd>C</kbd> <span class="s">(Z도 동일)</span></dt><dd><b>시점 자동 / 수동</b> 전환 — 이 키만이 모드를 바꾼다</dd>
-          <dt><kbd>P</kbd></dt><dd>1인칭 / 3인칭 전환</dd>
-          <dt><kbd>Q</kbd></dt><dd>궁극기 — 반경 75m의 적을 한 번에 속박 + 피해 (게이지 100%)</dd>
-          <dt><kbd>T</kbd></dt><dd>적을 잡고 날아감</dd>
-          <dt><kbd>R</kbd></dt><dd>적을 눈앞으로 끌어옴</dd>
-          <dt><kbd>X</kbd></dt><dd>근접 주먹 <span class="s">(마우스 앞쪽 사이드 버튼도 동일)</span></dd>
-          <dt><kbd>G</kbd></dt><dd>덤블링 · 공중제비</dd>
-          <dt>마우스 <b>뒤쪽</b> 사이드</dt><dd>벽 잡기 · 홀드로 벽타기 <span class="s">(+WASD로 벽면 이동)</span></dd>
-          <dt><kbd>+</kbd></dt><dd>야간 / 주간 전환</dd>
-          <dt><kbd>F4</kbd></dt><dd><b>자동 앵커 전환</b> — V2(의도 기반) / 옛것(시선 기반). 개발용 비교</dd>
-          <dt><kbd>F3</kbd></dt><dd><b>웹 디버그</b> — 거미줄이 걸릴 후보 지점과 점수를 화면에 띄운다.<br><span class="s">초록 = 통과 · 빨강 = 기각 · 노랑 = 채택. 개발용이라 기본은 꺼져 있다</span></dd>
-        </dl>
-      </div>
 
-      <div class="hs">
-        <h3>시점</h3>
-        <dl>
-          <dt><b>3인칭</b></dt><dd>마우스 이동 = <b>조준점(커서)</b><br><kbd>우클릭 드래그</kbd> = 시점</dd>
-          <dt><b>1인칭</b></dt><dd>마우스 이동 = <b>시점</b> · 조준점은 화면 중앙 고정<br>커서가 화면에 갇힌다 — <kbd>ESC</kbd>로 풀림</dd>
-          <dt><b>수동</b> <span class="s">(C)</span></dt><dd>걷든 날든 카메라가 <b>1도도 안 움직인다</b>. 오직 우클릭 드래그로만 돌아간다<br>스윙 뱅킹(화면 기울기)도 꺼진다</dd>
-          <dt><b>조준 방식</b> <span class="s">(O)</span></dt><dd><b>커서 조준</b>(기본) — 마우스가 조준점을 옮기고, 시점은 우클릭 드래그<br>
-          <b>중앙 조준</b>(실험) — 조준점이 화면 정중앙 고정, 마우스 = 시점. 카메라가 어깨 뒤로 붙고 캐릭터가 한쪽으로 비켜 선다<br>
-          <span class="s">오버워치 3인칭 / PS4 스파이더맨 방식. 1인칭과 같은 체계라 손이 단순해진다</span></dd>
-        <dt><b>급선회 웹</b> <span class="s">(우클릭 홀드)</span></dt><dd>스윙 중에 누르면 <b>반대 손으로 두 번째 줄</b>을 건다<br>매달리지 않고 <b>그쪽으로 당기기만</b> 한다 — 코너를 파고들 때<br>주 웹은 걸린 방향에 따라 <b>왼손/오른손이 알아서 갈린다</b></dd>
-        <dt><b>슬링샷</b> <span class="s">(좌 + 우 + 가운데 동시 홀드)</span></dt><dd>세 버튼을 <b>같이 물고 있으면</b> 속도가 죽으면서 힘이 모인다<br><b>떼는 순간</b> 걸어둔 곳으로 튕겨 나간다. 오래 물수록 멀리 간다<br>예전 집라인이다 — 너무 쉬워서 이것만 쓰게 되길래 문턱을 올렸다</dd>
-        <dt><b>건물 타기</b> <span class="s">(벽타기 버튼 홀드)</span></dt><dd>공중에서 벽 옆에 있을 때 누르고 있으면 <b>위쪽에 줄을 걸어 타고 오른다</b><br>쏨 → 끌림 → 벽 짚음 → 다시 쏨 이 저절로 반복된다. 옥상까지 올라가면 멈춘다<br>붙어서 천천히 기어오르던 방식도 그대로 남아 있다</dd>
-        <dt><b>벽 짚기</b> <span class="s">(자동)</span></dt><dd>빠르게 벽으로 가면 <b>손으로 탁 짚고 튕겨</b> 나간다. 키가 없다<br>속도를 죽이지 않고 방향만 꺾는다 — 벽에 부딪혀 멈추지 않는다<br>천천히 다가가면 대신 <b>벽 붙기</b>가 걸린다 (<kbd>Ctrl</kbd>로 붙잡기)</dd>
-        <dt><b>자동</b> <span class="s">(C)</span></dt><dd>진행 방향으로 좌우·위아래를 맞춰준다<br>드래그로 돌린 뒤 3.2초는 자동이 손을 뗀다. 근접 격투 모드에서는 아예 꺼진다</dd>
-          <dt>락온 중</dt><dd>모드와 무관하게 카메라가 대상을 중앙에 잡는다</dd>
-          <dt>휠</dt><dd>3인칭 줌</dd>
-        </dl>
-      </div>
     </div>
 
     <div class="hs m1box">
@@ -876,7 +734,6 @@
       <dl>
         <dt><kbd>좌클릭</kbd></dt><dd>조준한 지점에 거미줄 1발. 누르는 동안 유지, 떼면 즉시 놓음<br>조준점이 <b style="color:#7dffa0">초록</b>이면 그 지점에 걸리고, <b style="color:#ffd24a">노랑</b>이면 조준이 빗나가 자동으로 골라준 앵커다</dd>
         <dt><kbd>Space</kbd></dt><dd>줄 감기 (가속)</dd>
-        <dt><kbd>E</kbd></dt><dd>속도 부스트</dd>
         <dt><kbd>F</kbd></dt><dd>양손 거미줄(집라인) — 힘을 모았다 앵커로 끌려감<br>1인칭은 <kbd>우클릭</kbd>으로도 나간다 (1인칭엔 커서가 없어 우클릭이 비어 있다)</dd>
         <dt><kbd>Shift</kbd></dt><dd>달리기(지상) · 대시(공중 탭) · 다이빙(홀드)</dd>
         <dt><b>낙하 피해</b></dt><dd>35m 넘게 떨어지면 1칸, 75m 2칸, 130m 3칸<br>내려앉는 속도가 45m/s 미만이면 <b>높이와 무관하게 면제</b> — 줄 타고 부드럽게 내려오는 건 안 아프다</dd>
@@ -887,8 +744,6 @@
       <h3><span class="tag t2">②</span> 거미줄 격투 <span class="s">— 원거리</span></h3>
       <dl>
         <dt><kbd>좌클릭</kbd></dt><dd>거미줄 발사 (탄창 80발)</dd>
-        <dt><kbd>E</kbd></dt><dd>적 속박 — 고치로 5초간 묶음</dd>
-        <dt><kbd>V</kbd></dt><dd>재장전</dd>
         <dt><b>조준</b></dt><dd>3인칭은 <b>커서</b>, 1인칭은 화면 중앙. 자동 조준은 3도 미세 보정만 한다<br>정확히 겨눈 곳으로 나간다 — 근처 적에게 휘지 않는다</dd>
       </dl>
     </div>
@@ -899,13 +754,11 @@
         <dt><kbd>좌클릭</kbd> 탭</dt><dd><b>약공격</b> — 3타 체인. 3타째가 크게 들어간다</dd>
         <dt><b>콤보 갈래</b></dt><dd>강공격을 <b>언제</b> 넣느냐로 결과가 갈린다 (아래 표 참고)</dd>
         <dt><kbd>좌클릭</kbd> 홀드</dt><dd><b>강공격(차징)</b> — 0.33초 넘게 물면 차오르고 <b>떼는 순간</b> 나간다<br>발밑 고리: <b style="color:#9aa4b2">흐린 회색</b> 아직 약공격 · <b style="color:#ffb347">주황</b> 강공격 · <b>하양 깜빡</b> 최대 차징<br>오래 물수록 세다 (최대 피해 2배 · 체간 1.6배)</dd>
-        <dt><kbd>E</kbd></dt><dd><b>쳐내기(패링)</b> — 0.2초 창. 적의 공격과 탄을 튕겨내고 체간을 크게 깎는다<br>헛치면 그 사이에 그대로 맞는다</dd>
         <dt><kbd>Shift</kbd></dt><dd><b>구르기</b> — 앞부분만 무적, 스태미나 소모 (방향은 WASD, 없으면 백스텝)</dd>
         <dt><kbd>F</kbd></dt><dd><b>거미줄 접근</b> — 락온한 적에게 순식간에 붙는다</dd>
         <dt><kbd>우클릭</kbd></dt><dd>시점 <b>(공격 아님)</b>. 체간이 무너진 적 앞에서만 <b>처형</b>이 나간다</dd>
         <dt><b>체간</b></dt><dd>HP와 별개로 쌓인다. 다 차면 적이 무너지고, 그때 <b>강공격이 처형</b>이 된다<br>(HP 무관 즉사 · 연출 중 무적). 몰아치지 않으면 도로 회복된다</dd>
         <dt><b>체력바</b></dt><dd>다친 적과 락온한 적의 머리 위에 뜬다. 체간이 무너지면 <b>하얗게</b> 바뀐다 — 처형 신호</dd>
-        <dt><b>대상 지정</b> <span class="s">(자동)</span></dt><dd><b>WASD가 가리키는 쪽</b>의 적을 알아서 고른다. 안 누르면 <b>보고 있는 쪽</b><br>16m 안이면 휘두르면서 <b>알아서 붙는다</b> — 조준점을 맞출 필요가 없다<br>조준점이 적 위에 있으면 그 적을 더 우선하고, <b>띄운 적</b>도 우선한다<br>등 뒤는 못 친다 · <kbd>Ctrl</kbd> 락온을 걸면 <b>그 적만</b> 친다</dd>
         <dt><kbd>Shift</kbd> <b>회피 취소</b></dt><dd>판정이 나간 뒤에는 <b>후딜을 구르기로 끊을 수 있다</b><br>구르고 나서도 콤보 체인은 이어진다</dd>
         <dt><b>선입력</b></dt><dd>휘두르는 <b>도중에 눌러도</b> 다음 타가 예약된다 (0.42초)<br>예약이 있으면 회수 동작을 끊고 바로 이어친다</dd>
         <dt class="warn">발이 묶임</dt><dd><b>강공격·차징·밀어내기·띄우기</b>만 제자리다<br>약공격은 <b>움직이면서</b> 칠 수 있다 (속도 62%). 구르기·처형 중에는 이동 불가</dd>
@@ -940,7 +793,6 @@
         <dt><b>공중 콤보</b></dt><dd>띄운 뒤 <kbd>좌클릭</kbd>을 계속 넣으면 <b>같이 떠올라</b> 이어친다<br>
           이어치는 동안 체공이 계속 채워지고, 멈추면 둘 다 내려온다<br>
           뜬 적은 <b>아무것도 못 한다</b> — 착지 후에도 0.9초는 못 일어난다</dd>
-        <dt><b>거미줄 연계</b></dt><dd><kbd>F</kbd> 잡기 · <kbd>R</kbd> 끌어오기도 <b>콤보에 얹힌다</b><br>
           끌어와서 <kbd>좌클릭</kbd>으로 차면 그 적도 공중 상태가 된다</dd>
         <dt><b>콤보 보상</b></dt><dd><b>5 / 10 / 20타</b>에서 단계가 오른다 (화면의 <b>!</b> 개수)<br>
           단계가 오를수록 타격이 무거워지고 <b>궁극기가 빨리 찬다</b> (최대 2.6배)<br>
@@ -951,17 +803,6 @@
       </dl>
     </div>
 
-    <div class="hs">
-      <h3>적</h3>
-      <dl>
-        <dt><b style="color:#18d6a8">격투병</b></dt><dd>청록색 큰 적. 진짜로 휘두르는 유일한 상대다. 패턴 셋:<br>
-          <b style="color:#6ab6ff">파랗게</b> 달아오르면 — <b>가로베기</b>(빠름) · <b>내리침</b>(느리고 아픔) → <kbd>E</kbd>로 쳐낼 수 있다<br>
-          <b style="color:#ff6a6a">붉게</b> 달아오르면 — <b>지연</b>. 판정 직전에 한 박자 쉰다. <b>못 막는다. 굴러야 한다</b></dd>
-        <dt><b style="color:#d41f2b">사수</b> · <b style="color:#9b4dff">저격수</b></dt><dd>붉은 예고선으로 조준한다. 선이 진해지는 동안이 피할 시간이다<br>예고 중 엄폐물 뒤로 숨으면 쏘지 않는다</dd>
-        <dt><b style="color:#ff7a18">돌격병</b></dt><dd>붙어서 후려친다. 쳐내기로 막을 수 있다</dd>
-        <dt><kbd>Shift</kbd> <span class="s">(위협 중)</span></dt><dd><b>회피</b> — 붉은 예고선이 떠 있을 때 대시하면 무적<br>예고 끝나기 직전에 맞추면 <b>완벽 회피</b> (슬로우모 + 궁 게이지)</dd>
-      </dl>
-    </div>
 
   </div>
 </div>
@@ -969,43 +810,14 @@
 
 <div id="hurt"></div>
 <div id="dodgeFx"></div>
-<div id="perfectMsg">완벽 회피<small>SLOW MOTION</small></div>
-<div id="kickCue">좌클릭!</div>
-<div id="deadMsg">재배치 중…</div>
 
 <div id="ui">
-  <div id="uiLeft">
-    <div id="portrait"></div>
-    <div id="hpWrap">
-      <div id="hpBar"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-      <div id="stamBar"><div id="stamFill"></div></div>
-      <div id="hpNum">250 / 250</div>
-    </div>
-  </div>
 
-  <div id="uiUlt">
-    <div id="ultRing"><span id="ultNum">62%</span></div>
-    <div id="ultLbl" class="lbl">궁극기</div>
-  </div>
 
-  <div id="uiRight">
-    <div id="skills">
-      <div class="sk small" id="skMode"><div class="cd"></div><div class="ico">◈</div><div class="key">TAB</div></div>
-      <div class="sk" id="skBind"><div class="cd"></div><div class="ico">🕸</div><div class="key">E</div></div>
-      <div class="sk" id="skLunge"><div class="cd"></div><div class="ico">✊</div><div class="key">C</div></div>
-      <div class="sk" id="skPull"><div class="cd"></div><div class="ico">↢</div><div class="key">R</div></div>
-      <div class="sk" id="skDash"><div class="cd"></div><div class="ico">»</div><div class="key">SHIFT</div></div>
-    </div>
-    <div id="ammo">
-      <div id="ammoNum">80</div>
-      <div id="ammoBar"><i></i></div>
-      <div id="reloadMsg"></div>
-    </div>
-  </div>
 </div>
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.js" } }
 </script>
-<script type="module" src="./game3d.js?v=mtslwcka"></script>
+<script type="module" src="./game3d.js?v=mtyjdbyt"></script>
 </body>
 </html>

@@ -164,6 +164,11 @@ console.log("\n===== 6. 슬링샷 (좌 + 우 + 가운데) =====");
     P.grounded = false;
     T.setClinging(null); T.releaseWeb();
     T.aimYaw(0.6); T.setPitch(-0.1); T.syncWorld();
+    // 슬링샷은 **잡고 있는 줄을 타고** 나간다. 줄이 없으면 아무 일도 없는 게
+    // 정상이므로, 이 검사에서는 먼저 줄을 걸어둔다. (예전에는 줄이 없으면
+    // 집라인을 새로 쐈고, 이 테스트는 그 동작에 기대고 있었다.)
+    const a = T.findSwingAnchor();
+    if (a) T.attachWeb(a, T.autoHand);
   };
   T.setMouseL(false); T.setMouseR(false); T.setMid(false);
   put();

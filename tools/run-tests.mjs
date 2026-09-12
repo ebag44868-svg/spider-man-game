@@ -18,26 +18,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SUITE = [
   "_regress.mjs",     // 벽 관통 · 벽타기 · 착지 · 벽점프 · 웹스윙 · 장시간 구동
   "_input.mjs",       // 1인칭/3인칭 조작 분리 · 시점 모드 · 카메라 방향 고정
-  "_atk.mjs",         // 원거리 조준 정확도 (거리별 + 대조군)
-  "_lock.mjs",        // 락온 · TAB 3모드 순환 · Ctrl 해방
-  "_melee.mjs",       // 근접 격투 전반 (약/강/패링/구르기/체간/처형/접근)
-  "_brawl.mjs",       // 격투병 패턴 · 간격 유지
-  "_real.mjs",        // 실전 상황 재현 (락온 없이 · 공중 · X키 주먹)
-  "_round.mjs",       // 조작 개편 항목 + 에임 + 체력바
-  "_rig.mjs",         // 적 팔다리 리그 · 회피 대시 · 애니메이션 슬롯
-  "_wallenemy.mjs",   // 적이 벽 속으로 안 들어가는지
   "_camcol.mjs",      // 3인칭 카메라가 벽 속으로 안 들어가는지
-  "_director.mjs",    // 한 번에 몇 명이 덤비는가 (공격권 배분)
-  "_combo.mjs",       // 콤보 갈래 (약강 밀어내기 · 약약강 띄우기)
-  "_feel.mjs",       // 근접 조작감 (소프트 락온 · 파고들기 · 회피 취소 · 선입력)
   "_reach.mjs",      // 손이 웹 앵커를 향한다 (Shoot/Catch/Hold)
   "_plant.mjs",      // 벽 짚기 (자동 · 속도를 죽이지 않는다)
   "_vclimb.mjs",     // 웹으로 건물 타기 (쏨 → 끌림 → 짚음 → 다시 쏨)
   "_dual.mjs",       // 양손 웹 (주 웹 손 배정 + 보조 웹 조향)
-  "_save.mjs",       // 저장·이어하기 (스키마 버전 · 깨진 저장본 복구)
-  "_mission.mjs",    // 미션·챌린지 프레임워크 (데이터 기반)
-  "_boss.mjs",       // 보스 (페이즈 · 예고 색 · 쳐내기 창)
-  "_polish.mjs",     // 자동 곡예 · 시네마틱 · 능력 해금
   "_webdbg.mjs",     // 웹 디버그 오버레이 · 앵커 후보 시각화
   "_anchor.mjs",     // 자동 앵커 V2 — 의도 벡터 · 손 편향 · 급선회 벌점
 ];
