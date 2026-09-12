@@ -103,6 +103,83 @@ console.log("\n===== 5. 관성은 지나쳤다 돌아온다 (스프링) =====");
   ok(fell, "지나쳤다가 되돌아온다 (오버슈트)");
 }
 
+console.log("\n===== 5b. 두 다리가 따로 움직인다 =====");
+{
+  // 같은 값을 공유하면 다리가 아니라 판자 두 개다. 중력과 관성은 각 다리에
+  // 따로 걸리고, 두 진자는 유효 길이·감쇠가 조금만 달라도 위상이 안 맞는다.
+  const ine = T.makeBodyInertia();
+  ok(ine.legs && ine.legs.length === 2, "다리마다 자기 상태가 있다");
+  ok(ine.legs[0].k !== ine.legs[1].k, "두 다리의 강성이 다르다",
+     `${ine.legs[0].k} / ${ine.legs[1].k}`);
+
+  const g = T.fpBody;
+  const ctx = { run: 0, air: 1, lean: 0.3, fwdAcc: -40, upVel: 5, ropeBack: 0.8,
+                grounded: false, t: 0 };
+  let maxGap = 0, sameCount = 0, n = 0;
+  for (let i = 0; i < 300; i++) {
+    ctx.fwdAcc = -40 * Math.sin(i * 0.03);       // 줄이 당겼다 놓는 것을 흉내낸다
+    ctx.lean = 0.3 * Math.cos(i * 0.02);
+    T.poseFpBody(g, 0, ctx, ine, DT);
+    const a0 = g.userData.legs[0].rotation.x, a1 = g.userData.legs[1].rotation.x;
+    const gap = Math.abs(a0 - a1);
+    maxGap = Math.max(maxGap, gap);
+    if (gap < 1e-6) sameCount++;
+    n++;
+  }
+  ok(maxGap > 0.08, "두 다리 각도가 실제로 벌어진다 (공중에서도)",
+     `최대 차이 ${(maxGap * 57.3).toFixed(1)}도`);
+  ok(sameCount < n * 0.1, "둘이 똑같이 움직이는 프레임이 거의 없다",
+     `${sameCount} / ${n} 프레임`);
+
+  const z0 = g.userData.legs[0].rotation.z, z1 = g.userData.legs[1].rotation.z;
+  ok(Math.abs(z0 - z1) > 1e-4, "좌우 벌어짐도 다리마다 다르다",
+     `${z0.toFixed(3)} / ${z1.toFixed(3)}`);
+}
+
+console.log("\n===== 5c. 팔이 어깨에서 목표 방향으로 뻗는다 =====");
+{
+  // 손목을 화면 앞쪽에 박아두면 위팔이 늘어나 V자로 꺾인다. 손목이 어깨에서
+  // 목표 방향으로 나가야 어깨-팔꿈치-손목이 한 줄에 놓인다.
+  // 이 파일에는 _reach.mjs 의 P()/settle() 헬퍼가 없다. 여기서 만든다.
+  //
+  // reachWrist 는 카메라 로컬 좌표로 답한다. 그래서 카메라를 먼저 아는 자리에
+  // 세워야 한다 — 앞선 검사가 남긴 위치를 그대로 쓰면 "정면"이 정면이 아니다.
+  // ★ 이 게임의 정면은 viewYaw=0 에서 월드 **+Z** 다 (viewDir = cos(yaw) 가 z).
+  // three.js 카메라 자체의 정면은 -Z 이므로 둘이 반대다. 여기서 한 번 틀렸다 —
+  // 월드 +Z 에 둔 목표가 "등 뒤"가 아니라 정면으로 잡혔다.
+  const V = T.player.pos.constructor;
+  const pt = (x, y, z) => new V(x, y, z);
+  T.setFP(true);
+  T.releaseWeb(); T.setClinging(null);
+  P.pos.set(0, 300, 0); P.prevPos.copy(P.pos); P.renderPos.copy(P.pos);
+  P.vel.set(0, 0, 0); P.grounded = false;
+  T.setView(0, 0);
+  for (let i = 0; i < 4; i++) { T.update(DT); T.updateCamera(DT); }
+  const settle = (n) => { for (let i = 0; i < n; i++) { T.updateReach(DT); } };
+  const sh = new V(0.21, -0.30, 0.02);
+  const out = new V();
+
+  T.setReach("R", pt(0, 301.8, 20));   // 정면 = 월드 +Z settle(40);
+  T.reachWrist(out, sh, "R");
+  ok(out.z < sh.z - 0.5, "정면을 향하면 손목이 앞으로 나간다", `z ${out.z.toFixed(2)}`);
+
+  // 등 뒤 목표 — 손목이 어깨보다 뒤로 가야 한다 (= 화면 밖)
+  //
+  // 좌우도 주의해야 한다. +Z 를 보고 있을 때 플레이어의 **오른쪽은 월드 -X** 다.
+  // 여기서 두 번째로 틀렸다 — x 를 +6 으로 두니 오른손 기준 '몸을 가로지르는'
+  // 방향이 되어 안쪽 한계(YAW_IN 0.5)에 걸렸고, 팔이 뒤로 안 갔다.
+  // 오른손이 바깥으로 뻗는 등 뒤 = (-x, -z).
+  T.setReach("R", pt(-6, 303, -14)); settle(40);
+  T.reachWrist(out, sh, "R");
+  ok(out.z > sh.z + 0.1, "등 뒤를 향하면 손목이 어깨보다 뒤로 간다 (화면 밖)",
+     `z ${out.z.toFixed(2)} > ${sh.z.toFixed(2)}`);
+
+  const d = out.distanceTo(sh);
+  ok(Math.abs(d - T.REACH_LEN) < 1e-6, "어깨~손목 거리가 팔 길이로 일정하다",
+     `${d.toFixed(3)}m = ${T.REACH_LEN}m`);
+  T.clearReach("R"); settle(60);
+}
+
 console.log("\n===== 6. 고개를 숙이면 몸이 시야에 들어온다 =====");
 {
   const g = T.fpBody;

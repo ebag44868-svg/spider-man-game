@@ -220,7 +220,24 @@ console.log("\n===== 5. 상완 — 어깨와 팔꿈치가 이어진다 =====");
   T.armR.scale.setScalar(0.72);
   T.linkUpperArm(up, T.armR, T.SHOULDER_R);
   ok(up.visible, "팔이 보이면 상완도 보인다");
-  ok(up.position.distanceTo(T.SHOULDER_R) < 1e-6, "상완은 어깨에서 시작한다");
+  // 어깨 쪽은 잘라낸다 — 사람은 자기 어깨를 못 보고, 광각에서 그 부분이
+  // 렌즈에 붙어 화면을 덮었다. 그래서 어깨에서 시작하지 않는 게 정상이다.
+  // 다만 어깨~팔꿈치 **선 위에** 있어야 한다.
+  {
+    const V = T.player.pos.constructor;
+    const elbow = new V(0, 0, 0.40 * Math.abs(T.armR.scale.z))
+      .applyQuaternion(T.armR.quaternion).add(T.armR.position);
+    const seg = elbow.clone().sub(T.SHOULDER_R);
+    const segLen = seg.length();
+    const toUp = up.position.clone().sub(T.SHOULDER_R);
+    const along = toUp.dot(seg) / (segLen * segLen);       // 0=어깨 1=팔꿈치
+    const off = toUp.clone().addScaledVector(seg, -along).length();
+    ok(off < 1e-5, "상완이 어깨~팔꿈치 선 위에 있다", `벗어남 ${off.toFixed(6)}`);
+    ok(along > 0.2 && along < 0.7, "어깨 쪽 구간은 그리지 않는다",
+       `시작 ${(along * 100).toFixed(0)}%`);
+    ok(Math.abs(up.scale.z - segLen * (1 - along)) < 1e-5,
+       "길이가 남은 구간과 맞는다", `${up.scale.z.toFixed(3)}`);
+  }
   const len1 = up.scale.z;
   ok(len1 > 0.1 && len1 < 2, "길이가 그럴듯하다", `${len1.toFixed(3)}m`);
 

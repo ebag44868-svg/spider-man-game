@@ -35,6 +35,7 @@ import {
 } from "./src/webdbg.js";
 import {
   initReach, setReach, clearReach, updateReach, getReach, applyReach, soft,
+  reachDir, reachWrist, REACH_LEN,
   SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX, YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN,
 } from "./src/reach.js";
 import {
@@ -1988,10 +1989,34 @@ function ensureUpperArms() {
   fpIne = makeBodyInertia();
   camera.add(fpBody);
 }
-const SHOULDER_R = new THREE.Vector3(0.40, -0.74, -0.14);
-const SHOULDER_L = new THREE.Vector3(-0.40, -0.74, -0.14);
+// 어깨 자리. 눈보다 아래·뒤이고, 생각보다 몸에 가깝다.
+// 예전 값(바깥 0.40 · 아래 0.74)은 어깨가 아니라 허리 높이였다. 그 자리에서
+// 팔을 뻗으면 어깨가 몸 밖에 떠 있는 것처럼 보이고, 위팔이 비정상적으로 길어진다.
+const SHOULDER_R = new THREE.Vector3(0.21, -0.30, 0.02);
+const SHOULDER_L = new THREE.Vector3(-0.21, -0.30, 0.02);
 // 매 프레임 계산한 어깨 자리. 손이 향하는 쪽으로 어깨도 조금 따라간다.
 const _shR = new THREE.Vector3(), _shL = new THREE.Vector3();
+// 뻗은 정도만큼 손목을 해부학적 자리로 옮기고, 팔뚝을 그 방향으로 맞춘다.
+//
+// 위치만 옮기면 부족했다. 팔뚝 회전은 '기본 자세 + reach 델타'라서 목표 방향과
+// 정확히 나란하지 않고, 그러면 팔꿈치가 어깨~손목 선에서 벗어나 위팔이 늘어난다.
+// 실측으로 위팔이 0.55m까지 늘어났다(정상 0.30). 그 늘어난 삼각형이 곧 V자 꺾임이다.
+//
+// 팔뚝을 목표 방향으로 직접 향하게 하면 어깨-팔꿈치-손목이 한 줄에 놓이고,
+// 위팔 길이가 각도와 무관하게 일정해진다.
+const _wr = new THREE.Vector3(), _rd = new THREE.Vector3();
+const _aimQ = new THREE.Quaternion();
+const _ARM_FWD = new THREE.Vector3(0, 0, -1);
+function armReachPos(arm, shoulder, side) {
+  const r = getReach(side);
+  if (!r || r.on < 0.001) return;
+  reachDir(_rd, side);
+  _wr.copy(_rd).multiplyScalar(REACH_LEN).add(shoulder);
+  arm.position.lerp(_wr, r.on);
+  _aimQ.setFromUnitVectors(_ARM_FWD, _rd);
+  arm.quaternion.slerp(_aimQ, r.on);
+}
+
 function shoulderFor(out, base, r, side) {
   out.copy(base);
   if (!r || r.on < 0.001) return out;
@@ -4068,6 +4093,16 @@ function updateHands(dt, sp) {
   ensureUpperArms();
   shoulderFor(_shR, SHOULDER_R, getReach("R"), 1);
   shoulderFor(_shL, SHOULDER_L, getReach("L"), -1);
+
+  // 손목을 어깨에서 목표 방향으로 내보낸다.
+  //
+  // 위의 분기들은 손목을 화면 앞쪽 '보기 좋은 자리'에 박아둔다. 그건 아무것도
+  // 잡지 않았을 때는 맞지만, 뭔가를 향해 뻗는 동안에는 틀리다 — 어깨와
+  // 손목이 따로 놀아서 위팔이 늘어나고 팔꿈치가 V자로 꺾인다.
+  // 그래서 뻗은 정도(r.on)만큼 해부학적으로 맞는 자리로 섞는다.
+  armReachPos(armR, _shR, "R");
+  armReachPos(armL, _shL, "L");
+
   linkUpperArm(upperR, armR, _shR);
   linkUpperArm(upperL, armL, _shL);
 }

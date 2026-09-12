@@ -129,6 +129,37 @@ function updateReach(dt) {
 
 function getReach(side) { return sides[side]; }
 
+// 어깨에서 손목까지의 길이. 위팔 + 아래팔.
+const REACH_LEN = 0.70;
+
+// 이 손이 향하는 방향 (카메라 로컬). 카메라 정면은 -Z 다.
+//   yaw = 0    -> (0, 0, -1)  정면
+//   yaw = +pi/2 -> (1, 0, 0)   오른쪽
+//   yaw = +pi   -> (0, 0, +1)  등 뒤
+function reachDir(out, side) {
+  const s = sides[side];
+  if (!s) return out.set(0, 0, -1);
+  const cp = Math.cos(s.pitch);
+  return out.set(Math.sin(s.yaw) * cp, Math.sin(s.pitch), -Math.cos(s.yaw) * cp);
+}
+
+// 손목이 있어야 할 자리. 어깨에서 목표 방향으로 팔 길이만큼.
+//
+// ★ 팔이 꺾여 보인 두 번째 원인이 여기 있었다.
+//
+// 팔뚝의 방향(회전)만 목표로 돌리고, 손목 위치는 화면 앞쪽 어딘가에 손으로
+// 박아두고 있었다. 그러면 위팔은 "고정된 어깨에서 팔꿈치까지 늘어나는 원통"이
+// 되고, 팔뚝이 등 뒤로 넘어갈 때 어깨는 여전히 앞에 남아 있으니 둘이 V자로
+// 꺾인다. 팔뚝 한계를 160도로 열어도 이 V 는 그대로 남는다.
+//
+// 손목을 어깨에서 '그 방향으로' 내보내면 어깨-팔꿈치-손목이 한 줄에 놓인다.
+// 사람이 줄을 잡을 때처럼 팔이 적당히 펴진 상태가 되고, 뒤를 향할 때는
+// 팔 전체가 화면 밖으로 자연스럽게 빠진다.
+function reachWrist(out, shoulder, side, len) {
+  reachDir(out, side);
+  return out.multiplyScalar(len === undefined ? REACH_LEN : len).add(shoulder);
+}
+
 // 팔 하나에 결과를 얹는다. 기본 자세는 부르는 쪽이 이미 세팅해 둔 상태고,
 // 여기서는 그 위에 "목표 쪽으로 돌리는 양"만 더한다. 그래서 기존 연출
 // (바람에 밀림 · 장력 떨림 · 재장전)이 전부 살아 있는 채로 방향만 붙는다.
@@ -169,4 +200,5 @@ function applyReach(arm, side, strength) {
 }
 
 export { initReach, setReach, clearReach, updateReach, getReach, applyReach, soft,
+         reachDir, reachWrist, REACH_LEN,
          SHOOT_T, CATCH_T, REL_T, YAW_MAX, PITCH_MAX, YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN };

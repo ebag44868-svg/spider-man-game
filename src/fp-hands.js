@@ -54,7 +54,7 @@ function makeFinger(len, thick) {
 // 반 칸 밀어둔다. 그러면 group.scale.z 가 곧 길이(m)가 된다.
 function makeUpperArm() {
   const g = new THREE.Group();
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.095, 1, 10), sleeveMat);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.074, 0.086, 1, 12), sleeveMat);
   m.rotation.x = -Math.PI / 2;
   m.position.z = -0.5;
   g.add(m);
@@ -65,17 +65,29 @@ function makeUpperArm() {
 // elbowZ = 팔 로컬에서 팔꿈치가 있는 자리(전완 뒤끝). 팔이 뒤집힌 왼손도 z는 그대로다.
 const _elbow = new THREE.Vector3(), _dir = new THREE.Vector3();
 const _FWD = new THREE.Vector3(0, 0, -1);
+// 어깨 쪽에서 얼마나 잘라낼지. 0.45 면 어깨에서 45% 지점부터 그린다.
+//
+// 사람은 자기 어깨를 못 본다 — 시야 원뿔 밖이다. 그런데 우리는 어깨(눈에서
+// 37cm)에서 시작하는 원통을 그대로 그렸고, 광각(95도)에서 그 부분이 렌즈에
+// 붙어 화면을 빨간 원뿔로 덮었다. 실제로 그렇게 보였다.
+// 어깨 쪽 구간을 빼면 팔이 화면 가장자리에서 들어오는 그림이 된다.
+const UPPER_TRIM = 0.45;
+
 function linkUpperArm(up, arm, shoulder, elbowZ) {
   up.visible = arm.visible;
   if (!arm.visible) return;
+  // 팔꿈치. 팔뚝(arm)의 +Z 방향으로 그만큼 뒤. 회전은 쿼터니언을 쓴다 —
+  // 조준 정렬에서 quaternion.slerp 로 덮어쓰므로 Euler 를 읽으면 어긋난다.
   _elbow.set(0, 0, (elbowZ === undefined ? 0.40 : elbowZ) * Math.abs(arm.scale.z))
-        .applyEuler(arm.rotation).add(arm.position);
-  up.position.copy(shoulder);
+        .applyQuaternion(arm.quaternion).add(arm.position);
   _dir.copy(_elbow).sub(shoulder);
   const len = _dir.length();
   if (len < 1e-4) { up.visible = false; return; }
-  up.quaternion.setFromUnitVectors(_FWD, _dir.divideScalar(len));
-  up.scale.set(1, 1, len);
+  _dir.divideScalar(len);
+  // 어깨 쪽을 잘라내고 그 지점부터 팔꿈치까지만 그린다
+  up.position.copy(shoulder).addScaledVector(_dir, len * UPPER_TRIM);
+  up.quaternion.setFromUnitVectors(_FWD, _dir);
+  up.scale.set(1, 1, len * (1 - UPPER_TRIM));
 }
 
 // 손은 -Z 방향을 향하고, 손바닥이 하늘(+Y)을 본다.
@@ -261,7 +273,20 @@ function makeFpBody() {
 // 감쇠가 약하면 오버슈트하고, 그 오버슈트가 정확히 "쏠림"이다.
 // 애니메이션 클립을 만들지 않고 이 느낌을 얻는 가장 싼 방법이다.
 function makeBodyInertia() {
-  return { swing: 0, swingV: 0, side: 0, sideV: 0, fold: 0 };
+  return {
+    // 몸통(허리·골반)의 쏠림
+    swing: 0, swingV: 0, side: 0, sideV: 0,
+    // ★ 다리는 **각각** 자기 스프링을 갖는다.
+    //
+    // 예전에는 두 다리가 같은 값을 써서 늘 똑같이 움직였다. 그건 다리가 아니라
+    // 판자 두 개다. 실제로는 중력과 관성이 각 다리에 따로 걸리고, 두 진자는
+    // 유효 길이와 감쇠가 조금만 달라도 영원히 위상이 안 맞는다.
+    // 그래서 강성·감쇠를 일부러 다르게 주고, 초기값도 살짝 어긋나게 둔다.
+    legs: [
+      { sw: 0, v: 0, sd: 0, sdv: 0, k: 9.6, d: 3.10 },   // 오른다리
+      { sw: 0.08, v: 0, sd: 0, sdv: 0, k: 8.2, d: 3.65 },  // 왼다리 — 조금 무겁고 더 감쇠
+    ],
+  };
 }
 
 // 스프링 한 스텝. k=강성, d=감쇠(1보다 작으면 오버슈트한다)
@@ -308,6 +333,23 @@ function poseFpBody(g, pitch, ctx, ine, dt) {
   [ine.swing, ine.swingV] = spring(ine.swing, ine.swingV, swingTarget, 9, 3.4, dtc);
   [ine.side, ine.sideV] = spring(ine.side, ine.sideV, (ctx.lean || 0) * 0.5, 11, 4.0, dtc);
 
+  // 다리는 각자 따로 적분한다.
+  //
+  // 두 다리에 같은 목표를 주되, 강성·감쇠가 달라서 반응 속도와 오버슈트가
+  // 갈린다. 거기에 좌우 기울기를 반대 부호로 얹는다 — 도는 쪽 바깥 다리가
+  // 더 크게 흔들리는 게 실제 모습이다.
+  // 공중에서는 중력이 다리를 아래로 당기므로 목표를 살짝 내린다(-0.12).
+  const grav = ctx.grounded ? 0 : -0.12;
+  for (let i = 0; i < ine.legs.length; i++) {
+    const s = i === 0 ? 1 : -1;
+    const L = ine.legs[i];
+    const tgt = swingTarget + grav + (ctx.lean || 0) * s * 0.22;
+    const r1 = spring(L.sw, L.v, tgt, L.k, L.d, dtc);
+    L.sw = r1[0]; L.v = r1[1];
+    const r2 = spring(L.sd, L.sdv, (ctx.lean || 0) * s * 0.35, L.k * 1.15, L.d * 1.1, dtc);
+    L.sd = r2[0]; L.sdv = r2[1];
+  }
+
   // 몸통도 같이 접힌다. 다리만 움직이면 하반신만 따로 노는 것처럼 보인다.
   const fold = Math.max(0, ine.swing);
   g.userData.waist.rotation.x = fold * 0.30;
@@ -320,13 +362,14 @@ function poseFpBody(g, pitch, ctx, ine, dt) {
     const s = i === 0 ? 1 : -1;            // +1 오른다리 / -1 왼다리
     const hip = legs[i], knee = hip.userData.knee, ankle = hip.userData.ankle;
 
-    // 지상: 좌우 번갈아 걷는다. 공중: 둘이 같이 움직인다.
+    // 지상: 좌우 번갈아 걷는다. 공중: 각자 자기 관성으로 흔들린다.
     const gait = Math.sin(step + (i ? Math.PI : 0)) * run * 0.55;
+    const L = ine.legs[i];
 
     // 골반 굽힘 = 걷기 + 공중 기본자세 + 관성 쏠림
     // 상한을 둔다. 안 두면 최고점에서 발이 가슴까지 올라와 화면을 덮는다.
-    hip.rotation.x = Math.min(1.25, gait + air * 0.55 + ine.swing * 0.85);
-    hip.rotation.z = s * (0.05 + air * 0.09) - ine.side * 0.12;
+    hip.rotation.x = Math.min(1.25, gait + air * 0.55 + L.sw * 0.85);
+    hip.rotation.z = s * (0.05 + air * 0.09) + L.sd * 0.30;
 
     // ── 무릎 방향 ──
     //
@@ -337,7 +380,7 @@ function poseFpBody(g, pitch, ctx, ine, dt) {
     // 굽힘량(bend)은 항상 0 이상으로 계산하고, 부호는 여기서 한 번만 뒤집는다.
     const bend = Math.max(0, -gait * 0.8)              // 뒤로 간 다리를 접는다
                + air * 0.85                            // 공중에서는 접고 있다
-               + Math.max(0, ine.swing) * 0.55;        // 앞으로 쏠리면 더 접힌다
+               + Math.max(0, L.sw) * 0.55;             // 앞으로 쏠리면 더 접힌다
     knee.rotation.x = -Math.min(1.55, bend);
 
     // 발목. 무릎이 접힌 만큼 발끝을 펴준다(포인). 없으면 발이 정강이에

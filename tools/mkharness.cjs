@@ -61,7 +61,7 @@ s+=`
 const _mmHandler = globalThis.__handlers["mousemove"];
 const _plHandler = globalThis.__handlers["pointerlockchange"];
 export const T = {
-  SETTINGS, setOpt,
+  SETTINGS, setOpt, reachWrist, reachDir, REACH_LEN,
   // 1인칭 몸 · 관성 · 롤
   makeBodyInertia, poseFpBody, get fpBody(){ return fpBody; },
   get fpIne(){ return fpIne; }, get fpFwdAcc(){ return fpFwdAcc; },
