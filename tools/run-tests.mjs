@@ -19,7 +19,8 @@ const SUITE = [
   "_regress.mjs",     // 벽 관통 · 벽타기 · 착지 · 벽점프 · 웹스윙 · 장시간 구동
   "_input.mjs",       // 1인칭/3인칭 조작 분리 · 시점 모드 · 카메라 방향 고정
   "_camcol.mjs",      // 3인칭 카메라가 벽 속으로 안 들어가는지
-  "_reach.mjs",      // 손이 웹 앵커를 향한다 (Shoot/Catch/Hold)
+  "_reach.mjs",
+  "_body.mjs",       // 1인칭 몸 — 무릎 관절 · 관성 쏠림 · 롤 설정      // 손이 웹 앵커를 향한다 (Shoot/Catch/Hold)
   "_plant.mjs",      // 벽 짚기 (자동 · 속도를 죽이지 않는다)
   "_vclimb.mjs",     // 웹으로 건물 타기 (쏨 → 끌림 → 짚음 → 다시 쏨)
   "_dual.mjs",       // 양손 웹 (주 웹 손 배정 + 보조 웹 조향)

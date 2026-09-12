@@ -13,7 +13,7 @@ import {
 } from "./src/vfx.js";
 import {
   makeFinger, makeHand, poseHand, initHands, makeUpperArm, linkUpperArm,
-  makeFpBody, poseFpBody,
+  makeFpBody, poseFpBody, makeBodyInertia,
 } from "./src/fp-hands.js";
 import {
   vclimbAnchor, vclimbShouldFire,
@@ -1972,7 +1972,12 @@ camera.add(armL);
 // 그 뒤의 난수열이 통째로 밀린다. 실제로 적 유형 분포가 바뀌었다.
 // 그래서 첫 프레임에, 월드 생성이 전부 끝난 뒤에 만든다.
 let upperR = null, upperL = null;
-let fpBody = null;                       // 1인칭 가슴·다리
+let fpBody = null;
+// 몸의 관성 상태. 스프링이라 프레임 간에 유지돼야 한다.
+let fpIne = null;
+// 가속도를 직접 재려고 지난 프레임의 진행 속력을 들고 있는다.
+// 물리 쪽에 훅을 박지 않으려는 것이다 — 여기서 차분만 낸다.
+let fpPrevSp = 0, fpFwdAcc = 0;                       // 1인칭 가슴·다리
 function ensureUpperArms() {
   if (upperR) return;
   upperR = makeUpperArm();
@@ -1980,6 +1985,7 @@ function ensureUpperArms() {
   camera.add(upperR);
   camera.add(upperL);
   fpBody = makeFpBody();
+  fpIne = makeBodyInertia();
   camera.add(fpBody);
 }
 const SHOULDER_R = new THREE.Vector3(0.40, -0.74, -0.14);
@@ -2296,6 +2302,12 @@ let lClickT = -1, rClickT = -1;
 let diving = false;
 let diveFx = 0;      // 급강하 연출 강도 0..1 (서서히 차오르고 서서히 빠진다)
 let camRoll = 0;
+// 1인칭 화면 롤 세기. 0이면 화면은 수평을 지키고 몸만 기운다.
+//
+// 레퍼런스 영상의 가장 큰 특징이 이 롤이다 — 거의 모든 컷에서 수평선이
+// 20~60도 누워 있고 완전히 뒤집힌 컷도 있다. 그런데 그게 정확히 멀미를
+// 만드는 것이기도 하다. 그래서 값 하나로 두지 않고 설정으로 뺀다.
+let fpRoll = 0.45;
 // ---------- 시네마틱 카메라 ----------
 // 문서 01 §22. 컷신을 남발하지 않는다. 조작을 뺏지 않고 **짧게 얹기만** 한다.
 //   Base Follow + Cinematic Offset = Final Camera
@@ -2407,6 +2419,15 @@ const SETTINGS = {
       { v: 1.15, label: "빠르게", desc: "전체 속도 115%" },
     ],
     set(v) { speedBase = v; },
+  },
+  roll: {
+    get: () => fpRoll,
+    opts: [
+      { v: 0,    label: "없음", desc: "1인칭에서 화면이 안 기운다. 멀미가 가장 적다" },
+      { v: 0.45, label: "약",   desc: "살짝 기운다. 기본값" },
+      { v: 1,    label: "강",   desc: "레퍼런스 영상처럼 크게 눕는다. 어지러울 수 있다" },
+    ],
+    set(v) { fpRoll = v; },
   },
   shake: {
     get: () => shakeScale,
@@ -3863,6 +3884,10 @@ function updateWeb2Visual() {
 //
 // sp = player.vel.length(). updateCamera가 이미 구해둔 값을 그대로 받는다.
 function updateHands(dt, sp) {
+  // 진행 방향 가속도. 줄이 당기기 시작하면 음수(감속)가 되고, 최저점을 지나
+  // 튕겨 나갈 때 양수가 된다. 몸의 관성 쏠림이 이 부호를 따라간다.
+  if (dt > 1e-6) fpFwdAcc = (sp - fpPrevSp) / dt;
+  fpPrevSp = sp;
   // ── 이 손이 지금 무엇을 잡고 있는가 ───────────────────────────
   // 게임플레이 코어에 훅을 박지 않는다. 이미 있는 상태를 읽어 목표만 정하고,
   // 발사/포착 판정은 reach.js가 목표가 바뀐 것을 보고 스스로 한다.
@@ -4009,7 +4034,29 @@ function updateHands(dt, sp) {
       const sp2 = Math.min(1, sp / 26);
       const runK = player.grounded ? sp2 : 0;
       const airK = player.grounded ? 0 : Math.min(1, 0.55 + (web ? 0.45 : 0));
-      poseFpBody(fpBody, viewPitch, runK, airK, swayX * 2.2, now * 0.001);
+
+      // 줄이 등 뒤로 얼마나 넘어갔는가. 최저점을 지났다는 신호다.
+      //
+      // 스윙은 앵커를 지나쳐 가는 운동이다. 지나치는 순간 줄은 뒤로 눕고,
+      // 그때 몸통은 뒤에 남고 다리가 앞으로 쏠린다 — 레퍼런스에서 다리가
+      // 하늘로 뻗는 컷이 정확히 그 순간이다.
+      let ropeBack = 0;
+      if (web) {
+        const bx = web.a.x - player.renderPos.x, bz = web.a.z - player.renderPos.z;
+        const bl = Math.hypot(bx, bz);
+        if (bl > 0.5) {
+          // 진행 방향과 앵커 방향의 내적. 앵커가 등 뒤면 음수다.
+          const hl = Math.hypot(player.vel.x, player.vel.z) || 1;
+          const dot = (bx / bl) * (player.vel.x / hl) + (bz / bl) * (player.vel.z / hl);
+          ropeBack = Math.max(0, -dot);
+        }
+      }
+
+      poseFpBody(fpBody, viewPitch, {
+        run: runK, air: airK, lean: swayX * 2.2,
+        fwdAcc: fpFwdAcc, upVel: player.vel.y,
+        ropeBack, grounded: player.grounded, t: now * 0.001,
+      }, fpIne, dt);
     }
   }
 
@@ -4202,7 +4249,9 @@ function updateCamera(dt) {
 
   // 속도 구간을 제곱으로 밟아 고속에서 확 벌어지게 한다 (선형이면 밋밋하다)
   const spN = Math.min(sp / MAX_SPEED, 1.25);
-  const targetFov = (firstPerson ? 78 : 70)
+  // 1인칭 시야각. 레퍼런스는 화면 가장자리가 눈에 보이게 휠 만큼 광각이다 —
+  // 건물이 시야를 스치며 지나가는 게 속도감의 큰 몫이다. 78은 좁았다.
+  const targetFov = (firstPerson ? 95 : 70)
     + spN * spN * (firstPerson ? 26 : 40)
     + Math.max(dashKick, 0) * 48
     + Math.max(pumpFx, 0) * 30
@@ -4230,9 +4279,12 @@ function updateCamera(dt) {
   // 반드시 updateHands **뒤**여야 한다. poseFpBody 가 매 프레임
   // fpBody.rotation 을 통째로 다시 쓰기 때문이다 — 앞에서 더하면 사라진다.
   if (firstPerson && fpBody) {
-    // 1.6 배는 몸이 60도까지 누워서 화면 밖으로 밀려났다. 0.85 면 25도쯤 —
-    // 기울어진 게 보이면서 몸이 프레임 안에 남는다.
-    fpBody.rotation.z -= camRoll * 0.85;            // 스윙 뱅킹을 몸으로
+    // 화면을 기울이는 양과 몸을 기울이는 양을 나눈다 (설정 SETTINGS.roll).
+    //   0  화면은 수평을 지키고 몸만 기운다 — 멀미가 가장 적다
+    //   1  레퍼런스처럼 화면이 같이 눕는다
+    // 화면이 누울수록 몸 기울기는 줄인다. 둘을 다 세게 주면 이중으로 기운다.
+    if (Math.abs(camRoll) > 0.0005 && fpRoll > 0.001) camera.rotateZ(camRoll * fpRoll);
+    fpBody.rotation.z -= camRoll * 0.85 * (1 - fpRoll * 0.5);
     if (tumbleT > 0) {                              // 덤블링도 몸으로
       const spin = Math.PI * 2 * (1 - tumbleT / tumbleDur);
       fpBody.rotation.x -= spin;
@@ -4868,7 +4920,9 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, player, frameBody, updateWebVisual, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
+window.__dbg = { scene, camera, renderer, player, frameBody, updateWebVisual,
+  get fpIne(){ return fpIne; }, get fpFwdAcc(){ return fpFwdAcc; }, get fpRoll(){ return fpRoll; }, makeBodyInertia,
+  YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
   get web(){ return web; }, get web2(){ return web2; }, get zip(){ return zip; }, attachWeb, releaseWeb, releaseWeb2, tryAttach, resolveAnchor, sideOf, otherSide, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, get web2Count(){ return web2Count; }, WEB2_PULL, WEB2_FADE, armR, armL, webStrand, // 자동 앵커
   findSwingAnchor, findSwingAnchorV2, findSwingAnchorLegacy, scoreAnchor, scoreAnchorV2, intentDir, fanYaw, A_TUNE, FAN_PITCH, get autoV2(){ return autoV2; }, setAutoV2(v){ autoV2 = !!v; }, get autoHand(){ return autoHand; }, get scoreWhy(){ return scoreWhy; }, // 디버그 오버레이
   toggleWebDbg, updateWebDbg, dbgOn, setDbg, dbgCands, dbgPicked, dbgPickIdx, dbgAccepted, dbgLines, MAX_CAND, get dbgMarks(){ return dbgMarks; }, // 벽 짚기 · 건물 타기

@@ -61,6 +61,13 @@ s+=`
 const _mmHandler = globalThis.__handlers["mousemove"];
 const _plHandler = globalThis.__handlers["pointerlockchange"];
 export const T = {
+  SETTINGS, setOpt,
+  // 1인칭 몸 · 관성 · 롤
+  makeBodyInertia, poseFpBody, get fpBody(){ return fpBody; },
+  get fpIne(){ return fpIne; }, get fpFwdAcc(){ return fpFwdAcc; },
+  get fpRoll(){ return fpRoll; }, setFpRoll(v){ fpRoll = v; },
+  camRight(){ const v = new THREE.Vector3(1,0,0); v.applyQuaternion(camera.quaternion); return v; },
+  YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN,
   setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, get aimCenter(){ return aimCenter; }, setAim,
   player,
   camera,

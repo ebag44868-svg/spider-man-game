@@ -40,8 +40,10 @@ console.log("===== 1. 방향 — 앵커 쪽을 본다 =====");
   T.setReach("R", P(-10, 0, -10));
   settle(30);
   // 오른손이 왼쪽(몸 안쪽)을 향하는 건 사람 어깨가 잘 못 하는 동작이다.
-  // 바깥쪽(0.65)보다 훨씬 눌려 나오는 게 정상이다 — 안 누르면 가슴을 뚫는다.
-  ok(T.getReach("R").yaw < -0.3 && T.getReach("R").yaw > -0.45, "왼쪽 앵커면 yaw가 왼쪽(-)이고 크게 눌린다", `yaw ${T.getReach("R").yaw.toFixed(3)}`);
+  // 가슴이 막으므로 안쪽 한계(YAW_IN)에 바짝 붙어 나오는 게 정상이다.
+  // 바깥쪽은 귀 뒤까지 열려 있으니(YAW_OUT) 둘의 비대칭이 핵심이다.
+  ok(T.getReach("R").yaw < -0.3 && T.getReach("R").yaw > -T.YAW_IN - 0.02,
+     "왼쪽 앵커면 yaw가 왼쪽(-)이고 안쪽 한계에 눌린다", `yaw ${T.getReach("R").yaw.toFixed(3)}`);
 
   reset();
   T.setReach("R", P(0, 10, -10));     // 머리 위쪽 — 스윙 중 대부분이 이 상황이다
@@ -83,8 +85,21 @@ console.log("===== 1. 방향 — 앵커 쪽을 본다 =====");
   // 소프트 클램프: 각도가 커질수록 완만하게 멈춘다. 뚝 잘리면 팔이 꺾여 보인다.
   ok(Math.abs(T.soft(0.2, T.YAW_MAX) - 0.2) < 0.02, "작은 각도는 거의 그대로 지나간다",
      `${T.soft(0.2, T.YAW_MAX).toFixed(3)}`);
-  ok(T.soft(3.0, T.YAW_MAX) < T.YAW_MAX && T.soft(3.0, T.YAW_MAX) > T.YAW_MAX * 0.9,
-     "큰 각도는 한계에 붙되 넘지 않는다", `${T.soft(3.0, T.YAW_MAX).toFixed(3)}`);
+  ok(T.soft(9.0, T.YAW_MAX) < T.YAW_MAX && T.soft(9.0, T.YAW_MAX) > T.YAW_MAX * 0.9,
+     "큰 각도는 한계에 붙되 넘지 않는다", `${T.soft(9.0, T.YAW_MAX).toFixed(3)}`);
+
+  // ★ 등 뒤 앵커. 스윙은 앵커를 지나쳐 가는 운동이라 이게 기본 상황이다.
+  // 예전에는 바깥 한계가 57도여서 140도 뒤의 앵커가 55도로 눌렸다 —
+  // 줄은 뒤로 가는데 팔은 옆을 보는 그림이 되고, 그게 "팔이 꺾인다"였다.
+  // 이제는 귀 뒤까지 넘어가야 한다. 화면 밖으로 나가는 게 정답이다.
+  reset();
+  T.setReach("R", P(6, 2, 14));            // 오른쪽 등 뒤 (카메라는 -Z 를 본다)
+  settle(30);
+  const back = T.getReach("R");
+  ok(back.yaw > 1.6, "등 뒤 앵커면 팔이 귀 뒤로 넘어간다 (90도 초과)",
+     `yaw ${(back.yaw * 57.3).toFixed(0)}도`);
+  ok(back.yaw < T.YAW_OUT, "그래도 어깨 한계는 넘지 않는다",
+     `${(back.yaw * 57.3).toFixed(0)}도 < ${(T.YAW_OUT * 57.3).toFixed(0)}도`);
   ok(T.soft(1.0, T.YAW_MAX) > T.soft(0.8, T.YAW_MAX),
      "한계 근처에서도 단조증가한다 (평평해지면 방향을 못 읽는다)");
 }

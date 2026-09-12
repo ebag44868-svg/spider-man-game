@@ -161,74 +161,188 @@ function mirrorInPlace(root) {
 //
 // 카메라의 자식으로 달되 고개 각도(pitch)는 되돌린다 — 위를 봐도 다리는 아래에
 // 있어야 한다. 그 되돌리기는 부르는 쪽이 poseFpBody 로 한다.
+// 1인칭 몸 — 가슴 · 허리 · 골반 · 두 다리(무릎 관절)
+//
+// 1인칭은 "날아가는 사람의 시야"다. 평소 화면을 채우는 건 팔이지만,
+// 고개를 숙이면 내 몸이 보여야 하고, 스윙 최저점을 지날 때는 관성 때문에
+// 몸과 다리가 앞으로 쏠리는 게 보여야 한다. 그게 보이면 "카메라가 날아간다"가
+// 아니라 "내가 날아간다"가 된다.
+//
+// 위치 잡기를 세 번 틀렸다. 실제 사람 비율(눈~가슴 35cm)로 놨더니 아래를 볼 때
+// 화면이 덩어리로 덮였고, 내리고 뒤로 밀었더니 z 부호를 반대로 넣어 몸이 머리
+// 뒤에 달렸다. 지금은 살짝 앞(-Z)·아래에 두고, 굵기를 줄여 시야를 막지 않는다.
+//
+// 마디를 계층으로 쌓는다. 골반을 돌리면 다리가 같이 가고, 무릎은 그 아래에서
+// 접힌다 — 관성 쏠림을 골반 하나로 만들 수 있는 이유다.
+//   root(카메라 자식) → chest → waist → pelvis → hip(L/R) → knee → ankle
 function makeFpBody() {
   const g = new THREE.Group();
 
-  // 위치 잡기가 두 번 틀렸다. 처음엔 실제 사람 비율(눈~가슴 35cm)로 놨더니
-  // 아래를 볼 때 빨간 덩어리가 화면을 덮었다. 그래서 내리고 뒤로 밀었는데
-  // 이번엔 z 를 +로 보내버렸다 — Three.js 는 -Z 가 앞이라 몸이 **머리 뒤**에
-  // 달렸고, 그래서 아래를 아무리 봐도 안 보였다.
+  // ── 회전 중심은 목이다 ──
   //
-  // 지금은 살짝 앞(-Z)에 둔다. 정면을 볼 때는 화면 아래 끝에 걸치고,
-  // 고개를 숙이면 가슴 -> 배 -> 다리 순으로 들어온다.
-  const chest = new THREE.Mesh(new THREE.CapsuleGeometry(0.165, 0.24, 4, 10), sleeveMat);
-  chest.position.set(0, -0.54, -0.22);
-  chest.rotation.x = Math.PI / 2;
+  // 몸을 카메라 원점(=눈)에서 회전시키면, 고개를 숙일 때 가슴이 시야 **중앙**으로
+  // 올라와 화면을 덮는다. 실제로 그렇게 보였다. 사람 머리는 눈이 아니라 목에서
+  // 꺾인다 — 목은 눈보다 아래이고 살짝 뒤다. 그 자리를 회전 중심으로 삼으면
+  // 고개를 숙일 때 몸이 화면 아래쪽에서 들어온다.
+  g.position.set(0, -0.17, 0.09);
+
+  // ── 굵기와 방향 ──
+  //
+  // 캡슐을 rotation.x = PI/2 로 눕혀놨던 게 두 번째 문제였다. 그러면 캡슐이
+  // Z축(=카메라 정면)을 향한 관이 되어, 아래를 볼 때 굵은 원통이 얼굴 쪽으로
+  // 튀어나온다. 몸통은 세로(Y)여야 한다. 대신 앞뒤로 눌러서 납작하게 만든다 —
+  // 사람 가슴은 원기둥이 아니라 좌우로 넓고 앞뒤로 얇다.
+  const chest = new THREE.Mesh(new THREE.CapsuleGeometry(0.105, 0.20, 5, 12), sleeveMat);
+  chest.position.set(0, -0.32, -0.03);
+  chest.scale.set(1.25, 1, 0.68);        // 좌우로 넓고 앞뒤로 얇게
   g.add(chest);
+  g.userData.chest = chest;
 
-  const belly = new THREE.Mesh(new THREE.CapsuleGeometry(0.128, 0.20, 4, 10), sleeveMat);
-  belly.position.set(0, -0.84, -0.20);
-  belly.rotation.x = Math.PI / 2;
-  g.add(belly);
+  // 허리 — 가슴보다 얇다. 여기서 몸이 접힌다.
+  const waist = new THREE.Group();
+  waist.position.set(0, -0.56, -0.02);
+  const waistMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.082, 0.14, 4, 10), sleeveMat);
+  waistMesh.scale.set(1.2, 1, 0.7);
+  waist.add(waistMesh);
+  g.add(waist);
+  g.userData.waist = waist;
 
-  // 다리 — 허벅지와 종아리 두 마디. 무릎에서 접힌다.
+  // 골반 — 다리의 뿌리. 이건 좌우로 넓은 게 맞으니 X축으로 눕힌다.
+  const pelvis = new THREE.Group();
+  pelvis.position.set(0, -0.20, 0);
+  const pelvisMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.088, 0.09, 4, 10), sleeveMat);
+  pelvisMesh.rotation.z = Math.PI / 2;
+  pelvisMesh.scale.set(1, 1, 0.8);
+  pelvis.add(pelvisMesh);
+  waist.add(pelvis);
+  g.userData.pelvis = pelvis;
+
+  // ── 다리 — 허벅지 / 종아리 / 발 ──
+  // 발은 몸과 같은 재질(sleeveMat)로 간다. 장갑 재질(gloveMat)을 쓰니까
+  // 거미줄 무늬 판자가 발 대신 떠 있는 것처럼 보였다.
   const legs = [];
-  for (const side of [-1, 1]) {
+  for (const side of [1, -1]) {            // [0]=오른다리(+X), [1]=왼다리
     const hip = new THREE.Group();
-    hip.position.set(side * 0.115, -1.00, -0.16);
-    const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, 0.32, 4, 10), sleeveMat);
-    thigh.position.set(0, -0.22, 0);
+    hip.position.set(side * 0.082, -0.05, 0);
+
+    const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.076, 0.28, 4, 10), sleeveMat);
+    thigh.position.set(0, -0.20, 0);
     hip.add(thigh);
+
     const knee = new THREE.Group();
-    knee.position.set(0, -0.44, 0);
-    const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.070, 0.30, 4, 10), gloveMat);
-    shin.position.set(0, -0.21, 0);
+    knee.position.set(0, -0.40, 0);
+    const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.060, 0.27, 4, 10), sleeveMat);
+    shin.position.set(0, -0.19, 0);
     knee.add(shin);
-    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.06, 0.22), gloveMat);
-    foot.position.set(0, -0.42, -0.05);
-    knee.add(foot);
+
+    const ankle = new THREE.Group();
+    ankle.position.set(0, -0.38, 0);
+    const foot = new THREE.Mesh(new THREE.CapsuleGeometry(0.042, 0.11, 3, 8), sleeveMat);
+    foot.position.set(0, -0.02, -0.06);
+    foot.rotation.x = Math.PI / 2;         // 발만은 앞으로 눕는 게 맞다
+    foot.scale.set(1, 1, 0.65);
+    ankle.add(foot);
+    knee.add(ankle);
+
     hip.add(knee);
     hip.userData.knee = knee;
-    g.add(hip);
+    hip.userData.ankle = ankle;
+    pelvis.add(hip);
     legs.push(hip);
   }
   g.userData.legs = legs;
   return g;
 }
 
+// 관성 쏠림 상태. 스프링-댐퍼 하나로 만든다.
+//
+// 왜 스프링인가: 관성은 "목표를 지나쳤다가 되돌아오는 것"이다. 목표값을 그냥
+// 따라가게 하면(lerp) 절대 지나치지 않아서 관성으로 안 보인다. 스프링은
+// 감쇠가 약하면 오버슈트하고, 그 오버슈트가 정확히 "쏠림"이다.
+// 애니메이션 클립을 만들지 않고 이 느낌을 얻는 가장 싼 방법이다.
+function makeBodyInertia() {
+  return { swing: 0, swingV: 0, side: 0, sideV: 0, fold: 0 };
+}
+
+// 스프링 한 스텝. k=강성, d=감쇠(1보다 작으면 오버슈트한다)
+function spring(cur, vel, target, k, d, dt) {
+  const a = (target - cur) * k - vel * d;
+  const v = vel + a * dt;
+  return [cur + v * dt, v];
+}
+
 // 몸을 자세에 맞춘다.
-//   pitch    카메라 고개 각도 (되돌려서 몸은 서 있게)
-//   run      달리는 정도 0..1 (다리가 번갈아 나온다)
-//   air      공중에 뜬 정도 0..1 (다리를 접는다 — 스윙 자세)
-//   lean     좌우 기울기
-function poseFpBody(g, pitch, run, air, lean, t) {
-  // 고개를 들어도 몸은 서 있는다. 다만 절반만 되돌려서 완전히 뻣뻣하진 않게.
-  // 보정을 온전히(1.0) 준다. 몸은 카메라의 자식이라 보정이 없으면 고개를
-  // 숙여도 몸이 같이 따라 숙여서 영영 화면에 안 들어온다. 1.0 이면 몸이
-  // 세계 기준으로 똑바로 서 있고, 고개를 숙인 만큼 시야에 들어온다.
+//
+//   pitch   카메라 고개 각도 (되돌려서 몸은 세계 기준으로 서 있게)
+//   ctx     { run, air, lean, fwdAcc, upVel, ropeBack, grounded, t }
+//     run       달리는 정도 0..1   — 다리가 번갈아 나온다
+//     air       공중에 뜬 정도 0..1 — 다리를 접는다
+//     lean      좌우 기울기 -1..1
+//     fwdAcc    진행 방향 가속도 (m/s^2). 줄이 당기면 음수(감속) → 다리가 앞으로 쏠린다
+//     upVel     수직 속도 (m/s)      — 솟구치면 다리가 앞·위로 올라간다
+//     ropeBack  줄이 등 뒤로 넘어간 정도 0..1 — 최저점을 지났다는 신호
+//     grounded  발이 땅에 있는가
+//     t         시간 (걷기 위상)
+//   ine     makeBodyInertia() 로 만든 상태 객체 (프레임 간 유지)
+function poseFpBody(g, pitch, ctx, ine, dt) {
+  // 고개를 숙이면 몸이 시야에 들어와야 한다. 몸은 카메라의 자식이라, 카메라가
+  // 숙인 만큼 되돌려야(= -pitch) 몸이 세계 기준으로 똑바로 선다.
   g.rotation.x = -pitch;
-  g.rotation.z = -lean * 0.35;
+  g.rotation.z = -(ctx.lean || 0) * 0.35;
+
   const legs = g.userData.legs;
   if (!legs) return;
-  const step = t * 9;
+  const dtc = Math.min(0.05, dt || 1 / 60);
+
+  // ── 관성 목표 ──
+  // 줄이 당기면 몸통은 뒤에 남고 다리가 앞으로 나간다. 최저점을 지나 줄이
+  // 등 뒤로 넘어가면 그 쏠림이 가장 커진다 — 레퍼런스에서 다리가 하늘을
+  // 향해 뻗는 컷이 그 순간이다.
+  const acc = Math.max(-1, Math.min(1, -(ctx.fwdAcc || 0) / 45));
+  const rise = Math.max(-1, Math.min(1, (ctx.upVel || 0) / 30));
+  let swingTarget = ctx.grounded ? 0
+    : acc * 0.55 + rise * 0.45 + (ctx.ropeBack || 0) * 0.60;
+  swingTarget = Math.max(-0.5, Math.min(1.15, swingTarget));
+
+  // 강성 9 / 감쇠 3.4 — 임계 이하라 살짝 지나쳤다 돌아온다. 그게 관성이다.
+  [ine.swing, ine.swingV] = spring(ine.swing, ine.swingV, swingTarget, 9, 3.4, dtc);
+  [ine.side, ine.sideV] = spring(ine.side, ine.sideV, (ctx.lean || 0) * 0.5, 11, 4.0, dtc);
+
+  // 몸통도 같이 접힌다. 다리만 움직이면 하반신만 따로 노는 것처럼 보인다.
+  const fold = Math.max(0, ine.swing);
+  g.userData.waist.rotation.x = fold * 0.30;
+  g.userData.waist.rotation.z = ine.side * 0.18;
+  g.userData.pelvis.rotation.x = fold * 0.22;
+
+  const step = (ctx.t || 0) * 9;
+  const run = ctx.run || 0, air = ctx.air || 0;
   for (let i = 0; i < legs.length; i++) {
-    const s = i === 0 ? 1 : -1;
-    const hip = legs[i], knee = hip.userData.knee;
-    // 공중에서는 두 다리를 접어 뒤로 당긴다 (스윙 자세). 지상에서는 번갈아 걷는다.
-    const swing = Math.sin(step + (i ? Math.PI : 0)) * run * 0.55;
-    hip.rotation.x = swing + air * 0.75 + pitch * 0.18;
-    hip.rotation.z = s * (0.04 + air * 0.10);
-    knee.rotation.x = Math.max(0, -swing * 0.8) + air * 0.95;
+    const s = i === 0 ? 1 : -1;            // +1 오른다리 / -1 왼다리
+    const hip = legs[i], knee = hip.userData.knee, ankle = hip.userData.ankle;
+
+    // 지상: 좌우 번갈아 걷는다. 공중: 둘이 같이 움직인다.
+    const gait = Math.sin(step + (i ? Math.PI : 0)) * run * 0.55;
+
+    // 골반 굽힘 = 걷기 + 공중 기본자세 + 관성 쏠림
+    // 상한을 둔다. 안 두면 최고점에서 발이 가슴까지 올라와 화면을 덮는다.
+    hip.rotation.x = Math.min(1.25, gait + air * 0.55 + ine.swing * 0.85);
+    hip.rotation.z = s * (0.05 + air * 0.09) - ine.side * 0.12;
+
+    // ── 무릎 방향 ──
+    //
+    // 사람 무릎은 **뒤로만** 접힌다. 앞으로 꺾이면 부러진 것이다.
+    // Three.js 에서 rotation.x 양수는 -Y(아래)를 -Z(앞)로 보낸다. 즉 양수를
+    // 주면 정강이가 앞으로 튀어나가 무릎이 반대로 꺾인다 — 실제로 그렇게
+    // 보였고, 그래서 다리가 곧은 막대처럼 렌더됐다.
+    // 굽힘량(bend)은 항상 0 이상으로 계산하고, 부호는 여기서 한 번만 뒤집는다.
+    const bend = Math.max(0, -gait * 0.8)              // 뒤로 간 다리를 접는다
+               + air * 0.85                            // 공중에서는 접고 있다
+               + Math.max(0, ine.swing) * 0.55;        // 앞으로 쏠리면 더 접힌다
+    knee.rotation.x = -Math.min(1.55, bend);
+
+    // 발목. 무릎이 접힌 만큼 발끝을 펴준다(포인). 없으면 발이 정강이에
+    // 못박힌 판자로 보인다.
+    ankle.rotation.x = Math.min(1.55, bend) * 0.30 + (ctx.grounded ? 0 : 0.20);
   }
 }
 
@@ -253,7 +367,7 @@ function poseHand(h, spider, grip, splay, fire, k) {
 }
 
 export {
-  makeUpperArm, linkUpperArm, mirrorInPlace, makeFpBody, poseFpBody,
+  makeUpperArm, linkUpperArm, mirrorInPlace, makeFpBody, poseFpBody, makeBodyInertia,
   makeFinger,
   makeHand,
   poseHand,
