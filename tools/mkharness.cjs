@@ -250,7 +250,6 @@ export const T = {
   dirHeld,
   E_STANDOFF,
   E_WAIT_RING,
-  updateSwingArc,
   E_WALL_PAD,
   get rollFx(){ return rollFx; },
   ANIM_ONLY_FILES,
@@ -271,7 +270,6 @@ export const T = {
   PARRY_WIN,
   PARRY_REC,
   MELEE_STAND,
-  updateSwingArc,
 
   // STEP 1 reachTarget (1인칭 팔이 앵커를 향한다)
   initReach,

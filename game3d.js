@@ -3738,31 +3738,19 @@ function update(dt) {
   if (heroMixer) {
     heroMixer.update(dt);
     let state = "Idle";
-    // 근접 격투 동작이 가장 우선한다. 해당 클립이 아직 없으면 crossfadeTo가
-    // 조용히 무시하고, 지금처럼 몸통을 절차적으로 돌리는 그림이 그대로 남는다.
-    // 근접 동작은 길이가 제각각이라(약공격 0.23초 vs 클립 1초) 그냥 틀면
-    // 앞부분만 나오고 정작 타격 순간이 화면에 안 보인다. 재생 속도를 동작 길이에
-    // 맞춰 늘리고 줄인다. 4배를 넘기면 잔상만 남으므로 거기서 자른다.
-    let clipFit = 0;
+    // 이동 상태에 맞는 클립을 고른다. 위에서 아래로 우선순위다.
+    //
+    // 근접 동작 분기는 전투와 함께 없어졌다. 그래서 클립 길이를 동작 길이에
+    // 맞춰 늘리던 clipFit 도 필요 없다 — 이제 전부 순환 클립이다.
+    //
+    // 벽: 실제로 오를 때만 등반 모션, 붙어만 있으면 매달린 자세.
     if (landFx > 0) state = "Land";
-    else if (clinging) state = sliding ? "WallRun" : "WallHang";
-    else if (web || zip) state = "Swing";
-    else if (!player.grounded) state = player.vel.y > 1 ? "Jump" : "Fall";
-    else if (hsp > 1) state = sprinting ? "Sprint" : "Run";
-    if (clipFit > 0) {
-      const act = heroActions[state];
-      if (act) {
-        const cd = act.getClip().duration;
-        act.timeScale = cd > 0.01 ? Math.min(4, Math.max(0.5, cd / clipFit)) : 1;
-      }
-    }
-    // 벽: 실제로 오를 때만 등반 모션, 붙어만 있으면 매달린 자세
     else if (clinging) state = climbHeld() ? "WallRun" : "WallHang";
     else if (web || zip) state = "Swing";
     else if (!player.grounded) state = player.vel.y > 0.5 ? "Jump" : "Fall";
     else if (hsp > MOVE_SPEED * 1.6) state = "Sprint";
     else if (hsp > 1.5) state = "Run";
-    crossfadeTo(state, clipFit > 0 ? 0.06 : 0.25);
+    crossfadeTo(state, 0.25);
   }
 }
 
@@ -3807,84 +3795,6 @@ function fillRibbon(rb, s, a, sag, radius) {
 // 양손 거미줄의 목표점. 집라인이면 앵커, 잡기/끌어오기면 대상의 가슴.
 const _dualT = new THREE.Vector3();
 
-function updateSwingArc() {
-  // --- 직선 슬래시 ---
-  if (swingFx <= 0) swingLine.visible = false;
-  else {
-    const k = 1 - swingFx / swingFxDur;              // 0 -> 1
-    const hk = Math.max(0.05, swingFxHit / swingFxDur);
-    const show = k >= hk * 0.55;
-    if (!show) swingLine.visible = false;
-    else {
-      // 판정 직전부터 뻗어나가고, 판정 뒤에는 빠르게 사라진다
-      const g = k < hk ? (k - hk * 0.55) / (hk * 0.45) : 1;
-      const fade = k < hk ? 0.6 + g * 0.4
-                          : Math.max(0, 1 - (k - hk) / Math.max(0.001, (1 - hk) * 0.6));
-      if (fade <= 0) swingLine.visible = false;
-      else {
-        swingLine.visible = true;
-        const len = swingReach * (0.4 + Math.min(1, g) * 0.6);
-        _slA.set(player.renderPos.x, player.renderPos.y + 1.25, player.renderPos.z);
-        _slB.copy(_slA).addScaledVector(swingDir, len);
-        swingLine.position.copy(_slA).addScaledVector(swingDir, len * 0.5);
-        swingLine.lookAt(_slB);
-        swingLine.scale.set(swingHeavy ? 1.7 : 1, swingHeavy ? 1.7 : 1, len);
-        swingLine.material.opacity = fade * (swingHeavy ? 0.9 : 0.62);
-        swingLine.material.color.setHex(swingHeavy ? 0xffb347 : 0xdfe8ff);
-      }
-    }
-  }
-
-  // --- 차징 고리 ---
-  if (!charging || chargeT < 0.04) chargeRing.visible = false;
-  else {
-    const c = Math.min(1, chargeT / CHARGE_FULL);
-    const armed = chargeT >= CHARGE_MIN;             // 이때부터 강공격
-    const full = chargeT >= CHARGE_FULL;
-    chargeRing.visible = true;
-    chargeRing.position.set(player.renderPos.x, player.renderPos.y + 0.15, player.renderPos.z);
-    chargeRing.scale.setScalar(1.6 - c * 0.7);        // 조여든다
-    if (full) {
-      // 끝까지 참 — 하얗게 깜빡인다
-      const b = 0.7 + Math.sin(performance.now() * 0.03) * 0.3;
-      chargeRing.material.color.setRGB(1, b, b * 0.8);
-      chargeRing.material.opacity = 0.85;
-    } else if (armed) {
-      // 강공격 확정 — 주황
-      chargeRing.material.color.setHex(0xffb347);
-      chargeRing.material.opacity = 0.7;
-    } else {
-      // 아직 약공격 구간 — 흐리게. 지금 떼면 약공격이라는 뜻이다.
-      chargeRing.material.color.setHex(0x9aa4b2);
-      chargeRing.material.opacity = 0.3;
-    }
-  }
-
-  // --- 패링 고리 ---
-  // 딱 그 타이밍에만 뜬다. 예전엔 헛친 뒤 굳는 동안(0.32초)에도 흐리게 남아서,
-  // 점프하며 패링하면 그 자리에 잔상이 붙어 있는 것처럼 보였다.
-  // 자리도 renderPos를 따라가야 한다 — 공중에서 몸만 날아가고 고리는 남았다.
-  if (parryT <= 0 && parryFx <= 0) parryRing.visible = false;
-  else {
-    parryRing.visible = true;
-    _slA.set(player.renderPos.x, player.renderPos.y + 1.35, player.renderPos.z);
-    _slB.set(Math.sin(bodyYaw), 0, Math.cos(bodyYaw));
-    parryRing.position.copy(_slA).addScaledVector(_slB, 1.5);
-    parryRing.lookAt(camera.position);
-    if (parryFx > 0) {
-      // 쳐낸 순간: 하얗게 확 퍼졌다 곧바로 사라진다
-      parryRing.scale.setScalar(1 + (1 - parryFx) * 2.2);
-      parryRing.material.opacity = Math.max(0, parryFx) * 0.95;
-      parryRing.material.color.setHex(0xffffff);
-    } else {
-      // 창이 열려 있는 0.2초 동안만: 밝은 파랑. 창이 닫히면 즉시 사라진다.
-      const k = parryT / PARRY_WIN;             // 1 -> 0
-      parryRing.scale.setScalar(0.9 + k * 0.25);
-      parryRing.material.opacity = 0.55 + k * 0.4;
-      parryRing.material.color.setHex(0x9fd8ff);
-    }
-  }
-}
 
 function dualWebTarget() {
   if (zip) return _dualT.copy(zip.a);
@@ -4669,7 +4579,6 @@ function frameBody(now) {
   updateWebVisual();
   // 월드에 그리는 표식들은 조준점 로직과 무관하게 매 프레임 갱신한다.
   // 예전엔 updateCrosshair 안에 있어서 공격 모드의 early return에 걸렸다.
-  updateSwingArc();
   updateCrosshair();
   updateHud(realDt);
   updateWebDbg(realDt);
@@ -4959,7 +4868,7 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, player, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
+window.__dbg = { scene, camera, renderer, player, frameBody, updateWebVisual, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
   get web(){ return web; }, get web2(){ return web2; }, get zip(){ return zip; }, attachWeb, releaseWeb, releaseWeb2, tryAttach, resolveAnchor, sideOf, otherSide, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, get web2Count(){ return web2Count; }, WEB2_PULL, WEB2_FADE, armR, armL, webStrand, // 자동 앵커
   findSwingAnchor, findSwingAnchorV2, findSwingAnchorLegacy, scoreAnchor, scoreAnchorV2, intentDir, fanYaw, A_TUNE, FAN_PITCH, get autoV2(){ return autoV2; }, setAutoV2(v){ autoV2 = !!v; }, get autoHand(){ return autoHand; }, get scoreWhy(){ return scoreWhy; }, // 디버그 오버레이
   toggleWebDbg, updateWebDbg, dbgOn, setDbg, dbgCands, dbgPicked, dbgPickIdx, dbgAccepted, dbgLines, MAX_CAND, get dbgMarks(){ return dbgMarks; }, // 벽 짚기 · 건물 타기
