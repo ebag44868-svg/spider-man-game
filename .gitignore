@@ -9,3 +9,6 @@ game3d.prev.js
 game3d.prev2.js
 game.js
 package-lock.json
+
+# 뉴욕 소품 — 라이선스 확인 전이라 공개 저장소에 올리지 않는다 (tools/assets/README.txt)
+assets/models/nyc/

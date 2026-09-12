@@ -26,6 +26,7 @@ import {
 import {
   init3p, pose3p, bones3p, ready3p,
 } from "./src/rig3p.js";
+import { initNycProps, updateNycProps, nycStats, nycFind } from "./src/nyc-props.js";
 import {
   TUNE as A_TUNE, FAN_PITCH, fanYaw, intentDir, scoreAnchorV2,
 } from "./src/anchor.js";
@@ -700,6 +701,8 @@ scene.add(paintMesh);
 
 // 야간 모드에서 켜고 끄는 핸들들. 생성 블록 스코프 밖에서 잡아둔다.
 let lampHeadMat = null, lampGlowMesh = null;
+// 뉴욕 소품 모듈이 가까운 가로등을 모델로 바꾸려고 쓴다 (위치 + 상자 메시 3장)
+let lampHandle = null;
 let neonMat = null, neonGlowMesh = null, signalMat = null;
 let streetDetailCount = 0;
 
@@ -713,7 +716,7 @@ let streetDetailCount = 0;
     for (let x = bl.x0 + 14; x < bl.x1 - 10; x += GAP) {
       for (const side of [-1, 1]) {
         const z = side < 0 ? bl.z0 - SIDEWALK_W + 1.2 : bl.z1 + SIDEWALK_W - 1.2;
-        poles.push({ x, z, h: POLE_H });
+        poles.push({ x, z, h: POLE_H, side });
         arms.push({ x, z: z + side * ARM_L / 2, y: POLE_H - 0.5, w: 0.22, d: ARM_L, dir: side });
         heads.push({ x, z: z + side * ARM_L, y: POLE_H - 0.75 });
       }
@@ -771,6 +774,7 @@ let streetDetailCount = 0;
   scene.add(lampGlowMesh);
 
   lampCount = poles.length;
+  lampHandle = { data: poles.map(p => ({ x: p.x, z: p.z, y: CURB_H, side: p.side })), meshes: [poleMesh, armMesh, headMesh] };
 }
 
 
@@ -2534,6 +2538,15 @@ setTimeout(() => {
   setOpt("aim", true);
   setOpt("view", true);
   bootStep(70, "모델을 불러오는 중…");
+  // 뉴욕 소품. 도시가 전부 만들어진 뒤에 부른다 — 모델 객체는 GLB 로드가 끝난
+  // 뒤에 생기므로 도시 생성 난수열에 끼어들지 않는다. 파일이 없으면 조용히 넘어간다.
+  initNycProps({
+    scene, GLTFLoader, mergeGeometries,
+    buildings, blocks, SIDEWALK_W, CURB_H, ST_ROAD_W, AVE_ROAD_W,
+    groundAt: groundHeightAt,
+    lamps: lampHandle,
+    carList: cars, carBodyMesh, carTopMesh,
+  }).catch(e => console.warn("[NYC] 소품 로드 실패", e));
   // 첫 프레임이 실제로 그려진 뒤에 닫는다. 먼저 닫으면 검은 화면이 잠깐 보인다.
   requestAnimationFrame(() => requestAnimationFrame(bootDone));
   // 안전장치: 탭이 뒤에 있으면 브라우저가 rAF 를 멈춰서 위 줄이 영영 안 돈다.
@@ -4660,6 +4673,8 @@ function frameBody(now) {
   // 차량은 프레임당 한 번만 갱신한다. 물리 스텝마다 돌리면 2,825대 x 2메시의
   // 인스턴스 버퍼를 초당 수십 번 통째로 GPU에 올려 프레임이 끊긴다.
   updateCars(realDt);
+  // 가까운 차·소품을 모델로. 상자 차 행렬을 덮어쓰므로 반드시 updateCars 뒤다.
+  updateNycProps(realDt, player.renderPos.x, player.renderPos.z);
   updateCamera(Math.min(0.05, (frame.prev ? now - frame.prev : 16) / 1000));
   frame.prev = now;
   skyMesh.position.copy(camera.position);
@@ -4955,7 +4970,7 @@ if (wantTouchUI()) enableTouch();
     onDown, onMove, onUp, findSwingAnchor, tryAttachAuto };
 }
 
-window.__dbg = { scene, camera, renderer, player, frameBody, updateWebVisual,
+window.__dbg = { scene, camera, renderer, player, frameBody, updateWebVisual, nycStats, nycFind,
   get fpIne(){ return fpIne; }, get fpFwdAcc(){ return fpFwdAcc; }, get fpRoll(){ return fpRoll; }, makeBodyInertia,
   YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
   get web(){ return web; }, get web2(){ return web2; }, get zip(){ return zip; }, attachWeb, releaseWeb, releaseWeb2, tryAttach, resolveAnchor, sideOf, otherSide, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, get web2Count(){ return web2Count; }, WEB2_PULL, WEB2_FADE, armR, armL, webStrand, // 자동 앵커
