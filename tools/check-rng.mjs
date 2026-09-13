@@ -15,7 +15,7 @@
 import { T } from "../_harness.mjs";
 
 // 기준값. 리팩터링으로 이 숫자가 바뀌면 난수가 밀린 것이다 — 절대 갱신하지 말 것.
-const BASE = { buildings: 2235, cars: 1388 };
+const BASE = { buildings: 2013, cars: 523 };
 
 const now = { buildings: T.buildings.length, cars: T.cars.length };
 

@@ -21,6 +21,7 @@
 //
 // 4. 이 파일은 게임을 모른다. 필요한 건 전부 init 으로 주입받는다.
 import * as THREE from "../lib/three.module.js";
+import { PROP_SCALE, CAR_SCALE } from "./scale.js";
 
 const BASE = "assets/models/nyc/";
 const REBUILD_T = 0.25;
@@ -33,21 +34,23 @@ const GRID = 110;                    // 공간 격자 한 칸 (m)
 const TYPES = {
   // 실측: 반경 1.4km 에선 물탱크(1,736 삼각형)가 거의 전부 그려져 45만 삼각형이었다.
   // 800m 면 여러 블록 너머 지붕선까지는 보이고 비용은 절반 아래로 준다.
-  water_tower:  { r: 800,  shadow: true,  yaw: 0 },
-  ac_unit:      { r: 260,  shadow: false, yaw: 0 },
-  hydrant:      { r: 200,  shadow: false, yaw: 0 },
-  trash_bin:    { r: 200,  shadow: false, yaw: 0 },
-  mailbox:      { r: 200,  shadow: false, yaw: 0 },
-  newspapers:   { r: 140,  shadow: false, yaw: 0 },
-  bench:        { r: 200,  shadow: false, yaw: 0 },
-  bus_stop:     { r: 260,  shadow: false, yaw: 0 },
-  dumpster:     { r: 220,  shadow: false, yaw: 0 },
-  trash_bag_a:  { r: 160,  shadow: false, yaw: 0 },
-  trash_bag_b:  { r: 160,  shadow: false, yaw: 0 },
-  manhole:      { r: 140,  shadow: false, yaw: 0 },
-  street_light: { r: 240,  shadow: false, yaw: 0 },
+  // 5배로 키우면서 반경도 늘렸다 — 큰 물건이 코앞에서 갑자기 생기면 티가 난다.
+  // 대신 배치 간격도 넓혀서 그려지는 개수는 비슷하게 유지한다.
+  water_tower:  { r: 1000, shadow: true,  yaw: 0 },
+  ac_unit:      { r: 450,  shadow: false, yaw: 0 },
+  hydrant:      { r: 380,  shadow: false, yaw: 0 },
+  trash_bin:    { r: 380,  shadow: false, yaw: 0 },
+  mailbox:      { r: 380,  shadow: false, yaw: 0 },
+  newspapers:   { r: 260,  shadow: false, yaw: 0 },
+  bench:        { r: 380,  shadow: false, yaw: 0 },
+  bus_stop:     { r: 480,  shadow: false, yaw: 0 },
+  dumpster:     { r: 420,  shadow: false, yaw: 0 },
+  trash_bag_a:  { r: 300,  shadow: false, yaw: 0 },
+  trash_bag_b:  { r: 300,  shadow: false, yaw: 0 },
+  manhole:      { r: 260,  shadow: false, yaw: 0 },
+  street_light: { r: 420,  shadow: false, yaw: 0 },
 };
-const CAR_R = 190;                   // 이 안의 차만 모델로 바뀐다
+const CAR_R = 520;                   // 이 안의 차만 모델로 바뀐다
 const CAR_YAW = 0;                   // 차 모델 정면 보정
 
 // ─────────────────────────── 시드 난수 ───────────────────────────
@@ -165,16 +168,17 @@ function planRooftops(rand) {
   const grid = buildRoofGrid(B);
   let towers = 0, acs = 0;
   B.forEach((b, i) => {
-    if (b.w < 7 || b.d < 7 || b.h < 10) return;
+    if (b.w < 12 || b.d < 12 || b.h < 10) return;
     const top = b.y0 + b.h;
     const placed = [];
     // 물탱크: 뉴욕에서는 20층 안팎의 오래된 건물 옥상에 있다. 초고층 유리 타워엔 없다.
-    if (b.h > 20 && b.h < 115 && b.w >= 12 && b.d >= 12 && rand() < 0.2) {
+    // 5배 물탱크는 폭 16m · 높이 35m 다. 돌려 놓아도 지붕 밖으로 안 나가게 26m 이상 지붕에만.
+    if (b.h > 20 && b.h < 115 && b.w >= 26 && b.d >= 26 && rand() < 0.2) {
       for (let t = 0; t < 8; t++) {
-        const x = b.x + (rand() - 0.5) * (b.w - 8), z = b.z + (rand() - 0.5) * (b.d - 8);
-        if (coveredAt(grid, B, i, x, z, top, 3)) continue;
+        const x = b.x + (rand() - 0.5) * (b.w - 22), z = b.z + (rand() - 0.5) * (b.d - 22);
+        if (coveredAt(grid, B, i, x, z, top, 10)) continue;
         addItem("water_tower", x, top, z, rand() * Math.PI * 2, 0.85 + rand() * 0.35);
-        placed.push([x, z, 4]); towers++;
+        placed.push([x, z, 14]); towers++;
         break;
       }
     }
@@ -183,11 +187,11 @@ function planRooftops(rand) {
       const n = 1 + (rand() * 4 | 0);
       for (let a = 0; a < n; a++) {
         for (let t = 0; t < 5; t++) {
-          const x = b.x + (rand() - 0.5) * (b.w - 3), z = b.z + (rand() - 0.5) * (b.d - 3);
-          if (coveredAt(grid, B, i, x, z, top, 1.2)) continue;
+          const x = b.x + (rand() - 0.5) * (b.w - 10), z = b.z + (rand() - 0.5) * (b.d - 10);
+          if (coveredAt(grid, B, i, x, z, top, 4.5)) continue;
           if (placed.some(p => Math.hypot(p[0] - x, p[1] - z) < p[2])) continue;
           addItem("ac_unit", x, top, z, (rand() * 4 | 0) * Math.PI / 2, 0.9 + rand() * 0.5);
-          placed.push([x, z, 2]); acs++;
+          placed.push([x, z, 7]); acs++;
           break;
         }
       }
@@ -205,14 +209,14 @@ function planSidewalks(rand) {
   // 가로등 자리를 피한다. 소화전이 가로등 기둥에 박혀 있으면 바로 티가 난다.
   const lampGrid = new Map();
   if (lamps) for (const L of lamps.data) {
-    const k = Math.floor(L.x / 8) + "," + Math.floor(L.z / 8);
+    const k = Math.floor(L.x / 16) + "," + Math.floor(L.z / 16);
     if (!lampGrid.has(k)) lampGrid.set(k, []);
     lampGrid.get(k).push(L);
   }
   const nearLamp = (x, z) => {
-    const gx = Math.floor(x / 8), gz = Math.floor(z / 8);
+    const gx = Math.floor(x / 16), gz = Math.floor(z / 16);
     for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
-      for (const L of lampGrid.get((gx + a) + "," + (gz + b)) || []) if (Math.hypot(L.x - x, L.z - z) < 2.6) return true;
+      for (const L of lampGrid.get((gx + a) + "," + (gz + b)) || []) if (Math.hypot(L.x - x, L.z - z) < 8) return true;
     }
     return false;
   };
@@ -220,14 +224,16 @@ function planSidewalks(rand) {
   for (const bl of blocks) {
     // 네 변: [시작, 끝, 고정좌표(바깥), 고정좌표(안쪽), 축, 도로쪽 방향]
     const sides = [
-      { a: bl.x0, b: bl.x1, outer: bl.z0 - SW + 0.9, inner: bl.z0 - 0.8, axis: "x", face: -1, street: true },
-      { a: bl.x0, b: bl.x1, outer: bl.z1 + SW - 0.9, inner: bl.z1 + 0.8, axis: "x", face: 1, street: true },
-      { a: bl.z0, b: bl.z1, outer: bl.x0 - SW + 0.9, inner: bl.x0 - 0.8, axis: "z", face: -1, street: false },
-      { a: bl.z0, b: bl.z1, outer: bl.x1 + SW - 0.9, inner: bl.x1 + 0.8, axis: "z", face: 1, street: false },
+      // 5배 소품은 깊이가 3~6m 라 연석 쪽 줄은 연석에서 3m, 건물 쪽 줄은 벽에서 3m 안쪽에 둔다
+      { a: bl.x0, b: bl.x1, outer: bl.z0 - SW + 3, inner: bl.z0 - 3, axis: "x", face: -1, street: true },
+      { a: bl.x0, b: bl.x1, outer: bl.z1 + SW - 3, inner: bl.z1 + 3, axis: "x", face: 1, street: true },
+      { a: bl.z0, b: bl.z1, outer: bl.x0 - SW + 3, inner: bl.x0 - 3, axis: "z", face: -1, street: false },
+      { a: bl.z0, b: bl.z1, outer: bl.x1 + SW - 3, inner: bl.x1 + 3, axis: "z", face: 1, street: false },
     ];
     for (const sd of sides) {
       const len = sd.b - sd.a;
-      if (len < 20) continue;
+      if (len < 40) continue;
+      const outerT = [];                  // 바깥 줄에 놓인 자리 — 안쪽 줄이 그 옆에 겹쳐 서지 않게
       // 도로를 바라보는 방향
       const faceYaw = sd.axis === "x" ? (sd.face > 0 ? 0 : Math.PI) : (sd.face > 0 ? Math.PI / 2 : -Math.PI / 2);
       const P = (t, off) => sd.axis === "x" ? [t, off] : [off, t];
@@ -237,30 +243,33 @@ function planSidewalks(rand) {
         const t = sd.a + len * (0.3 + rand() * 0.4);
         const [x, z] = P(t, sd.outer - sd.face * 0.4);
         addItem("bus_stop", x, y(x, z), z, faceYaw, 1); n++;
+        outerT.push(t, t - 9, t + 9);
       }
 
       // 바깥 줄
       // 뉴욕 인도는 복잡하다. 처음 밀도로는 50m 에 하나꼴이라 휑해 보였다.
-      for (let t = sd.a + 6; t < sd.b - 6; t += 7 + rand() * 10) {
+      // 소품이 5배라 간격도 3배쯤 넓혔다. 촘촘하게 두면 인도가 물건 벽이 된다.
+      for (let t = sd.a + 12; t < sd.b - 12; t += 22 + rand() * 26) {
         const r = rand();
         const [x, z] = P(t, sd.outer);
         if (nearLamp(x, z)) continue;
         const gy = y(x, z);
-        if (r < 0.12) { addItem("hydrant", x, gy, z, faceYaw, 1); n++; }
-        else if (r < 0.32) { addItem("trash_bin", x, gy, z, faceYaw + (rand() - 0.5) * 0.4, 1); n++; }
-        else if (r < 0.38) { addItem("mailbox", x, gy, z, faceYaw, 1); n++; }
-        else if (r < 0.45) { addItem("bench", x, gy, z, faceYaw + Math.PI, 1); n++; }
+        if (r < 0.12) { addItem("hydrant", x, gy, z, faceYaw, 1); n++; outerT.push(t); }
+        else if (r < 0.32) { addItem("trash_bin", x, gy, z, faceYaw + (rand() - 0.5) * 0.4, 1); n++; outerT.push(t); }
+        else if (r < 0.38) { addItem("mailbox", x, gy, z, faceYaw, 1); n++; outerT.push(t); }
+        else if (r < 0.45) { addItem("bench", x, gy, z, faceYaw + Math.PI, 1); n++; outerT.push(t); }
       }
 
       // 안쪽 줄 — 쓰레기봉투 더미는 뉴욕 인도의 상징이다
-      for (let t = sd.a + 4; t < sd.b - 4; t += 9 + rand() * 16) {
+      for (let t = sd.a + 12; t < sd.b - 12; t += 26 + rand() * 34) {
         const r = rand();
+        if (outerT.some(o => Math.abs(o - t) < 9)) continue;
         const [x, z] = P(t, sd.inner);
         const gy = y(x, z);
         if (r < 0.24) {
           const c = 2 + (rand() * 5 | 0);
           for (let k = 0; k < c; k++) {
-            const [bx, bz] = P(t + (rand() - 0.5) * 2.4, sd.inner + sd.face * rand() * 1.2);
+            const [bx, bz] = P(t + (rand() - 0.5) * 10, sd.inner + sd.face * rand() * 2);
             addItem(rand() < 0.5 ? "trash_bag_a" : "trash_bag_b", bx, y(bx, bz), bz, rand() * 6.28, 0.85 + rand() * 0.35);
             n++;
           }
@@ -280,12 +289,12 @@ function planManholes(rand) {
     const zc = bl.z1 + ST_ROAD_W / 2;
     for (let k = 0; k < 2; k++) {
       if (rand() < 0.5) continue;
-      const x = bl.x0 + rand() * (bl.x1 - bl.x0), z = zc + (rand() < 0.5 ? -9 : 9);
+      const x = bl.x0 + rand() * (bl.x1 - bl.x0), z = zc + (rand() < 0.5 ? -6 : 6);
       addItem("manhole", x, groundAt(x, z, 2) + 0.012, z, rand() * 6.28, 1); n++;
     }
     const xc = bl.x1 + AVE_ROAD_W / 2;
     if (rand() < 0.6) {
-      const z = bl.z0 + rand() * (bl.z1 - bl.z0), x = xc + (rand() < 0.5 ? -12 : 12);
+      const z = bl.z0 + rand() * (bl.z1 - bl.z0), x = xc + (rand() < 0.5 ? -15.5 : 15.5);
       addItem("manhole", x, groundAt(x, z, 2) + 0.012, z, rand() * 6.28, 1); n++;
     }
   }
@@ -311,7 +320,7 @@ function buildMeshes(name) {
 function setItemMatrix(it, extraYaw) {
   _p.set(it.x, it.y, it.z);
   _q.setFromAxisAngle(_up, it.yaw + extraYaw);
-  _s.setScalar(it.s);
+  _s.setScalar(it.s * PROP_SCALE);
   _m.compose(_p, _q, _s);
   return _m;
 }
@@ -352,7 +361,7 @@ function rebuildLamps(px, pz) {
     for (const m of lamps.meshes) m.setMatrixAt(i, _zero);
     _p.set(L.x, L.y, L.z);
     _q.setFromAxisAngle(_up, (L.side > 0 ? 0 : Math.PI) + TYPES.street_light.yaw);
-    _s.setScalar(1);
+    _s.setScalar(PROP_SCALE);
     _m.compose(_p, _q, _s);
     for (const m of models) m.setMatrixAt(n, _m);
     n++;
@@ -379,7 +388,7 @@ function updateCarModels(px, pz) {
     const yaw = (c.axis === "z" ? (c.dir > 0 ? 0 : Math.PI) : (c.dir > 0 ? Math.PI / 2 : -Math.PI / 2)) + CAR_YAW;
     _p.set(c.x, 0.05, c.z);
     _q.setFromAxisAngle(_up, yaw);
-    _s.setScalar(1);
+    _s.setScalar(CAR_SCALE);
     _m.compose(_p, _q, _s);
     const slot = cnt[type]++;
     for (const m of T.meshes) m.setMatrixAt(slot, _m);

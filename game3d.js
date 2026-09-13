@@ -27,6 +27,7 @@ import {
   init3p, pose3p, bones3p, ready3p,
 } from "./src/rig3p.js";
 import { initNycProps, updateNycProps, nycStats, nycFind } from "./src/nyc-props.js";
+import { PROP_SCALE } from "./src/scale.js";
 import {
   TUNE as A_TUNE, FAN_PITCH, fanYaw, intentDir, scoreAnchorV2,
 } from "./src/anchor.js";
@@ -190,14 +191,17 @@ tryLoadHdri('night', 'night');
 //   스트리트(동서) — 좁고, 촘촘하다 -> 짧은 간격의 골목 같은 길
 // 그래서 블록이 동서로 길쭉하고, 그 긴 면에 좁은 건물들이 다닥다닥 붙는다.
 // 이 비례만 맞춰도 스윙할 때 도시가 뉴욕처럼 읽힌다.
-const AVE_SPACING = 296;   // 애비뉴 간격 (동서 방향 블록 길이)
-const ST_SPACING  = 108;   // 스트리트 간격 (남북 방향 블록 폭)
-const AVE_ROAD_W  = 68;    // 애비뉴 노폭 (넓다)
-const ST_ROAD_W   = 48;    // 스트리트 노폭 (좁다)
+// 소품 5배·차 15배(src/scale.js)에 맞춰 도로를 넓혔다. 차 폭이 29m 라
+//   애비뉴 = 인도 9m ×2 + 차도 62m (일방통행 2차선)
+//   스트리트 = 인도 9m ×2 + 차도 36m (일방통행 1차선)
+const AVE_SPACING = 300;   // 애비뉴 간격 (동서 방향 블록 길이)
+const ST_SPACING  = 118;   // 스트리트 간격 (남북 방향 블록 폭)
+const AVE_ROAD_W  = 80;    // 애비뉴 노폭 (블록 경계 사이. 인도 포함)
+const ST_ROAD_W   = 54;    // 스트리트 노폭 (블록 경계 사이. 인도 포함)
 const N_AVE = 10;          // 애비뉴 개수
-const N_ST  = 30;          // 스트리트 개수
+const N_ST  = 28;          // 스트리트 개수
 
-const BLOCK_W = AVE_SPACING - AVE_ROAD_W;   // 블록 동서 길이 234m
+const BLOCK_W = AVE_SPACING - AVE_ROAD_W;   // 블록 동서 길이 220m
 const BLOCK_D = ST_SPACING - ST_ROAD_W;     // 블록 남북 폭   64m
 
 const WORLD_SIZE = Math.max(N_AVE * AVE_SPACING, N_ST * ST_SPACING);
@@ -459,13 +463,15 @@ let lampCount = 0;
     // 저·중층 벽돌/콘크리트 옥상에 주로 올라간다 (초고층 유리타워엔 없다)
     if (b.h < 34 || b.h > 190) continue;
     if (famOf(b.kind) === FAM_GLASS) continue;   // 유리 타워엔 물탱크를 안 올린다
-    if (Math.min(b.w, b.d) < 14) continue;
+    // 이 물탱크는 원래부터 모델 물탱크보다 두 배 굵었다. 소품 배율의 절반만 키워 둘을 맞춘다.
+    const TS = PROP_SCALE / 2;
+    if (Math.min(b.w, b.d) < 24) continue;
     if (Math.random() > 0.42) continue;
-    const r = 2.4 + Math.random() * 1.3;
+    const r = (2.4 + Math.random() * 1.3) * TS;
     towers.push({
-      x: b.x + (Math.random() - 0.5) * (b.w - r * 2 - 4),
-      z: b.z + (Math.random() - 0.5) * (b.d - r * 2 - 4),
-      y: b.h, r, legH: 3 + Math.random() * 2.5, tankH: 5 + Math.random() * 2.5,
+      x: b.x + (Math.random() - 0.5) * Math.max(0, b.w - r * 2 - 4),
+      z: b.z + (Math.random() - 0.5) * Math.max(0, b.d - r * 2 - 4),
+      y: b.h, r, legH: (3 + Math.random() * 2.5) * TS, tankH: (5 + Math.random() * 2.5) * TS,
     });
   }
 
@@ -497,7 +503,7 @@ let lampCount = 0;
     for (let k = 0; k < 4; k++) {
       const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
       dummy.position.set(t.x + Math.cos(a) * t.r * 0.72, t.y, t.z + Math.sin(a) * t.r * 0.72);
-      dummy.scale.set(0.32, t.legH, 0.32);
+      dummy.scale.set(0.32 * PROP_SCALE / 2, t.legH, 0.32 * PROP_SCALE / 2);
       dummy.updateMatrix();
       legMesh.setMatrixAt(li++, dummy.matrix);
     }
@@ -573,7 +579,7 @@ scene.add(ledgeMesh);
 // 1인칭에서 바닥이 화면의 절반인데 그게 뭉개지면 다른 걸 아무리 올려도 소용이 없다.
 // 이제 아스팔트는 8m 단위로 타일링하고, 인도·차선·횡단보도는 진짜 지오메트리로 만든다.
 // WORLD_SIZE는 도시 생성부에서 이미 정의됨 (애비뉴/스트리트 기준)
-const SIDEWALK_W = 4.5;    // 인도 폭 (좁은 스트리트에도 차도가 남도록)
+const SIDEWALK_W = 9;      // 인도 폭. 5배 소품(쓰레기통 깊이 4.5m)이 두 줄로 들어가야 한다
 const CURB_H = 0.18;       // 연석 높이 (플레이어가 실제로 올라선다)
 const ASPHALT_TILE = 5;    // 아스팔트 텍스처 1장이 덮는 실제 거리(m). 작을수록 결이 또렷하다
 
@@ -644,45 +650,37 @@ scene.add(sidewalkMesh);
 // 애비뉴는 넓어 중앙선이 두 줄, 스트리트는 좁아 한 줄.
 const paintMat = new THREE.MeshBasicMaterial({ color: 0xd8d4b8 });
 const paint = [];
-const DASH_LEN = 4, DASH_GAP = 7, DASH_W = 0.4;
+// 차가 15배라 도로 칠도 같이 굵게 한다. 4m 점선은 29m 차 밑에서 안 보인다.
+const DASH_LEN = 12, DASH_GAP = 18, DASH_W = 1.0;
 const HALF_X = (N_AVE * AVE_SPACING) / 2, HALF_Z = (N_ST * ST_SPACING) / 2;
 
-// 애비뉴(남북 도로): 애비뉴 사이 경계마다
+// 애비뉴(남북 도로): 일방통행 2차선이라 가운데에 차선 경계 한 줄
 for (let ai = 0; ai < N_AVE - 1; ai++) {
   const cx = (ai - AVE_C) * AVE_SPACING + AVE_SPACING / 2;
-  for (const lane of [-7, 7]) {          // 넓은 대로라 차선 두 줄
-    for (let z = -HALF_Z; z < HALF_Z; z += DASH_LEN + DASH_GAP) {
-      // 교차로(스트리트와 만나는 곳)는 비워둔다
-      if (Math.abs(((z + HALF_Z) % ST_SPACING) - ST_SPACING / 2) > ST_SPACING / 2 - 14) continue;
-      paint.push({ x: cx + lane, z, w: DASH_W, d: DASH_LEN });
-    }
+  for (let z = -HALF_Z; z < HALF_Z; z += DASH_LEN + DASH_GAP) {
+    // 블록 옆으로만 긋고 교차로(스트리트와 만나는 곳)는 비워둔다
+    if (Math.abs(((z + HALF_Z) % ST_SPACING) - ST_SPACING / 2) > BLOCK_D / 2 - 2) continue;
+    paint.push({ x: cx, z, w: DASH_W, d: DASH_LEN });
   }
 }
-// 스트리트(동서 도로)
-for (let si = 0; si < N_ST - 1; si++) {
-  const cz = (si - ST_C) * ST_SPACING + ST_SPACING / 2;
-  for (let x = -HALF_X; x < HALF_X; x += DASH_LEN + DASH_GAP) {
-    if (Math.abs(((x + HALF_X) % AVE_SPACING) - AVE_SPACING / 2) > AVE_SPACING / 2 - 24) continue;
-    paint.push({ x, z: cz, w: DASH_LEN, d: DASH_W });
-  }
-}
-// 횡단보도: 교차로 네 방향
-const ZEBRA_W = 0.75;
+// 스트리트(동서 도로)는 1차선 일방통행이라 중앙선이 없다.
+
+// 횡단보도: 인도 줄을 그대로 이어서 차도를 건넌다. 줄무늬는 차 진행 방향으로 길다.
+const ZEBRA_W = 1.6, ZEBRA_STEP = 3.4, ZEBRA_LEN = SIDEWALK_W * 0.8;
+const AVE_DRIVE = AVE_ROAD_W / 2 - SIDEWALK_W, ST_DRIVE = ST_ROAD_W / 2 - SIDEWALK_W;
 for (let ai = 0; ai < N_AVE - 1; ai++) {
   for (let si = 0; si < N_ST - 1; si++) {
     const cx = (ai - AVE_C) * AVE_SPACING + AVE_SPACING / 2;
     const cz = (si - ST_C) * ST_SPACING + ST_SPACING / 2;
-    for (let k = 0; k < 8; k++) {
-      const o = (k - 3.5) * 2.4;
+    for (const sg of [-1, 1]) {
       // 애비뉴를 건너는 횡단보도 (넓다)
-      paint.push({ x: cx + o, z: cz - ST_ROAD_W / 2 - 3, w: ZEBRA_W, d: AVE_ROAD_W * 0.5 });
-      paint.push({ x: cx + o, z: cz + ST_ROAD_W / 2 + 3, w: ZEBRA_W, d: AVE_ROAD_W * 0.5 });
-    }
-    for (let k = 0; k < 5; k++) {
-      const o = (k - 2) * 2.4;
+      for (let o = -AVE_DRIVE + 2; o <= AVE_DRIVE - 2; o += ZEBRA_STEP) {
+        paint.push({ x: cx + o, z: cz + sg * (ST_ROAD_W / 2 - SIDEWALK_W / 2), w: ZEBRA_W, d: ZEBRA_LEN });
+      }
       // 스트리트를 건너는 횡단보도 (좁다)
-      paint.push({ x: cx - AVE_ROAD_W / 2 - 3, z: cz + o, w: AVE_ROAD_W * 0.5, d: ZEBRA_W });
-      paint.push({ x: cx + AVE_ROAD_W / 2 + 3, z: cz + o, w: AVE_ROAD_W * 0.5, d: ZEBRA_W });
+      for (let o = -ST_DRIVE + 2; o <= ST_DRIVE - 2; o += ZEBRA_STEP) {
+        paint.push({ x: cx + sg * (AVE_ROAD_W / 2 - SIDEWALK_W / 2), z: cz + o, w: ZEBRA_LEN, d: ZEBRA_W });
+      }
     }
   }
 }
@@ -710,15 +708,17 @@ let streetDetailCount = 0;
 // 도로변을 따라 일정 간격으로. 기둥 + 도로 쪽으로 뻗은 팔 + 램프 헤드.
 {
   const poles = [], arms = [], heads = [];
-  const POLE_H = 9, ARM_L = 3.2, GAP = 68;
+  // 소품 배율만큼 키운다. 멀리 있는 이 상자 가로등이 가까이 오면 모델로 바뀌므로 크기가 같아야 한다.
+  const LS = PROP_SCALE;
+  const POLE_H = 9 * LS, ARM_L = 3.2 * LS, GAP = 100;
   for (const bl of blocks) {
     // 블록 네 변 중 긴 면(스트리트 쪽) 위주로 세운다
-    for (let x = bl.x0 + 14; x < bl.x1 - 10; x += GAP) {
+    for (let x = bl.x0 + 20; x < bl.x1 - 16; x += GAP) {
       for (const side of [-1, 1]) {
-        const z = side < 0 ? bl.z0 - SIDEWALK_W + 1.2 : bl.z1 + SIDEWALK_W - 1.2;
+        const z = side < 0 ? bl.z0 - SIDEWALK_W + 2.5 : bl.z1 + SIDEWALK_W - 2.5;
         poles.push({ x, z, h: POLE_H, side });
-        arms.push({ x, z: z + side * ARM_L / 2, y: POLE_H - 0.5, w: 0.22, d: ARM_L, dir: side });
-        heads.push({ x, z: z + side * ARM_L, y: POLE_H - 0.75 });
+        arms.push({ x, z: z + side * ARM_L / 2, y: POLE_H - 0.5 * LS, w: 0.22 * LS, d: ARM_L, dir: side });
+        heads.push({ x, z: z + side * ARM_L, y: POLE_H - 0.75 * LS });
       }
     }
   }
@@ -734,21 +734,21 @@ let streetDetailCount = 0;
   poles.forEach((p, i) => {
     dummy.rotation.set(0, 0, 0);
     dummy.position.set(p.x, CURB_H, p.z);
-    dummy.scale.set(0.16, p.h, 0.16);
+    dummy.scale.set(0.16 * LS, p.h, 0.16 * LS);
     dummy.updateMatrix(); poleMesh.setMatrixAt(i, dummy.matrix);
   });
   const armMesh = new THREE.InstancedMesh(boxGeo, poleMat, arms.length);
   arms.forEach((a, i) => {
     dummy.rotation.set(0, 0, 0);
     dummy.position.set(a.x, a.y, a.z);
-    dummy.scale.set(a.w, 0.18, a.d);
+    dummy.scale.set(a.w, 0.18 * LS, a.d);
     dummy.updateMatrix(); armMesh.setMatrixAt(i, dummy.matrix);
   });
   const headMesh = new THREE.InstancedMesh(boxGeo, headMat, heads.length);
   heads.forEach((h, i) => {
     dummy.rotation.set(0, 0, 0);
     dummy.position.set(h.x, h.y, h.z);
-    dummy.scale.set(0.5, 0.26, 1.1);
+    dummy.scale.set(0.5 * LS, 0.26 * LS, 1.1 * LS);
     dummy.updateMatrix(); headMesh.setMatrixAt(i, dummy.matrix);
   });
   for (const m of [poleMesh, armMesh, headMesh]) {
@@ -764,8 +764,8 @@ let streetDetailCount = 0;
   lampGlowMesh = new THREE.InstancedMesh(boxGeo, glowMat, heads.length);
   heads.forEach((h, i) => {
     dummy.rotation.set(0, 0, 0);
-    dummy.position.set(h.x, h.y - 0.6, h.z);
-    dummy.scale.set(5.2, 2.2, 6.2);
+    dummy.position.set(h.x, h.y - 0.6 * LS, h.z);
+    dummy.scale.set(5.2 * LS, 2.2 * LS, 6.2 * LS);
     dummy.updateMatrix(); lampGlowMesh.setMatrixAt(i, dummy.matrix);
   });
   lampGlowMesh.instanceMatrix.needsUpdate = true;
@@ -793,12 +793,14 @@ const NEON_COLORS = [0xff2d78, 0x22e0ff, 0xffd21e, 0x8b5cff, 0x2bff88, 0xff6a1e,
     for (let si = 0; si < N_ST - 1; si++) {
       const cx = (ai - AVE_C) * AVE_SPACING + AVE_SPACING / 2;
       const cz = (si - ST_C) * ST_SPACING + ST_SPACING / 2;
+      // 인도 모서리에 세운다 (예전 식은 블록 안 = 건물 속에 박혀 있었다). 소품 배율만큼 키운다.
+      const S = PROP_SCALE;
       for (const sgn of [-1, 1]) {
-        const px = cx + sgn * (AVE_ROAD_W / 2 + SIDEWALK_W * 0.6);
-        const pz = cz + sgn * (ST_ROAD_W / 2 + SIDEWALK_W * 0.6);
-        poles.push({ x: px, z: pz, h: 8.4 });
-        bars.push({ x: px - sgn * 3.4, z: pz, y: 7.9, w: 6.8 });
-        heads.push({ x: px - sgn * 6.4, z: pz, y: 7.1 });
+        const px = cx + sgn * (AVE_ROAD_W / 2 - SIDEWALK_W * 0.35);
+        const pz = cz + sgn * (ST_ROAD_W / 2 - SIDEWALK_W * 0.35);
+        poles.push({ x: px, z: pz, h: 8.4 * S });
+        bars.push({ x: px - sgn * 3.4 * S, z: pz, y: 7.9 * S, w: 6.8 * S });
+        heads.push({ x: px - sgn * 6.4 * S, z: pz, y: 7.1 * S });
       }
     }
   }
@@ -899,9 +901,10 @@ const NEON_COLORS = [0xff2d78, 0x22e0ff, 0xffd21e, 0x8b5cff, 0x2bff88, 0xff6a1e,
     return m;
   }
 
-  inst(cyl, darkMetal, poles, p => { dummy.position.set(p.x, CURB_H, p.z); dummy.scale.set(0.14, p.h, 0.14); }, true);
-  inst(boxGeo, darkMetal, bars, b => { dummy.position.set(b.x, b.y, b.z); dummy.scale.set(b.w, 0.16, 0.22); }, false);
-  inst(boxGeo, signalMat, heads, h => { dummy.position.set(h.x, h.y, h.z); dummy.scale.set(0.5, 1.5, 0.42); }, false);
+  const PS = PROP_SCALE;
+  inst(cyl, darkMetal, poles, p => { dummy.position.set(p.x, CURB_H, p.z); dummy.scale.set(0.14 * PS, p.h, 0.14 * PS); }, true);
+  inst(boxGeo, darkMetal, bars, b => { dummy.position.set(b.x, b.y, b.z); dummy.scale.set(b.w, 0.16 * PS, 0.22 * PS); }, false);
+  inst(boxGeo, signalMat, heads, h => { dummy.position.set(h.x, h.y, h.z); dummy.scale.set(0.5 * PS, 1.5 * PS, 0.42 * PS); }, false);
   inst(boxGeo, feMat, steps, o => { dummy.position.set(o.x, o.y, o.z); dummy.scale.set(o.w, o.h, o.d); }, false);
   inst(boxGeo, feMat, rails, o => { dummy.position.set(o.x, o.y, o.z); dummy.scale.set(o.w, o.h, o.d); }, false);
 

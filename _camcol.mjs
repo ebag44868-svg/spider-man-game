@@ -36,12 +36,21 @@ function insideBuilding(p, pad = 0) {
   return null;
 }
 
+// 네 면 바로 앞(벽에서 4m, 높이 40%·50%)이 빈 공중인 큰 건물을 고른다.
+// 도시 배치에 따라 "가장 높은 건물"이 계단식 타워의 꼭대기 층일 수 있다. 그러면 그 옆에
+// 선 자리가 아래층 건물 속이라, 카메라를 재기도 전에 시험이 깨진다.
+function pickBig() {
+  return T.buildings.filter(b => b.y0 === 0 && b.w > 40 && b.d > 40 && b.h > 60)
+    .filter(b => [[0, 1], [0, -1], [1, 0], [-1, 0]].every(([dx, dz]) =>
+      [0.4, 0.5].every(f => !insideBuilding({ x: b.x + dx * (b.w / 2 + 4), y: b.h * f, z: b.z + dz * (b.d / 2 + 4) }, 1.5))))
+    .sort((a, b) => b.h - a.h)[0];
+}
+
 console.log("===== 1. 벽을 등지면 카메라가 건물 안으로 안 들어간다 =====");
 T.setFP(false);
 {
   // 충분히 큰 건물을 고른다. 작은 건물은 카메라가 그냥 지나쳐 버려 시험이 안 된다.
-  const big = T.buildings.filter(b => b.w > 40 && b.d > 40 && b.h > 60)
-                         .sort((a, b) => b.h - a.h)[0];
+  const big = pickBig();
   let blockedSeen = 0, inside = 0, tries = 0;
   // 건물 네 면 앞에 서서 각각 벽을 등져 본다
   const faces = [
@@ -103,7 +112,7 @@ console.log("\n===== 3. 아래를 보면 땅을 뚫지 않는다 =====");
 console.log("\n===== 4. 시점 방향과 1인칭은 그대로다 =====");
 {
   // 수동 시점: 벽에 막혀 카메라가 당겨져도 보는 방향은 viewYaw/viewPitch 그대로여야 한다.
-  const big = T.buildings.filter(b => b.w > 40 && b.d > 40 && b.h > 60)[0];
+  const big = pickBig();
   T.setFP(false);
   T.setAuto(false);
   place(big.x, big.y0 + big.h * 0.5, big.z + big.d / 2 + 2.2);
@@ -172,8 +181,7 @@ console.log("\n===== 6. 벽에 바짝 붙어도 뚫지 않는다 (최소 거리�
 {
   // 벽에 등을 대고 서면 머리에서 벽까지가 1m도 안 된다. 최소 거리(1.25m)를
   // 고집하면 그 순간 카메라가 벽을 뚫는다. 그럴 땐 벽이 이겨야 한다.
-  const big = T.buildings.filter(b => b.w > 40 && b.d > 40 && b.h > 60)
-                         .sort((a, b) => b.h - a.h)[0];
+  const big = pickBig();
   T.setFP(false);
   T.setAuto(false);
   let worstIn = 0, hidden = 0, n = 0;

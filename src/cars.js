@@ -16,6 +16,7 @@
 // 브라우저는 importmap으로 "three"를 이 파일로 보낸다. 여기서는 상대경로를 직접 쓴다 —
 // 테스트 하네스(Node)에는 importmap이 없고, 어차피 같은 파일로 해석되어 인스턴스도 하나다.
 import * as THREE from "../lib/three.module.js";
+import { CAR_SCALE } from "./scale.js";
 
 // game3d.js에서 주입받는다. 도로 격자 상수는 이름을 그대로 쓴다 —
 // 옮겨온 코드를 한 글자도 안 고치려면 이 이름들이 그대로 보여야 한다.
@@ -23,7 +24,8 @@ let scene = null, boxGeo = null, dummy = null;
 let N_AVE = 0, N_ST = 0, AVE_SPACING = 0, ST_SPACING = 0, AVE_C = 0, ST_C = 0;
 
 const cars = [];
-const CAR_L = 4.6, CAR_W = 1.95, CAR_H = 1.35;
+// 실제 차 크기 × 15 (src/scale.js). 도시가 사람 기준 3배라 실제 크기는 점으로 보였다.
+const CAR_L = 4.6 * CAR_SCALE, CAR_W = 1.95 * CAR_SCALE, CAR_H = 1.35 * CAR_SCALE;
 // let 이지만 export는 살아 있는 바인딩이라, game3d.js도 대입된 뒤의 값을 본다.
 let carBodyMesh = null, carTopMesh = null;
 let CAR_HALF_X = 0, CAR_HALF_Z = 0;
@@ -39,24 +41,26 @@ function initCars(sc, geo, dm, city) {
     // 차는 '개수'가 아니라 '간격'으로 깔아야 한다.
     // 차선당 몇 대씩 두면 월드가 2.5km라 360m에 한 대꼴이 돼서 텅 빈 도로가 된다.
     const LEN_Z = N_ST * ST_SPACING, LEN_X = N_AVE * AVE_SPACING;
-    const laneOff = [-24, -12, 12, 24];        // 애비뉴 4차선 (넓어진 노폭에 맞춤)
+    // 차 폭이 29m 라 애비뉴(차도 62m)엔 2차선, 스트리트(차도 36m)엔 1차선만 들어간다.
+    // 같은 차선의 차는 같은 속도로 달린다 — 길이 69m 짜리가 앞차를 뚫고 지나가면 바로 보인다.
+    const laneOff = [-15.5, 15.5];             // 애비뉴 2차선
     for (let ai = 0; ai < N_AVE - 1; ai++) {
       const cx = (ai - AVE_C) * AVE_SPACING + AVE_SPACING / 2;
       const oneWay = ai % 2 === 0 ? 1 : -1;    // 애비뉴별 일방통행
       for (const off of laneOff) {
-        for (let z = -LEN_Z / 2; z < LEN_Z / 2; z += 80 + Math.random() * 110) {
-          cars.push({ axis: 'z', x: cx + off, z, dir: oneWay, speed: 16 + Math.random() * 12 });
+        const speed = 16 + Math.random() * 12;
+        for (let z = -LEN_Z / 2; z < LEN_Z / 2; z += 100 + Math.random() * 140) {
+          cars.push({ axis: 'z', x: cx + off, z, dir: oneWay, speed });
         }
       }
     }
-    const stLane = [-9, 9];                    // 스트리트 2차선(양방향)
-    for (let si = 0; si < N_ST - 1; si++) {
+    for (let si = 0; si < N_ST - 1; si++) {    // 스트리트 1차선 (뉴욕 스트리트는 대부분 일방통행)
       if (Math.random() < 0.5) continue;
       const cz = (si - ST_C) * ST_SPACING + ST_SPACING / 2;
-      for (const off of stLane) {
-        for (let x = -LEN_X / 2; x < LEN_X / 2; x += 105 + Math.random() * 150) {
-          cars.push({ axis: 'x', x, z: cz + off, dir: off < 0 ? 1 : -1, speed: 11 + Math.random() * 8 });
-        }
+      const speed = 11 + Math.random() * 8;
+      const dir = si % 2 === 0 ? 1 : -1;
+      for (let x = -LEN_X / 2; x < LEN_X / 2; x += 110 + Math.random() * 160) {
+        cars.push({ axis: 'x', x, z: cz, dir, speed });
       }
     }
   }
