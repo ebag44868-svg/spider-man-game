@@ -281,6 +281,36 @@ function planSidewalks(rand) {
   return n;
 }
 
+// 광장·공원. 공원은 동서 산책로 양옆에 길을 보는 벤치, 광장은 긴 변 안쪽에 벤치와 쓰레기통.
+// 벤치 방향은 인도와 같은 규칙이다 (앉는 쪽이 -z 를 보면 yaw 0).
+function planPlazas(rand) {
+  const { plazas, groundAt } = S;
+  if (!plazas) return 0;
+  let n = 0;
+  for (const p of plazas) {
+    const cx = (p.x0 + p.x1) / 2, cz = (p.z0 + p.z1) / 2;
+    if (p.kind === "park") {
+      for (let x = p.x0 + 16; x < p.x1 - 16; x += 28 + rand() * 18) {
+        if (Math.abs(x - cx) < 20) continue;             // 가운데 분수 자리
+        for (const sg of [-1, 1]) {
+          if (rand() < 0.3) continue;
+          const z = cz + sg * 8.5;
+          addItem("bench", x, groundAt(x, z, 6), z, sg > 0 ? 0 : Math.PI, 1); n++;
+        }
+      }
+      continue;
+    }
+    for (let x = p.x0 + 10; x < p.x1 - 10; x += 22 + rand() * 16) {
+      for (const [z, yaw] of [[p.z0 + 22, Math.PI], [p.z1 - 22, 0]]) {
+        const r = rand();
+        if (r < 0.4) { addItem("bench", x, groundAt(x, z, 6), z, yaw, 1); n++; }
+        else if (r < 0.55) { addItem("trash_bin", x, groundAt(x, z, 6), z, yaw, 1); n++; }
+      }
+    }
+  }
+  return n;
+}
+
 // 차도 맨홀 — 블록 사이 도로 한가운데 근처
 function planManholes(rand) {
   const { blocks, ST_ROAD_W, AVE_ROAD_W, groundAt } = S;
@@ -467,7 +497,7 @@ async function initNycProps(opts) {
     lamps = { data: S.lamps.data, meshes: S.lamps.meshes, orig: S.lamps.meshes.map(m => m.instanceMatrix.array.slice()) };
     for (const L of lamps.data) addItem("street_light", L.x, L.y, L.z, 0, 1);   // 인스턴스 개수 확보용
   }
-  const stats = { ...planRooftops(rand), sidewalk: planSidewalks(rand), manholes: planManholes(rand) };
+  const stats = { ...planRooftops(rand), sidewalk: planSidewalks(rand), manholes: planManholes(rand), plazas: planPlazas(rand) };
 
   const Loader = S.GLTFLoader, merge = S.mergeGeometries;
   const names = Object.keys(TYPES);

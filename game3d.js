@@ -275,6 +275,142 @@ const AVE_C = (N_AVE - 1) / 2, ST_C = (N_ST - 1) / 2;
 const blockIndex = (x, z) =>
   Math.round(z / ST_SPACING + ST_C) * N_AVE + Math.round(x / AVE_SPACING + AVE_C);
 
+// ══════════════ 도시 배치 ══════════════
+// 예전 배치는 바둑판 칸마다 같은 방식으로 건물 줄을 세우고 가운데로 갈수록 높이기만 했다.
+// 그래서 어디를 봐도 같은 높은 벽이었고 내려앉을 옥상이 거의 없었다.
+// 이제는 '동네'를 먼저 정하고, 블록마다 모양을 고른다.
+//
+//   동네     타워 강도(0~1). 미드타운·다운타운 두 덩어리만 높고 나머지는 저층 옥상 지대
+//   블록     한 줄 · 뒷골목 낀 두 줄 · 중정 · 창고 · 광장 타워 · 공원
+//   큰 광장  교차로 몇 곳은 네 귀퉁이 건물을 비워서 사거리 전체가 광장이 된다
+//
+// 광장·공원 자리는 plazas 에 모은다. 바닥 포장·나무·분수·벤치가 이걸 보고 깔린다.
+const plazas = [];   // { x0, x1, z0, z1, kind: 'square' | 'plaza' | 'park' }
+
+// 도심 언덕. 가우스 봉우리 중 가장 높은 값이 그 자리의 타워 강도다.
+const TOWER_HUBS = [
+  { x: 0,    z: 0,     r: 430, k: 1.0 },   // 미드타운 — 도시 한가운데 (회귀 테스트도 여기서 스윙한다)
+  { x: 450,  z: -1150, r: 420, k: 1.0 },   // 다운타운 — 남쪽 끝
+  { x: 900,  z: 1200,  r: 300, k: 0.65 },  // 북동쪽 작은 부도심
+];
+function towerAt(x, z) {
+  let t = 0;
+  for (const c of TOWER_HUBS) t = Math.max(t, c.k * Math.exp(-((x - c.x) ** 2 + (z - c.z) ** 2) / (2 * c.r * c.r)));
+  return t;
+}
+
+// 큰 광장 교차로 "애비뉴 번호,스트리트 번호". 첫 번째가 시작 지점(-600, 590) 교차로다 —
+// 저층 지대 한복판이지만 광장 둘레 블록은 고층으로 세우므로, 시작하자마자 탁 트인 광장과 타워 벽이 보인다.
+const SQUARE_AT = new Set(["2,18", "6,5", "5,11", "7,23"]);
+const SQ_CUT = 70;                                        // 광장 쪽으로 블록을 비우는 폭 (m)
+const PARK_BLOCKS = new Set(["6,15", "7,15", "6,16", "7,16"]);   // 2×2 블록 공원 "애비뉴,스트리트"
+
+function pickFam(h) {
+  if (h > 300) return pickKind(Math.random() < 0.72 ? FAM_GLASS : FAM_CONC);
+  if (h > 130) return pickKind(Math.random() < 0.5 ? FAM_CONC : FAM_GLASS);
+  if (h < 50 && Math.random() < 0.3) return pickKind(FAM_IND);
+  return pickKind(Math.random() < 0.72 ? FAM_BRICK : FAM_CONC);
+}
+
+// 타워 강도에 따른 필지 하나의 높이
+function lotH(T) {
+  if (T > 0.55) {                                         // 도심
+    if (Math.random() < 0.2) return 60 + Math.random() * 60;   // 도심에도 중층이 섞여야 계단처럼 내려앉을 데가 생긴다
+    let h = 90 + T * (110 + Math.random() * 230);
+    if (Math.random() < 0.08) h *= 1.7 + Math.random() * 0.6;  // 랜드마크
+    return h;
+  }
+  if (T > 0.25) return Math.random() < 0.15 ? 120 + Math.random() * 90 : 40 + Math.random() * 60;
+  return Math.random() < 0.1 ? 55 + Math.random() * 35 : 18 + Math.random() * 26;   // 저층 옥상 지대
+}
+
+function addLot(bx, zc, w, d, h) {
+  const kind = pickFam(h);
+  if (h > 220 && Math.random() < 0.5) { addSetbackTower(bx, zc, w, d, h, kind); return; }
+  addBox(bx, zc, w, d, h, kind);
+  // 벽에서 툭 튀어나온 캔틸레버
+  if (h > 130 && Math.random() < 0.16) {
+    const out = 12 + Math.random() * 14;
+    const y0 = h * (0.4 + Math.random() * 0.4);
+    const side = Math.random() < 0.5 ? 1 : -1;
+    addBox(bx, zc + side * (d / 2 + out / 2), Math.min(w, 18), out, 7 + Math.random() * 9, kind, y0);
+  }
+}
+
+// 동서로 필지를 잘라 건물 줄을 세운다.
+//   face   -1 = za 쪽 길에 붙인다 · 1 = zb 쪽 · 0 = 가운데
+//   baseH  주면 모든 필지가 그 높이 ± jitter (중정 블록처럼 옥상이 이어져야 할 때)
+//   pocket 필지 대신 작은 광장을 둘 확률
+function rowLots(xa, xb, za, zb, T, o = {}) {
+  const face = o.face || 0, minW = o.minW || 20, varW = o.varW || 34;
+  let x = xa, prevH = o.baseH || lotH(T);
+  while (x < xb - 12) {
+    if (o.pocket && xb - x > 90 && Math.random() < o.pocket) {
+      const pw = 30 + Math.random() * 20;
+      plazas.push({ x0: x, x1: x + pw, z0: za, z1: zb, kind: "plaza" });
+      x += pw;
+      continue;
+    }
+    let w = Math.min(xb - x, minW + Math.random() * varW);
+    if (xb - (x + w) < 12) w = xb - x;                    // 끝에 자투리 필지를 남기지 않는다
+    let h;
+    if (o.baseH) h = Math.max(14, o.baseH + (Math.random() - 0.5) * (o.jitter || 8));
+    // 저층 지대는 옆 건물과 높이가 비슷해야 옥상을 이어 달릴 수 있다
+    else if (T <= 0.25 && Math.random() < 0.7) h = Math.max(14, prevH + (Math.random() - 0.5) * 14);
+    else h = lotH(T);
+    prevH = h;
+    const d = (zb - za) * (face ? 1 : 0.88 + Math.random() * 0.12);
+    const zc = face < 0 ? za + d / 2 : face > 0 ? zb - d / 2 : (za + zb) / 2;
+    addLot(x + w / 2, zc, w, d, h);
+    x += w + 0.5;
+  }
+}
+
+function genBlock(xa, xb, z0, z1, cz, T) {
+  const D = z1 - z0, W = xb - xa, r = Math.random();
+
+  // 광장 타워: 넓은 광장 가운데 타워 하나 (시그램 빌딩 · 록펠러 센터 느낌)
+  const plazaTower = T > 0.55 ? r < 0.22 : T > 0.25 ? r < 0.1 : false;
+  if (plazaTower && W > 150) {
+    const w = 70 + Math.random() * 40, d = D * 0.78;
+    const bx = xa + W * (0.35 + Math.random() * 0.3);
+    const h = Math.max(T > 0.55 ? 220 : 130, lotH(T));
+    addSetbackTower(bx, cz, w, d, h, pickFam(h));
+    plazas.push({ x0: xa, x1: bx - w / 2 - 1, z0, z1, kind: "plaza" });
+    plazas.push({ x0: bx + w / 2 + 1, x1: xb, z0, z1, kind: "plaza" });
+    return;
+  }
+  if (T > 0.55) {                                         // 도심 타워 줄. 필지가 넓고 사이에 포켓 광장
+    rowLots(xa, xb, z0, z1, T, { minW: 40, varW: 55, pocket: 0.12 });
+    return;
+  }
+
+  const q = Math.random();
+  if (q < 0.25) {                                         // 뒷골목 낀 두 줄
+    const gap = 8 + Math.random() * 6, dd = (D - gap) / 2;
+    rowLots(xa, xb, z0, z0 + dd, T, { face: -1 });
+    rowLots(xa, xb, z1 - dd, z1, T, { face: 1 });
+  } else if (q < 0.40) {                                  // 중정: 가장자리만 건물, 옥상이 고리처럼 이어진다
+    const rd = 16 + Math.random() * 6;
+    const hb = T > 0.25 ? 45 + Math.random() * 45 : 22 + Math.random() * 22;
+    const ew = 24 + Math.random() * 12;
+    rowLots(xa, xb, z0, z0 + rd, T, { face: -1, baseH: hb });
+    rowLots(xa, xb, z1 - rd, z1, T, { face: 1, baseH: hb });
+    for (const [bx, sg] of [[xa + ew / 2, -1], [xb - ew / 2, 1]]) {
+      addBox(bx, cz, ew, D - rd * 2 - 1, Math.max(14, hb + (Math.random() - 0.5) * 8), pickFam(hb));
+    }
+  } else if (q < 0.55 && T <= 0.25) {                     // 창고: 넓고 낮은 지붕 두세 개
+    const n = 2 + (Math.random() * 2 | 0), gw = W / n;
+    for (let k = 0; k < n; k++) {
+      const h = 14 + Math.random() * 18;
+      addBox(xa + gw * (k + 0.5), cz, gw - 1, D * (0.9 + Math.random() * 0.1), h,
+             pickKind(Math.random() < 0.6 ? FAM_IND : FAM_BRICK));
+    }
+  } else {                                                // 한 줄
+    rowLots(xa, xb, z0, z1, T, { pocket: T <= 0.25 ? 0.05 : 0.06 });
+  }
+}
+
 for (let ai = 0; ai < N_AVE; ai++) {
   for (let si = 0; si < N_ST; si++) {
     const cx = (ai - AVE_C) * AVE_SPACING;
@@ -283,51 +419,21 @@ for (let ai = 0; ai < N_AVE; ai++) {
     const z0 = cz - BLOCK_D / 2, z1 = cz + BLOCK_D / 2;
     blocks.push({ key: si * N_AVE + ai, x0, x1, z0, z1 });
 
-    // 도심 정도 — 가운데일수록 높다
-    const dist = Math.hypot((ai - AVE_C) / N_AVE, (si - ST_C) / N_ST) * 2;
-    const downtown = Math.max(0, 1 - dist / 0.75);
-    const midtown = Math.max(0, 1 - dist / 1.4);
+    // 블록 네 귀퉁이가 닿는 교차로: 서쪽 (ai-1, si-1|si) · 동쪽 (ai, si-1|si)
+    const sqW = SQUARE_AT.has(`${ai - 1},${si - 1}`) || SQUARE_AT.has(`${ai - 1},${si}`);
+    const sqE = SQUARE_AT.has(`${ai},${si - 1}`) || SQUARE_AT.has(`${ai},${si}`);
 
-    // 블록의 긴 면(동서)을 따라 좁은 필지로 쪼갠다 -> 다닥다닥 붙은 건물 줄
-    let x = x0;
-    while (x < x1 - 12) {
-      const lotW = Math.min(x1 - x, 20 + Math.random() * 34);
-      // 가끔 필지 몇 개를 합쳐 큰 타워를 세운다
-      const bigLot = downtown > 0.35 && Math.random() < 0.22;
-      const w = bigLot ? Math.min(x1 - x, lotW + 40 + Math.random() * 40) : lotW;
-
-      let h = 26 + Math.random() * 34;
-      h += midtown * 70 * Math.random();
-      h += downtown * (150 + Math.random() * 190);
-      if (bigLot) h *= 1.5 + Math.random() * 0.6;
-      const landmark = downtown > 0.45 && Math.random() < 0.09;
-      if (landmark) h *= 1.9 + Math.random() * 1.0;
-
-      let kind;
-      // 높이로 계열을 정하고, 그 계열의 변종 중 하나를 뽑는다
-      if (h > 300) kind = pickKind(Math.random() < 0.72 ? FAM_GLASS : FAM_CONC);
-      else if (h > 130) kind = pickKind(Math.random() < 0.5 ? FAM_CONC : FAM_GLASS);
-      else if (h < 50 && Math.random() < 0.3) kind = pickKind(FAM_IND);
-      else kind = pickKind(Math.random() < 0.72 ? FAM_BRICK : FAM_CONC);
-
-      const bx = x + w / 2;
-      // 블록 깊이를 그대로 쓰되 살짝 물러나게 해 안뜰 느낌을 만든다
-      const d = BLOCK_D * (0.86 + Math.random() * 0.14);
-
-      if (landmark || (h > 220 && Math.random() < 0.5)) {
-        addSetbackTower(bx, cz, w, d, h, kind);
-      } else {
-        addBox(bx, cz, w, d, h, kind);
-        // 벽에서 툭 튀어나온 캔틸레버
-        if (h > 130 && Math.random() < 0.16) {
-          const out = 12 + Math.random() * 14;
-          const y0 = h * (0.4 + Math.random() * 0.4);
-          const side = Math.random() < 0.5 ? 1 : -1;
-          addBox(bx, cz + side * (d / 2 + out / 2), Math.min(w, 18), out, 7 + Math.random() * 9, kind, y0);
-        }
-      }
-      x += w + 0.5;
+    if (PARK_BLOCKS.has(`${ai},${si}`) ||
+        (!sqW && !sqE && towerAt(cx, cz) < 0.45 && Math.random() < 0.05)) {
+      plazas.push({ x0, x1, z0, z1, kind: "park" });
+      continue;
     }
+    let xa = x0, xb = x1;
+    if (sqW) { plazas.push({ x0, x1: x0 + SQ_CUT, z0, z1, kind: "square" }); xa += SQ_CUT; }
+    if (sqE) { plazas.push({ x0: x1 - SQ_CUT, x1, z0, z1, kind: "square" }); xb -= SQ_CUT; }
+    // 광장을 둘러싼 블록은 고층으로 — 트인 자리 둘레에 벽이 서야 광장으로 읽힌다
+    const T = sqW || sqE ? Math.max(0.6, towerAt(cx, cz)) : towerAt(cx, cz);
+    genBlock(xa, xb, z0, z1, cz, T);
   }
 }
 
@@ -646,6 +752,84 @@ sidewalkMesh.castShadow = true;
 sidewalkMesh.receiveShadow = true;
 scene.add(sidewalkMesh);
 
+// --- 광장 포장 · 공원 잔디 · 나무 · 분수 ---
+// 광장은 인도 위에 색이 다른 돌 포장을 한 겹 깐다. 공원은 산책로 십자로 나눈 잔디 네 칸.
+// 전부 눈으로만 보이는 장식이다 (충돌 없음). 발은 인도 높이(CURB_H)를 그대로 밟는다.
+let parkTreeCount = 0;
+{
+  dummy.rotation.set(0, 0, 0);
+  const paveMat = new THREE.MeshStandardMaterial({ ...PBR.sidewalk, roughness: 0.95,
+    color: 0xd9d4cc, normalScale: new THREE.Vector2(1.2, 1.2), envMapIntensity: 0.4 });
+  worldScaleUv(paveMat, 5);
+  const lawnMat = new THREE.MeshStandardMaterial({ color: 0x4d7236, roughness: 1, envMapIntensity: 0.3 });
+  const stoneMat = new THREE.MeshStandardMaterial({ color: 0x9c968c, roughness: 0.9 });
+  const waterMat = new THREE.MeshStandardMaterial({ color: 0x3f6f8f, roughness: 0.15, metalness: 0.2, envMapIntensity: 1 });
+  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3828, roughness: 1 });
+  const crownMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
+
+  const pave = [], lawns = [], trees = [], fountains = [];
+  for (const p of plazas) {
+    const cx = (p.x0 + p.x1) / 2, cz = (p.z0 + p.z1) / 2, W = p.x1 - p.x0, D = p.z1 - p.z0;
+    if (p.kind === "park") {
+      // 가장자리 6m 는 인도 포장 그대로, 가운데 십자 산책로(폭 10m)
+      const qs = [[p.x0 + 6, cx - 5, p.z0 + 6, cz - 5], [cx + 5, p.x1 - 6, p.z0 + 6, cz - 5],
+                  [p.x0 + 6, cx - 5, cz + 5, p.z1 - 6], [cx + 5, p.x1 - 6, cz + 5, p.z1 - 6]];
+      for (const [a, b, c, d] of qs) {
+        lawns.push({ x0: a, x1: b, z0: c, z1: d });
+        const n = Math.round((b - a) * (d - c) / 260);
+        for (let k = 0; k < n; k++) {
+          trees.push({ x: a + 5 + Math.random() * (b - a - 10), z: c + 5 + Math.random() * (d - c - 10),
+                       s: 0.75 + Math.random() * 0.55 });
+        }
+      }
+      fountains.push({ x: cx, z: cz, r: 9 });
+      continue;
+    }
+    pave.push(p);
+    // 광장: 긴 변을 따라 가로수, 넓으면 가운데 분수
+    for (let x = p.x0 + 12; x < p.x1 - 8; x += 26 + Math.random() * 10) {
+      for (const z of [p.z0 + 7, p.z1 - 7]) {
+        if (Math.random() < 0.55) trees.push({ x, z, s: 0.6 + Math.random() * 0.3 });
+      }
+    }
+    if (W >= 60 && D >= 50 && Math.random() < 0.5) fountains.push({ x: cx, z: cz, r: 8 + Math.random() * 3 });
+  }
+
+  const add = (geo, mat, list, fn, shadow) => {
+    if (!list.length) return null;
+    const m = new THREE.InstancedMesh(geo, mat, list.length);
+    list.forEach((o, i) => { dummy.rotation.set(0, 0, 0); fn(o); dummy.updateMatrix(); m.setMatrixAt(i, dummy.matrix); });
+    m.instanceMatrix.needsUpdate = true;
+    m.castShadow = !!shadow;
+    m.receiveShadow = true;
+    scene.add(m);
+    return m;
+  };
+  add(boxGeo, paveMat, pave, p => { dummy.position.set((p.x0 + p.x1) / 2, CURB_H, (p.z0 + p.z1) / 2); dummy.scale.set(p.x1 - p.x0, 0.04, p.z1 - p.z0); });
+  add(boxGeo, lawnMat, lawns, p => { dummy.position.set((p.x0 + p.x1) / 2, CURB_H, (p.z0 + p.z1) / 2); dummy.scale.set(p.x1 - p.x0, 0.06, p.z1 - p.z0); });
+
+  // 나무: 기둥 + 뭉툭한 이십면체 수관. 도시가 3배 스케일이라 나무도 25~35m 로 크게.
+  const trunkGeo = new THREE.CylinderGeometry(0.7, 1, 1, 6); trunkGeo.translate(0, 0.5, 0);
+  const crownGeo = new THREE.IcosahedronGeometry(1, 1);
+  add(trunkGeo, trunkMat, trees, t => { dummy.position.set(t.x, CURB_H, t.z); dummy.scale.set(1.1 * t.s, 10 * t.s, 1.1 * t.s); });
+  const crowns = add(crownGeo, crownMat, trees, t => {
+    dummy.position.set(t.x, CURB_H + 17 * t.s, t.z); dummy.rotation.set(0, t.x % 6.28, 0);
+    dummy.scale.set(10 * t.s, 9 * t.s, 10 * t.s);
+  }, true);
+  if (crowns) {
+    const c = new THREE.Color();
+    trees.forEach((t, i) => crowns.setColorAt(i, c.setHSL(0.25 + Math.random() * 0.07, 0.42 + Math.random() * 0.18, 0.1 + Math.random() * 0.07)));
+    crowns.instanceColor.needsUpdate = true;
+  }
+
+  // 분수: 돌 수반 + 물 + 가운데 기둥
+  const cylGeo = new THREE.CylinderGeometry(1, 1, 1, 24); cylGeo.translate(0, 0.5, 0);
+  add(cylGeo, stoneMat, fountains, f => { dummy.position.set(f.x, CURB_H, f.z); dummy.scale.set(f.r, 1.6, f.r); });
+  add(cylGeo, waterMat, fountains, f => { dummy.position.set(f.x, CURB_H + 1.2, f.z); dummy.scale.set(f.r - 0.8, 0.5, f.r - 0.8); });
+  add(cylGeo, stoneMat, fountains, f => { dummy.position.set(f.x, CURB_H, f.z); dummy.scale.set(1.4, 8, 1.4); }, true);
+  parkTreeCount = trees.length;
+}
+
 // --- 차선 점선 & 횡단보도 ---
 // 애비뉴는 넓어 중앙선이 두 줄, 스트리트는 좁아 한 줄.
 const paintMat = new THREE.MeshBasicMaterial({ color: 0xd8d4b8 });
@@ -807,18 +991,35 @@ const NEON_COLORS = [0xff2d78, 0x22e0ff, 0xffd21e, 0x8b5cff, 0x2bff88, 0xff6a1e,
 
   // --- 비상계단 / 네온 / 차양: 블록 밖으로 드러난 모든 벽면에 붙인다 ---
   // ±z만 쓰면 정작 스윙으로 지나는 애비뉴(±x 면이 마주 본다)가 텅 빈 채로 남는다.
-  const EDGE = 2.5;
+  // 드러난 면 = 벽 바로 앞(2m)이 같은 블록의 다른 건물로 막혀 있지 않은 면.
+  // 예전엔 블록 경계에 닿은 면만 봤다. 광장·공원·뒷골목 쪽 벽이 생기면서 그걸로는 모자라다.
+  const byBlk = new Map();
+  for (const o of buildings) {
+    if (o.y0 !== 0) continue;
+    const k = blockIndex(o.x, o.z);
+    if (!byBlk.has(k)) byBlk.set(k, []);
+    byBlk.get(k).push(o);
+  }
+  const blockedAt = (self, x, z) => (byBlk.get(blockIndex(x, z)) || []).some(o =>
+    o !== self && o.h > 12 && Math.abs(x - o.x) < o.w / 2 && Math.abs(z - o.z) < o.d / 2);
+  const openFace = (b, ax, sg) => {
+    let open = 0;
+    for (const u of [-0.35, 0, 0.35]) {
+      const x = ax === "x" ? b.x + sg * (b.w / 2 + 2) : b.x + u * b.w;
+      const z = ax === "x" ? b.z + u * b.d : b.z + sg * (b.d / 2 + 2);
+      if (!blockedAt(b, x, z)) open++;
+    }
+    return open >= 2;
+  };
   for (const b of buildings) {
     if (b.y0 !== 0 || b.h < 14) continue;
-    const bl = blockBounds.get(blockIndex(b.x, b.z));
-    if (!bl) continue;
 
     // 드러난 면: 축(x/z) · 바깥 방향 · 벽면 좌표 · 그 면의 가로 길이
     const faces = [];
-    if (b.x - b.w / 2 <= bl.x0 + EDGE) faces.push({ ax: "x", sg: -1, len: b.d });
-    if (b.x + b.w / 2 >= bl.x1 - EDGE) faces.push({ ax: "x", sg:  1, len: b.d });
-    if (b.z - b.d / 2 <= bl.z0 + EDGE) faces.push({ ax: "z", sg: -1, len: b.w });
-    if (b.z + b.d / 2 >= bl.z1 - EDGE) faces.push({ ax: "z", sg:  1, len: b.w });
+    if (openFace(b, "x", -1)) faces.push({ ax: "x", sg: -1, len: b.d });
+    if (openFace(b, "x",  1)) faces.push({ ax: "x", sg:  1, len: b.d });
+    if (openFace(b, "z", -1)) faces.push({ ax: "z", sg: -1, len: b.w });
+    if (openFace(b, "z",  1)) faces.push({ ax: "z", sg:  1, len: b.w });
     if (!faces.length) continue;
 
     // 면 위의 한 점을 구한다. u는 면을 따라가는 좌우 오프셋, out은 벽에서 튀어나온 거리.
@@ -2547,7 +2748,7 @@ setTimeout(() => {
     scene, GLTFLoader, mergeGeometries,
     buildings, blocks, SIDEWALK_W, CURB_H, ST_ROAD_W, AVE_ROAD_W,
     groundAt: groundHeightAt,
-    lamps: lampHandle,
+    lamps: lampHandle, plazas,
     carList: cars, carBodyMesh, carTopMesh,
   }).catch(e => console.warn("[NYC] 소품 로드 실패", e));
   // 첫 프레임이 실제로 그려진 뒤에 닫는다. 먼저 닫으면 검은 화면이 잠깐 보인다.
