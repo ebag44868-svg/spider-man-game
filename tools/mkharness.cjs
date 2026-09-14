@@ -71,7 +71,7 @@ export const T = {
   // 거리 상호작용: 차 충돌 · 체력 · 소품 잡기
   get hp(){ return hp; }, setHp(v){ hp = v; }, HP_MAX, SPAWN, hitCars, tickHp, hurtPlayer, get carHits(){ return carHits; },
   CAR_ROOF, CAR_L, CAR_W, CAR_H, HERO_3P_SCALE, nycFind, groundAt: groundHeightAt,
-  propPick, propGrab, propYank, propThrow, propStep, propBodies, grabStart, grabEnd, get grabbed(){ return grabbed; },
+  propPick, propGrab, propYank, propThrow, propStep, propBodies, grabStart, grabEnd, updateGrab, get grabbed(){ return grabbed; }, get missShot(){ return missShot; }, GRIP_TIME, WEB_SHOOT_T,
   setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, get aimCenter(){ return aimCenter; }, setAim,
   player,
   camera,

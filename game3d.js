@@ -1266,9 +1266,9 @@ const head = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10), headMat);
 head.position.y = 2.15;
 spiderGroup.add(head);
 scene.add(spiderGroup);
-// 3인칭 캐릭터 크기. 도시·차·소품이 다 커진 데 비해 캐릭터가 점처럼 보여서 1.7배로 그린다.
+// 3인칭 캐릭터 크기. 도시·차·소품이 다 커진 데 비해 캐릭터가 점처럼 보여서 키워 그린다.
 // 그림만 커진다 — 충돌 반경(player.r)과 1인칭 시점 높이는 그대로다.
-const HERO_3P_SCALE = 1.7;
+const HERO_3P_SCALE = 2.4;     // 1.7 에서 다시 1.4배
 spiderGroup.scale.setScalar(HERO_3P_SCALE);
 
 // --- 3인칭 캐릭터 모델 교체 시스템 ------------------------------------
@@ -2396,7 +2396,7 @@ const WALLJUMP_UP = 17;
 
 // --- 스윙 튜닝 노브 (여기만 만지면 감이 바뀝니다) ---
 const ROPE_MAX = 150;       // 거미줄 사거리 = 최대 로프 길이. 에임원 색이 이 기준
-const GRIP_TIME = 0.13;     // 로프가 완전히 물리기까지. 붙는 순간 덜컹거림 제거
+const GRIP_TIME = 0.07;     // 로프가 완전히 물리기까지. 붙는 순간 덜컹거림 제거 (0.13은 굼떴다)
 const REEL_RATE = 40;       // 로프 길이가 목표를 따라가는 속도 (m/s)
 const REEL_MANUAL = 26;     // Space 홀드 시 줄을 감는 속도 (m/s)
 const PUMP_DEPTH = 0.12;    // 호 바닥에서 로프가 줄어드는 비율 = 자동 펌핑 강도
@@ -3125,7 +3125,7 @@ function tryAttach() {
   // 노린 데가 비면 근처에서 스윙하기 좋은 앵커를 자동으로 골라준다.
   let autoPick = null;
   if (!point) { point = findSwingAnchor(); autoPick = autoHand; }
-  if (!point) { say("걸 곳 없음"); sfxMiss(); return false; }
+  if (!point) { fireMissShot(); return false; }   // 걸 곳이 없어도 줄은 나간다 — 뻗었다가 끊긴다
   attachWeb(point, autoPick);   // 자동으로 고른 경우에만 손이 정해져 있다
   return true;
 }
@@ -3173,12 +3173,15 @@ renderer.domElement.addEventListener("mousedown", e => {
     return;
   }
   // 클릭 한 번에 정확히 한 발. 홀드해도 재발사하지 않는다.
-  tryAttach();
+  // 조준한 곳에 잡을 소품이 있으면 소품이 먼저다 (탭 = 끌어오기 · 홀드 = 들기 · 떼면 던지기).
+  // 없으면 스윙 앵커, 그것도 없으면 헛방 줄.
+  if (!grabStart()) tryAttach();
   armPulse = 0.35;
 });
 addEventListener("mouseup", e => {
   if (e.button === 0) {
     mouseDownL = false;
+    if (grabbed) grabEnd();                        // 들고 있던 소품: 탭이면 끌어오기, 홀드였으면 던지기
     releaseWeb();                                  // 떼면 즉시 손 놓기
   }
   if (e.button === 2) { mouseDownR = false; dragging = false; web2Held = false; }
@@ -3642,7 +3645,7 @@ function tickHp(dt) {
   if (hp < HP_MAX) hp = Math.min(HP_MAX, hp + HP_REGEN * dt);
 }
 
-// ===================== 거미줄로 소품 잡기 (Q) =====================
+// ===================== 거미줄로 소품 잡기 (좌클릭) =====================
 // 탭 = 확 끌어오기 (발 앞에 떨어진다) · 홀드 = 들고 다니기 · 홀드했다 떼면 = 조준 방향으로 던지기
 const GRAB_RANGE = 90;        // 플레이어에서 이만큼 안의 소품만
 const GRAB_TAP = 0.22;        // 이보다 짧게 누르면 탭
@@ -3663,14 +3666,16 @@ function grabCandidate() {
   return c;
 }
 function grabStart() {
-  if (grabbed) return;
+  if (grabbed) return true;
   const c = grabCandidate();
-  if (!c) { sfxMiss(); return; }
+  if (!c) return false;
   grabbed = propGrab(c);
-  if (!grabbed) return;
+  if (!grabbed) return false;
+  releaseWeb();
   grabT = 0;
   armPulse = 0.35;
   sfxThwip();
+  return true;
 }
 function grabEnd() {
   if (!grabbed) return;
@@ -3733,13 +3738,9 @@ function updateGrab(dt) {
   grabLine.visible = true;
 }
 function grabHintText() {
-  if (grabbed) return grabT < GRAB_TAP ? "" : `  [Q 떼면 ${grabbed.label} 던지기]`;
-  return grabHint ? `  [Q: ${grabHint.label} 끌어오기 · 길게 눌러 들기]` : "";
+  if (grabbed) return grabT < GRAB_TAP ? "" : `  [좌클릭 떼면 ${grabbed.label} 던지기]`;
+  return grabHint ? `  [좌클릭: ${grabHint.label} 끌어오기 · 길게 눌러 들기]` : "";
 }
-addEventListener("keydown", e => {
-  if (e.code === "KeyQ" && !e.repeat && !hudEl.classList.contains("show")) grabStart();
-});
-addEventListener("keyup", e => { if (e.code === "KeyQ") grabEnd(); });
 
 function update(dt) {
   // 고정 스텝 물리와 가변 렌더를 잇기 위해 직전 위치를 남긴다.
@@ -4294,14 +4295,48 @@ function updateWebVisual() {
   else if (firstPerson) handAnchor.getWorldPosition(s);
   else s.set(player.pos.x, player.pos.y + 1.8 * HERO_3P_SCALE, player.pos.z);
 
-  const shoot = Math.min(1, web.t / 0.05);            // 발사 순간 뻗어나가는 연출
+  const shoot = Math.min(1, web.t / WEB_SHOOT_T);     // 발사 순간 뻗어나가는 연출
   const slack = Math.max(0, web.len - s.distanceTo(web.a));
-  const sag = Math.min(3.2, slack * 0.6) + 0.3;       // 느슨하면 축 처지고 팽팽하면 일직선
+  // 느슨하면 처지고 팽팽하면 일직선. 뻗어나가는 동안은 완전히 곧게 — 총알처럼 꽂혀야 한다.
+  const sag = shoot < 1 ? 0 : Math.min(1.2, slack * 0.25) + 0.1;
   const rad = 0.038 + Math.min(0.022, player.vel.length() * 0.0006);
 
   // 아직 다 안 뻗은 끝점을 구해 그 지점까지만 가닥을 만든다
   _w4.copy(web.a).sub(s).multiplyScalar(shoot).add(s);
   fillRibbon(webStrand, s, _w4, sag, rad);
+}
+
+// 헛방: 걸 데가 없어도 줄은 나간다. 조준 방향으로 곧게 뻗었다가 끊어진다.
+// 메시는 첫 헛방 때 만든다 (도시 생성 중에 만들면 난수가 밀린다).
+const WEB_SHOOT_T = 0.035;   // 줄이 끝까지 뻗는 시간 (걸리는 줄)
+const MISS_OUT_T = 0.09;     // 헛방 줄이 사거리 끝까지 뻗는 시간
+const MISS_CUT_T = 0.2;      // 그 뒤 끊겨서 사라지기까지
+let missShot = null, missStrand = null;
+const _msS = new THREE.Vector3(), _msA = new THREE.Vector3(), _msB = new THREE.Vector3();
+function fireMissShot() {
+  aimRay(_aimO, _aimD);
+  const end = aimHit(ROPE_MAX, 0) || aimOrigin(_msA).addScaledVector(_aimD, ROPE_MAX);
+  missShot = { end: end.clone ? end.clone() : end, t: 0, side: web2 ? "L" : "R" };
+  armPulse = 0.35;
+  sfxThwip();
+}
+function updateMissVisual(dt) {
+  if (!missShot) { if (missStrand) missStrand.mesh.visible = false; return; }
+  missShot.t += Math.max(0, dt);
+  if (missShot.t > MISS_OUT_T + MISS_CUT_T) { missShot = null; missStrand.mesh.visible = false; return; }
+  if (!missStrand) { missStrand = makeStrand(); scene.add(missStrand.mesh); }
+  const s = _msS;
+  const hand = missShot.side === "L" ? armL : armR;
+  if (firstPerson && hand.userData.nozzle) hand.userData.nozzle.getWorldPosition(s);
+  else if (firstPerson) handAnchor.getWorldPosition(s);
+  else s.set(player.pos.x, player.pos.y + 1.8 * HERO_3P_SCALE, player.pos.z);
+  const out = Math.min(1, missShot.t / MISS_OUT_T);
+  // 끊긴 뒤에는 손 쪽 끝이 앞으로 따라가며 줄이 짧아진다
+  const cut = Math.max(0, (missShot.t - MISS_OUT_T) / MISS_CUT_T);
+  _msB.copy(missShot.end).sub(s).multiplyScalar(out).add(s);
+  _msA.copy(s).lerp(_msB, cut);
+  missStrand.mesh.visible = true;
+  fillRibbon(missStrand, _msA, _msB, cut * 2.5, 0.03);    // 끊기면 힘없이 처진다
 }
 
 // 보조 웹의 줄. 주 웹과 같은 방식으로 그리되 반대 손에서 나간다.
@@ -4316,9 +4351,9 @@ function updateWeb2Visual() {
   if (firstPerson && hand.userData.nozzle) hand.userData.nozzle.getWorldPosition(s);
   else if (firstPerson) handAnchor.getWorldPosition(s);
   else s.set(player.pos.x, player.pos.y + 1.8 * HERO_3P_SCALE, player.pos.z);
-  const shoot = Math.min(1, web2.t / 0.05);
+  const shoot = Math.min(1, web2.t / WEB_SHOOT_T);
   _w4.copy(web2.a).sub(s).multiplyScalar(shoot).add(s);
-  fillRibbon(web2Strand, s, _w4, 0.4, 0.034);
+  fillRibbon(web2Strand, s, _w4, shoot < 1 ? 0 : 0.15, 0.034);
 }
 
 // 1인칭 손 포즈. updateCamera 안에 110줄 넘게 섞여 있던 것을 그대로 떼어냈다.
@@ -5104,6 +5139,7 @@ function frameBody(now) {
   frame.prev = now;
   skyMesh.position.copy(camera.position);
   updateWebVisual();
+  updateMissVisual(realDt);
   // 월드에 그리는 표식들은 조준점 로직과 무관하게 매 프레임 갱신한다.
   // 예전엔 updateCrosshair 안에 있어서 공격 모드의 early return에 걸렸다.
   updateCrosshair();
@@ -5399,7 +5435,7 @@ if (wantTouchUI()) enableTouch();
 window.__dbg = { scene, camera, renderer, player, frameBody, updateWebVisual, nycStats, nycFind,
   get fpIne(){ return fpIne; }, get fpFwdAcc(){ return fpFwdAcc; }, get fpRoll(){ return fpRoll; }, makeBodyInertia,
   get hp(){ return hp; }, setHp(v){ hp = v; }, HP_MAX, SPAWN, hitCars, tickHp, get carHits(){ return carHits; }, CAR_ROOF, HERO_3P_SCALE,
-  grabStart, grabEnd, updateGrab, get grabbed(){ return grabbed; }, propBodies, propPick, propGrab, propYank, propThrow, propStep, CAR_L, CAR_W, CAR_H,
+  grabStart, grabEnd, updateGrab, get grabbed(){ return grabbed; }, get missShot(){ return missShot; }, get missStrand(){ return missStrand; }, tryAttach, propBodies, propPick, propGrab, propYank, propThrow, propStep, CAR_L, CAR_W, CAR_H,
   YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
   get web(){ return web; }, get web2(){ return web2; }, get zip(){ return zip; }, attachWeb, releaseWeb, releaseWeb2, tryAttach, resolveAnchor, sideOf, otherSide, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, get web2Count(){ return web2Count; }, WEB2_PULL, WEB2_FADE, armR, armL, webStrand, // 자동 앵커
   findSwingAnchor, findSwingAnchorV2, findSwingAnchorLegacy, scoreAnchor, scoreAnchorV2, intentDir, fanYaw, A_TUNE, FAN_PITCH, get autoV2(){ return autoV2; }, setAutoV2(v){ autoV2 = !!v; }, get autoHand(){ return autoHand; }, get scoreWhy(){ return scoreWhy; }, // 디버그 오버레이

@@ -142,5 +142,64 @@ console.log("\n===== 5. 소품 잡기 =====");
   }
 }
 
+console.log("\n===== 6. 좌클릭 하나로: 소품 · 스윙 · 헛방 =====");
+{
+  const C = globalThis.__cv, W = globalThis.__win;
+  const md = () => (C.mousedown || []).forEach(f => f({ button: 0, preventDefault() {} }));
+  const mu = () => (W.mouseup || []).forEach(f => f({ button: 0, preventDefault() {} }));
+  T.setFP(true);
+  const look = (x, y, z, yaw, pitch) => {
+    place(x, y, z); T.setView(yaw, pitch);
+    for (let i = 0; i < 3; i++) T.updateCamera(DT);
+  };
+  // 조준 방향 부호를 모르므로 네 조합을 돌려 잡힐 때까지 누른다
+  const clickAt = (it, ex, ez) => {
+    const dx = it.x - ex, dz = it.z - ez, dy = it.y + 2 - 1.7;
+    for (const sy of [1, -1]) for (const sp of [1, -1]) {
+      look(ex, 0.2, ez, Math.atan2(sy * dx, sy * dz), sp * Math.atan2(dy, Math.hypot(dx, dz)));
+      md();
+      if (T.grabbed) return T.grabbed;
+      mu();
+    }
+    return null;
+  };
+
+  // 빈 하늘: 도시 위 1.5km — 사거리 안에 아무것도 없다
+  look(0, 1500, 0, 0, 1.0);
+  md();
+  ok(!T.web && !!T.missShot, "걸 곳이 없어도 줄은 나간다 (헛방)", `web ${!!T.web} miss ${!!T.missShot}`);
+  mu();
+
+  const it = T.nycFind("trash_bin", 300, 300);
+  const b = clickAt(it, it.x + 24, it.z + 8);
+  ok(!!b, "소품을 조준하고 좌클릭하면 잡는다");
+  if (b) {
+    ok(!T.web, "소품을 잡는 클릭은 스윙 줄을 걸지 않는다");
+    mu();                                   // 바로 뗌 = 탭
+    ok(!T.grabbed && b.state === "free" && b.vel.length() > 5, "바로 떼면 끌어온다", `속도 ${b.vel.length().toFixed(1)}`);
+    for (let i = 0; i < 60 * 16 && b.state !== "gone"; i++) T.propStep(1 / 60, null);
+
+    const it2 = T.nycFind("trash_bin", it.x - 200, it.z - 200);
+    const held = clickAt(it2, it2.x + 24, it2.z + 8);
+    if (held) {
+      for (let i = 0; i < 40; i++) T.updateGrab(DT * 1.5);    // 0.5초 들고 있다가
+      mu();
+      ok(held.state === "free" && held.vel.length() > 50, "홀드했다 떼면 던진다", `속도 ${held.vel.length().toFixed(0)}`);
+    } else ok(false, "던질 소품을 다시 잡았다");
+  }
+
+  // 건물: 기존대로 붙는다
+  const bb = T.buildings.find(o => o.y0 === 0 && o.h > 120 && o.w > 30);
+  let attached = false;
+  for (const yaw of [0, Math.PI]) {
+    look(bb.x, bb.h * 0.5, bb.z + bb.d / 2 + 60, yaw, 0.1);
+    md();
+    if (T.web) { attached = true; mu(); break; }
+    mu();
+  }
+  ok(attached, "건물이 사거리 안이면 붙는다");
+  ok(T.GRIP_TIME <= 0.08 && T.WEB_SHOOT_T <= 0.04, "줄이 빨리 뻗고 빨리 물린다", `뻗기 ${T.WEB_SHOOT_T}s · 물림 ${T.GRIP_TIME}s`);
+}
+
 console.log(`\n합계 통과 ${pass} / 실패 ${fail}`);
 process.exit(fail ? 1 : 0);

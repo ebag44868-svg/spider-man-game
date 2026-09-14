@@ -535,7 +535,8 @@ function propPick(o, d, maxDist) {
         const t = cx * d.x + cy * d.y + cz * d.z;
         if (t < 1 || t > maxDist) continue;
         const px = cx - d.x * t, py = cy - d.y * t, pz = cz - d.z * t;
-        const tol = Math.max(G.r, G.h * 0.5) * sc + 1.5 + t * 0.02;
+        // 좌클릭이 스윙보다 소품을 먼저 본다. 보정이 넓으면 스윙하려던 클릭을 소품이 가로챈다.
+        const tol = Math.max(G.r, G.h * 0.5) * sc + 0.8 + t * 0.012;
         const score = Math.sqrt(px * px + py * py + pz * pz) / tol;
         if (score < bestScore) {
           bestScore = score;
