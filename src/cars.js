@@ -24,7 +24,7 @@ let scene = null, boxGeo = null, dummy = null;
 let N_AVE = 0, N_ST = 0, AVE_SPACING = 0, ST_SPACING = 0, AVE_C = 0, ST_C = 0;
 
 const cars = [];
-// 실제 차 크기 × 15 (src/scale.js). 도시가 사람 기준 3배라 실제 크기는 점으로 보였다.
+// 실제 차 크기 × CAR_SCALE (src/scale.js). 도시가 사람 기준 3배라 실제 크기는 점으로 보였다.
 const CAR_L = 4.6 * CAR_SCALE, CAR_W = 1.95 * CAR_SCALE, CAR_H = 1.35 * CAR_SCALE;
 // let 이지만 export는 살아 있는 바인딩이라, game3d.js도 대입된 뒤의 값을 본다.
 let carBodyMesh = null, carTopMesh = null;
@@ -49,17 +49,18 @@ function initCars(sc, geo, dm, city) {
       const oneWay = ai % 2 === 0 ? 1 : -1;    // 애비뉴별 일방통행
       for (const off of laneOff) {
         const speed = 16 + Math.random() * 12;
-        for (let z = -LEN_Z / 2; z < LEN_Z / 2; z += 100 + Math.random() * 140) {
+        // 차에 치이면 아프다. 도로가 차로 꽉 차 있으면 내려설 데가 없어서 간격을 두 배로 벌렸다.
+        for (let z = -LEN_Z / 2; z < LEN_Z / 2; z += 200 + Math.random() * 260) {
           cars.push({ axis: 'z', x: cx + off, z, dir: oneWay, speed });
         }
       }
     }
     for (let si = 0; si < N_ST - 1; si++) {    // 스트리트 1차선 (뉴욕 스트리트는 대부분 일방통행)
-      if (Math.random() < 0.5) continue;
+      if (Math.random() < 0.6) continue;
       const cz = (si - ST_C) * ST_SPACING + ST_SPACING / 2;
       const speed = 11 + Math.random() * 8;
       const dir = si % 2 === 0 ? 1 : -1;
-      for (let x = -LEN_X / 2; x < LEN_X / 2; x += 110 + Math.random() * 160) {
+      for (let x = -LEN_X / 2; x < LEN_X / 2; x += 240 + Math.random() * 300) {
         cars.push({ axis: 'x', x, z: cz, dir, speed });
       }
     }

@@ -26,7 +26,8 @@ import {
 import {
   init3p, pose3p, bones3p, ready3p,
 } from "./src/rig3p.js";
-import { initNycProps, updateNycProps, nycStats, nycFind } from "./src/nyc-props.js";
+import { initNycProps, updateNycProps, nycStats, nycFind,
+  propPick, propGrab, propYank, propThrow, propStep, propBodies } from "./src/nyc-props.js";
 import { PROP_SCALE } from "./src/scale.js";
 import {
   TUNE as A_TUNE, FAN_PITCH, fanYaw, intentDir, scoreAnchorV2,
@@ -1265,6 +1266,10 @@ const head = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10), headMat);
 head.position.y = 2.15;
 spiderGroup.add(head);
 scene.add(spiderGroup);
+// 3인칭 캐릭터 크기. 도시·차·소품이 다 커진 데 비해 캐릭터가 점처럼 보여서 1.7배로 그린다.
+// 그림만 커진다 — 충돌 반경(player.r)과 1인칭 시점 높이는 그대로다.
+const HERO_3P_SCALE = 1.7;
+spiderGroup.scale.setScalar(HERO_3P_SCALE);
 
 // --- 3인칭 캐릭터 모델 교체 시스템 ------------------------------------
 // assets/models/player/HeroPlaceholder.glb 를 시도해서 불러온다.
@@ -2748,7 +2753,7 @@ setTimeout(() => {
     scene, GLTFLoader, mergeGeometries,
     buildings, blocks, SIDEWALK_W, CURB_H, ST_ROAD_W, AVE_ROAD_W,
     groundAt: groundHeightAt,
-    lamps: lampHandle, plazas,
+    lamps: lampHandle, plazas, nearBoxes: nearbyBuildings,
     carList: cars, carBodyMesh, carTopMesh,
   }).catch(e => console.warn("[NYC] 소품 로드 실패", e));
   // 첫 프레임이 실제로 그려진 뒤에 닫는다. 먼저 닫으면 검은 화면이 잠깐 보인다.
@@ -3538,6 +3543,204 @@ const _c1 = new THREE.Vector3();
 // 카메라 충돌 전용 임시 벡터. _c0(desired)와 겹치면 안 된다.
 const _cPiv = new THREE.Vector3(), _cSeg = new THREE.Vector3(), _cHit = new THREE.Vector3();
 
+// ===================== 차 충돌 · 체력 =====================
+// 체력은 차에 치일 때만 닳는다. 가만히 두면 다시 찬다. 0이 되면 시작 광장에서 다시 선다.
+const HP_MAX = 100;
+const HP_REGEN_WAIT = 4;       // 마지막으로 다친 뒤 이만큼 지나야 회복이 시작된다 (초)
+const HP_REGEN = 10;           // 초당 회복량
+const CAR_HIT_CD = 1.4;        // 한 번 치이면 이만큼은 다시 안 다친다 — 한 대에 연달아 갈리지 않게
+const CAR_ROOF = () => CAR_H * 1.2;   // 차 지붕 높이 (상자 차 차체 + 캐빈 일부. 모델 차 지붕과 비슷하다)
+const SPAWN = new THREE.Vector3(-CELL * 6, 0, CELL * 6);
+let hp = HP_MAX, hpHitCd = 0, hpRegenWait = 0, carHits = 0;
+let rideCar = null, rideX = 0, rideZ = 0;   // 지붕에 올라탄 차와 직전 스텝의 그 차 위치
+
+// 차 한 대는 진행 방향으로 긴 상자다. 파고든 가장 얕은 축으로 밀어내고,
+// 서로 다가오던 속도만큼 아프게 하고 튕겨낸다. 위에서 내려앉으면 지붕에 선다.
+function hitCars(dt) {
+  if (hpHitCd > 0) hpHitCd -= dt;
+  const p = player.pos, r = player.r, roof = CAR_ROOF();
+  const wasRiding = rideCar;
+  rideCar = null;
+  if (p.y > roof + 0.5) return;
+  for (let i = 0; i < cars.length; i++) {
+    const car = cars[i], alongZ = car.axis === "z";
+    const hx = (alongZ ? CAR_W : CAR_L) / 2 + r, hz = (alongZ ? CAR_L : CAR_W) / 2 + r;
+    const dx = p.x - car.x, dz = p.z - car.z;
+    if (Math.abs(dx) >= hx || Math.abs(dz) >= hz || p.y >= roof) continue;
+    const cvx = alongZ ? 0 : car.dir * car.speed, cvz = alongZ ? car.dir * car.speed : 0;
+
+    if (player.prevPos.y >= roof - 0.35 && player.vel.y <= 0.5) {
+      // 지붕: 다치지 않는다. 차가 실제로 움직인 만큼 같이 실려 간다.
+      // (차는 프레임마다, 물리는 스텝마다 돈다. 속도로 밀면 슬로모션에서 지붕 밖으로 미끄러진다)
+      p.y = roof;
+      if (player.vel.y < 0) player.vel.y = 0;
+      player.grounded = true;
+      if (wasRiding === car) {
+        const mx = car.x - rideX, mz = car.z - rideZ;
+        if (Math.abs(mx) + Math.abs(mz) < 60) { p.x += mx; p.z += mz; }   // 월드 끝에서 반대편으로 넘어간 순간은 무시
+      }
+      rideCar = car; rideX = car.x; rideZ = car.z;
+      continue;
+    }
+    const ox = hx - Math.abs(dx), oz = hz - Math.abs(dz);
+    let nx = 0, nz = 0;
+    if (ox < oz) { nx = Math.sign(dx) || 1; p.x = car.x + nx * hx; }
+    else         { nz = Math.sign(dz) || 1; p.z = car.z + nz * hz; }
+    // 차 기준 상대 속도로 본 "서로 다가오는 속도"
+    const into = -((player.vel.x - cvx) * nx + (player.vel.z - cvz) * nz);
+    if (into <= 0) continue;
+    const carN = cvx * nx + cvz * nz;
+    const push = Math.max(carN, 0) + into * 0.5 + 10;          // 밀려나는 속도 (법선 방향)
+    const vn = player.vel.x * nx + player.vel.z * nz;
+    player.vel.x += (push - vn) * nx;
+    player.vel.z += (push - vn) * nz;
+    // 앞범퍼에 치였으면 옆으로도 튕긴다. 진행 방향으로만 밀면 차가 따라와서 또 친다.
+    const front = alongZ ? nz !== 0 : nx !== 0;
+    if (front) {
+      const lat = alongZ ? dx : dz;
+      const side = Math.abs(lat) > 0.3 ? Math.sign(lat) : (car.x + car.z) % 2 < 1 ? 1 : -1;
+      // 차 폭(23m)의 절반을 반 초 안에 빠져나갈 만큼
+      if (alongZ) player.vel.x = side * Math.max(Math.abs(player.vel.x), 24 + into * 0.3);
+      else        player.vel.z = side * Math.max(Math.abs(player.vel.z), 24 + into * 0.3);
+    }
+    if (into > 6 && hpHitCd <= 0) {
+      const dmg = Math.min(45, Math.max(8, into * 0.9));
+      hurtPlayer(dmg);
+      player.vel.y = Math.max(player.vel.y, 9 + into * 0.3);   // 떠 있어야 바닥 마찰에 옆으로 튕기는 힘이 안 죽는다
+      player.grounded = false;
+      hpHitCd = CAR_HIT_CD;
+      carHits++;
+      spawnImpact(_impV.set(p.x, p.y + 1, p.z), 10 + dmg * 0.3, 'kill');
+    }
+  }
+}
+
+function hurtPlayer(dmg) {
+  hp = Math.max(0, hp - dmg);
+  hpRegenWait = HP_REGEN_WAIT;
+  hurtFx = Math.min(1.4, hurtFx + 0.5 + dmg / 40);
+  shake = Math.max(shake, 0.35 + dmg / 60);
+  sfxHurt();
+  say(`쾅!  -${Math.round(dmg)}`, 0.9);
+  if (hp <= 0) respawnPlayer();
+}
+
+function respawnPlayer() {
+  releaseWeb();
+  web2 = null; zip = null; clinging = null;
+  player.pos.set(SPAWN.x, groundHeightAt(SPAWN.x, SPAWN.z), SPAWN.z);
+  player.prevPos.copy(player.pos); player.renderPos.copy(player.pos);
+  player.vel.set(0, 0, 0);
+  hp = HP_MAX; hpRegenWait = 0; hpHitCd = 1.5;
+  hurtFx = 1.4;
+  say("쓰러졌다 — 시작 광장에서 다시", 2.2);
+}
+
+function tickHp(dt) {
+  if (hurtFx > 0) hurtFx = Math.max(0, hurtFx - dt * 1.6);
+  if (hpRegenWait > 0) { hpRegenWait -= dt; return; }
+  if (hp < HP_MAX) hp = Math.min(HP_MAX, hp + HP_REGEN * dt);
+}
+
+// ===================== 거미줄로 소품 잡기 (Q) =====================
+// 탭 = 확 끌어오기 (발 앞에 떨어진다) · 홀드 = 들고 다니기 · 홀드했다 떼면 = 조준 방향으로 던지기
+const GRAB_RANGE = 90;        // 플레이어에서 이만큼 안의 소품만
+const GRAB_TAP = 0.22;        // 이보다 짧게 누르면 탭
+const THROW_SPEED = 75;
+let grabbed = null, grabT = 0, grabLineT = 0, grabHint = null, grabHintT = 0, grabLine = null;
+const _gO = new THREE.Vector3(), _gD = new THREE.Vector3(), _gHold = new THREE.Vector3();
+const _gTmp = new THREE.Vector3(), _gHit = new THREE.Vector3(), _gFrom = new THREE.Vector3();
+let grabLast = null;          // 방금 놓은 소품 — 줄을 잠깐 더 그린다
+
+function grabCandidate() {
+  aimRay(_gO, _gD);
+  const c = propPick(_gO, _gD, GRAB_RANGE + (firstPerson ? 0 : AIM_BACK));
+  if (!c) return null;
+  if (player.pos.distanceTo(_gTmp.set(c.x, c.y, c.z)) > GRAB_RANGE) return null;
+  // 건물에 가려져 있으면 못 잡는다
+  _gTmp.set(c.x - _gO.x, c.y - _gO.y, c.z - _gO.z).multiplyScalar(0.96);
+  if (segHitWorld(_gO, _gTmp, _gHit, 0)) return null;
+  return c;
+}
+function grabStart() {
+  if (grabbed) return;
+  const c = grabCandidate();
+  if (!c) { sfxMiss(); return; }
+  grabbed = propGrab(c);
+  if (!grabbed) return;
+  grabT = 0;
+  armPulse = 0.35;
+  sfxThwip();
+}
+function grabEnd() {
+  if (!grabbed) return;
+  const b = grabbed;
+  grabbed = null;
+  if (grabT < GRAB_TAP) {
+    camera.getWorldDirection(_gD); _gD.y = 0;
+    if (_gD.lengthSq() < 1e-6) _gD.set(0, 0, 1);
+    _gD.normalize();
+    propYank(b, _gTmp.set(player.pos.x + _gD.x * (6 + b.R), player.pos.y, player.pos.z + _gD.z * (6 + b.R)));
+  } else {
+    aimRay(_gO, _gD);
+    propThrow(b, _gTmp.copy(_gD).multiplyScalar(THROW_SPEED).addScaledVector(player.vel, 0.6));
+    sfxWhoosh();
+  }
+  grabLast = b; grabLineT = 0.15;
+}
+// 들고 있을 점: 1인칭은 시선 앞 조금 아래, 3인칭은 캐릭터 머리 위 앞쪽
+function grabHoldPoint(out) {
+  camera.getWorldDirection(_gD);
+  const dist = (firstPerson ? 7 : 9) + grabbed.R * 1.5;
+  if (firstPerson) {
+    // 조준점을 가리지 않게 오른쪽으로 비켜 든다
+    out.copy(camera.position).addScaledVector(_gD, dist)
+       .addScaledVector(_gTmp.set(1, 0, 0).applyQuaternion(camera.quaternion), 3.5 + grabbed.R);
+    out.y -= 0.6;
+  } else {
+    _gD.y = 0; if (_gD.lengthSq() < 1e-6) _gD.set(0, 0, 1); _gD.normalize();
+    out.set(player.renderPos.x, player.renderPos.y + 3.2 * HERO_3P_SCALE + grabbed.H * 0.5, player.renderPos.z)
+       .addScaledVector(_gD, dist);
+  }
+  return out;
+}
+function updateGrab(dt) {
+  if (grabbed) {
+    grabT += dt;
+    if (grabbed.state === "gone") grabbed = null;
+  }
+  propStep(dt, grabbed ? { hold: grabHoldPoint(_gHold), holdVel: player.vel } : null);
+  // 조준한 소품 이름 — 0.1초마다만 찾는다
+  grabHintT -= dt;
+  if (grabHintT <= 0) { grabHintT = 0.1; grabHint = grabbed ? null : grabCandidate(); }
+
+  // 손에서 소품까지 줄. 처음 잡을 때 만든다 (도시 생성 중에 THREE 객체를 만들면 난수가 밀린다).
+  if (grabLineT > 0) grabLineT -= dt;
+  const target = grabbed || (grabLineT > 0 && grabLast && grabLast.state !== "gone" ? grabLast : null);
+  if (!target) { if (grabLine) grabLine.visible = false; return; }
+  if (!grabLine) {
+    grabLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.LineBasicMaterial({ color: 0xf4f4f4 }));
+    grabLine.frustumCulled = false;
+    scene.add(grabLine);
+  }
+  if (firstPerson) (armR.userData.nozzle || handAnchor).getWorldPosition(_gFrom);
+  else _gFrom.set(player.renderPos.x, player.renderPos.y + 1.8 * HERO_3P_SCALE, player.renderPos.z);
+  const a = grabLine.geometry.attributes.position;
+  a.setXYZ(0, _gFrom.x, _gFrom.y, _gFrom.z);
+  a.setXYZ(1, target.pos.x, target.pos.y + target.H * 0.5, target.pos.z);
+  a.needsUpdate = true;
+  grabLine.visible = true;
+}
+function grabHintText() {
+  if (grabbed) return grabT < GRAB_TAP ? "" : `  [Q 떼면 ${grabbed.label} 던지기]`;
+  return grabHint ? `  [Q: ${grabHint.label} 끌어오기 · 길게 눌러 들기]` : "";
+}
+addEventListener("keydown", e => {
+  if (e.code === "KeyQ" && !e.repeat && !hudEl.classList.contains("show")) grabStart();
+});
+addEventListener("keyup", e => { if (e.code === "KeyQ") grabEnd(); });
+
 function update(dt) {
   // 고정 스텝 물리와 가변 렌더를 잇기 위해 직전 위치를 남긴다.
   // 이게 없으면 렌더가 스텝 사이에 걸릴 때마다 카메라가 튄다(저더).
@@ -3988,6 +4191,8 @@ function update(dt) {
     const k = Math.min(1, (hsp - 6) / 16);
     bodyYaw = lerpAngle(bodyYaw, Math.atan2(player.vel.x, player.vel.z), Math.min(1, (2.5 + 7.5 * k) * dt));
   }
+  hitCars(dt);
+  tickHp(dt);
   spiderGroup.position.copy(player.renderPos);
   spiderGroup.rotation.y = bodyYaw;
   // 덤블링: 진행 방향 축으로 한 바퀴. 끝나면 정확히 0으로 되돌아온다.
@@ -4087,7 +4292,7 @@ function updateWebVisual() {
   const wHand = web.side === "L" ? armL : armR;
   if (firstPerson && wHand.userData.nozzle) wHand.userData.nozzle.getWorldPosition(s);
   else if (firstPerson) handAnchor.getWorldPosition(s);
-  else s.set(player.pos.x, player.pos.y + 1.8, player.pos.z);
+  else s.set(player.pos.x, player.pos.y + 1.8 * HERO_3P_SCALE, player.pos.z);
 
   const shoot = Math.min(1, web.t / 0.05);            // 발사 순간 뻗어나가는 연출
   const slack = Math.max(0, web.len - s.distanceTo(web.a));
@@ -4110,7 +4315,7 @@ function updateWeb2Visual() {
   const hand = web && web.side === "R" ? armL : armR;      // 주 웹의 반대 손
   if (firstPerson && hand.userData.nozzle) hand.userData.nozzle.getWorldPosition(s);
   else if (firstPerson) handAnchor.getWorldPosition(s);
-  else s.set(player.pos.x, player.pos.y + 1.8, player.pos.z);
+  else s.set(player.pos.x, player.pos.y + 1.8 * HERO_3P_SCALE, player.pos.z);
   const shoot = Math.min(1, web2.t / 0.05);
   _w4.copy(web2.a).sub(s).multiplyScalar(shoot).add(s);
   fillRibbon(web2Strand, s, _w4, 0.4, 0.034);
@@ -4419,14 +4624,19 @@ function updateCamera(dt) {
 
     // 벽에 밀려 카메라가 몸 안까지 들어오면 캐릭터 내부가 화면을 덮는다.
     // 그럴 때만 숨긴다 — 평상시(dLimit이 기본 거리)에는 항상 보인다.
-    spiderGroup.visible = dLimit > CAM_HIDE_DIST;
+    // 캐릭터를 1.7배로 키운 뒤로는 머리까지 거리만으로 모자라다 — 올려다보면 카메라가 땅에 막혀
+    // 다리 속으로 들어간다. 카메라가 캐릭터 몸통 원기둥 안이면 숨긴다.
+    const chx = camera.position.x - player.renderPos.x, chz = camera.position.z - player.renderPos.z;
+    const chy = camera.position.y - player.renderPos.y;
+    const inHero = chx * chx + chz * chz < (0.9 * HERO_3P_SCALE) ** 2 && chy > -0.3 && chy < HERO_HEIGHT * HERO_3P_SCALE;
+    spiderGroup.visible = dLimit > CAM_HIDE_DIST && !inHero;
     // 중앙 조준에서는 화면 중앙이 곧 조준 방향이어야 한다. 목표점을 보면 어깨
     // 오프셋만큼 화면이 돌아가서 조준점과 실제 방향이 어긋난다.
     if (camAuto && !aimCenter) {
       // 자동: 진행 방향을 살짝 앞서 본다. 속도감이 여기서 나온다.
       lookTarget.lerp(_c1.set(
         player.renderPos.x + player.vel.x * 0.16,
-        player.renderPos.y + 1.7 + player.vel.y * 0.05,
+        player.renderPos.y + 1.7 * HERO_3P_SCALE + player.vel.y * 0.05,
         player.renderPos.z + player.vel.z * 0.16
       ), 1 - Math.exp(-12 * dt));
       camera.lookAt(lookTarget);
@@ -4804,6 +5014,7 @@ const _snF = new THREE.Vector3();
 
 
 const hurtEl = document.getElementById("hurt");
+const hpBarEl = document.getElementById("hpBar"), hpNumEl = document.getElementById("hpNum");
 const dodgeEl = document.getElementById("dodgeFx");
 
 
@@ -4814,6 +5025,15 @@ function updateHud(dtReal) {
   updateSwingPreview();
   if (touchMode && window.__touchCd) window.__touchCd();
 
+  // 체력 — 10칸. 덜 찬 칸은 초록(차오르는 중)
+  if (hpBarEl && hpBarEl.children) {              // 테스트 하네스의 가짜 DOM 에는 children 이 없다
+    if (hpBarEl.children.length !== 10) hpBarEl.innerHTML = "<i></i>".repeat(10);
+    for (let i = 0; i < hpBarEl.children.length; i++) {
+      hpBarEl.children[i].className = hp >= (i + 1) * 10 - 0.01 ? "" : hp > i * 10 ? "regen" : "off";
+    }
+    hpNumEl.textContent = `${Math.ceil(hp)} / ${HP_MAX}`;
+    hpNumEl.classList.toggle("low", hp < 30);
+  }
   hurtEl.style.opacity = Math.max(0, Math.min(1, hurtFx)) * 0.85;
   dodgeEl.style.opacity = Math.max(0, Math.min(1, dodgeFx)) * 0.7;
   // 완벽 회피 문구는 커졌다 사라진다
@@ -4879,6 +5099,7 @@ function frameBody(now) {
   updateCars(realDt);
   // 가까운 차·소품을 모델로. 상자 차 행렬을 덮어쓰므로 반드시 updateCars 뒤다.
   updateNycProps(realDt, player.renderPos.x, player.renderPos.z);
+  updateGrab(realDt);            // 잡은 소품 · 날아다니는 소품 (소품 인스턴스를 고친 뒤)
   updateCamera(Math.min(0.05, (frame.prev ? now - frame.prev : 16) / 1000));
   frame.prev = now;
   skyMesh.position.copy(camera.position);
@@ -4896,6 +5117,7 @@ function frameBody(now) {
     `${Math.round(player.vel.length() * 3.6)} km/h · DASH ${hasDash ? "READY" : `${Math.max(dashTimer, 0).toFixed(1)}s`}`
     + (camMsg > 0 ? ` · ${camLabel} ←` : "")
 
+    + grabHintText()
     + (toastT > 0 ? `   ▸ ${toast}` : "")
     + (clinging ? (sliding ? "  [벽: 미끄러지는 중 · Ctrl로 붙잡기]" : "  [벽타기: WASD]") : "");
   pumpEl.style.opacity = Math.min(1, Math.max(pumpFx, 0) * 6);
@@ -5176,6 +5398,8 @@ if (wantTouchUI()) enableTouch();
 
 window.__dbg = { scene, camera, renderer, player, frameBody, updateWebVisual, nycStats, nycFind,
   get fpIne(){ return fpIne; }, get fpFwdAcc(){ return fpFwdAcc; }, get fpRoll(){ return fpRoll; }, makeBodyInertia,
+  get hp(){ return hp; }, setHp(v){ hp = v; }, HP_MAX, SPAWN, hitCars, tickHp, get carHits(){ return carHits; }, CAR_ROOF, HERO_3P_SCALE,
+  grabStart, grabEnd, updateGrab, get grabbed(){ return grabbed; }, propBodies, propPick, propGrab, propYank, propThrow, propStep, CAR_L, CAR_W, CAR_H,
   YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
   get web(){ return web; }, get web2(){ return web2; }, get zip(){ return zip; }, attachWeb, releaseWeb, releaseWeb2, tryAttach, resolveAnchor, sideOf, otherSide, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, get web2Count(){ return web2Count; }, WEB2_PULL, WEB2_FADE, armR, armL, webStrand, // 자동 앵커
   findSwingAnchor, findSwingAnchorV2, findSwingAnchorLegacy, scoreAnchor, scoreAnchorV2, intentDir, fanYaw, A_TUNE, FAN_PITCH, get autoV2(){ return autoV2; }, setAutoV2(v){ autoV2 = !!v; }, get autoHand(){ return autoHand; }, get scoreWhy(){ return scoreWhy; }, // 디버그 오버레이

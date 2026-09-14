@@ -367,6 +367,7 @@ function rebuildKind(name, px, pz) {
     if (!list) continue;
     for (const i of list) {
       const it = k.items[i];
+      if (it.dyn) continue;                     // 날아다니는 중인 소품은 따로 그린다
       const dx = it.x - px, dz = it.z - pz;
       if (dx * dx + dz * dz > r2) continue;
       setItemMatrix(it, k.cfg.yaw);
@@ -485,6 +486,195 @@ async function setupCars(Loader, merge) {
   cars = { list: carList, bodyMesh: carBodyMesh, topMesh: carTopMesh, types, pick, color };
 }
 
+// ─────────────────────────── 잡을 수 있는 소품 ───────────────────────────
+// 거미줄로 확 끌어오거나 들고 던진다. 잡힌 소품은 인스턴스에서 빠져 따로 된 몸체로
+// 날아다니고, 멈추면 그 자리에서 다시 인스턴스로 돌아간다 (옮겨진 위치 그대로 남는다).
+//   r, h  모델 실측 반경·높이 (manifest.json). 쓸 때 배율(it.s × PROP_SCALE)을 곱한다
+const GRAB = {
+  trash_bin:   { r: 0.45, h: 0.95, label: "쓰레기통" },
+  trash_bag_a: { r: 0.28, h: 0.62, label: "쓰레기봉투" },
+  trash_bag_b: { r: 0.26, h: 0.55, label: "쓰레기봉투" },
+  newspapers:  { r: 0.30, h: 0.23, label: "신문 뭉치" },
+  hydrant:     { r: 0.24, h: 0.85, label: "소화전" },
+  mailbox:     { r: 0.30, h: 1.25, label: "우체통" },
+  bench:       { r: 0.90, h: 1.30, label: "벤치" },
+  dumpster:    { r: 1.20, h: 1.45, label: "수거함" },
+};
+const PROP_G = 30;           // 소품 중력 (m/s²)
+const MAX_BODIES = 24;       // 동시에 날아다닐 수 있는 수. 넘치면 가장 오래된 것부터 내려앉힌다
+const bodies = [];
+const _near = [];
+
+function moveCell(k, i, ox, oz, nx, nz) {
+  const a = cellKey(ox, oz), b = cellKey(nx, nz);
+  if (a === b) return;
+  const la = k.cells.get(a);
+  if (la) { const j = la.indexOf(i); if (j >= 0) la.splice(j, 1); }
+  if (!k.cells.has(b)) k.cells.set(b, []);
+  k.cells.get(b).push(i);
+}
+
+// 조준선 근처에서 잡을 소품을 고른다. 선에서 떨어진 거리 ÷ (소품 크기 + 보정) 이 가장 작은 것.
+function propPick(o, d, maxDist) {
+  if (!S) return null;
+  let best = null, bestScore = 1;
+  const g0x = Math.floor((o.x - maxDist) / GRID), g1x = Math.floor((o.x + maxDist) / GRID);
+  const g0z = Math.floor((o.z - maxDist) / GRID), g1z = Math.floor((o.z + maxDist) / GRID);
+  for (const name of Object.keys(GRAB)) {
+    const k = kinds[name];
+    if (!k) continue;
+    const G = GRAB[name];
+    for (let gx = g0x; gx <= g1x; gx++) for (let gz = g0z; gz <= g1z; gz++) {
+      const list = k.cells.get(gx + "," + gz);
+      if (!list) continue;
+      for (const i of list) {
+        const it = k.items[i];
+        if (it.dyn) continue;
+        const sc = it.s * PROP_SCALE;
+        const cx = it.x - o.x, cy = it.y + G.h * sc * 0.5 - o.y, cz = it.z - o.z;
+        const t = cx * d.x + cy * d.y + cz * d.z;
+        if (t < 1 || t > maxDist) continue;
+        const px = cx - d.x * t, py = cy - d.y * t, pz = cz - d.z * t;
+        const tol = Math.max(G.r, G.h * 0.5) * sc + 1.5 + t * 0.02;
+        const score = Math.sqrt(px * px + py * py + pz * pz) / tol;
+        if (score < bestScore) {
+          bestScore = score;
+          best = { name, i, t, label: G.label, x: it.x, y: it.y + G.h * sc * 0.5, z: it.z };
+        }
+      }
+    }
+  }
+  return best;
+}
+
+function syncGroup(b) {
+  b.group.position.set(b.pos.x, b.pos.y + b.H * 0.5, b.pos.z);   // 중심을 축으로 굴러야 자연스럽다
+  b.group.rotation.set(b.tilt, b.yaw + kinds[b.name].cfg.yaw, 0, "YXZ");
+}
+
+function propGrab(c) {
+  const k = kinds[c.name], it = k && k.items[c.i];
+  if (!it || it.dyn) return null;
+  while (bodies.length >= MAX_BODIES) {
+    const old = bodies.find(b => b.state === "free");
+    if (!old) return null;
+    settleBody(old);
+  }
+  const G = GRAB[c.name], sc = it.s * PROP_SCALE;
+  const group = new THREE.Group(), inner = new THREE.Group();
+  inner.position.y = -G.h * 0.5;               // 바깥 그룹이 배율을 가지므로 모델 단위로 내린다
+  for (const part of k.parts || []) {
+    const m = new THREE.Mesh(part.geometry, part.material);
+    m.castShadow = true; m.receiveShadow = true;
+    inner.add(m);
+  }
+  group.add(inner);
+  group.scale.setScalar(sc);
+  group.name = "nyc_dyn_" + c.name;
+  S.scene.add(group);
+  it.dyn = true;
+  k.dirty = true;
+  const b = {
+    name: c.name, i: c.i, it, R: G.r * sc, H: G.h * sc, label: G.label,
+    pos: new THREE.Vector3(it.x, it.y, it.z), vel: new THREE.Vector3(),
+    yaw: it.yaw, spin: 0, tilt: 0, tiltV: 0, state: "held", rest: 0, age: 0, group,
+  };
+  bodies.push(b);
+  syncGroup(b);
+  return b;
+}
+
+// 탭: target(플레이어 발 앞)으로 포물선을 그리며 날아와 떨어진다
+function propYank(b, target) {
+  const dx = target.x - b.pos.x, dz = target.z - b.pos.z;
+  const T = Math.min(0.9, Math.max(0.35, Math.hypot(dx, dz) / 70));
+  b.vel.set(dx / T, (target.y - b.pos.y) / T + 0.5 * PROP_G * T, dz / T);
+  b.spin = (Math.random() - 0.5) * 8;
+  b.tiltV = (Math.random() - 0.5) * 6;
+  b.state = "free"; b.age = 0;
+}
+function propThrow(b, vel) {
+  b.vel.copy(vel);
+  b.spin = (Math.random() - 0.5) * 6;
+  b.tiltV = 7 + Math.random() * 6;
+  b.state = "free"; b.age = 0;
+}
+
+function settleBody(b) {
+  const k = kinds[b.name], it = b.it;
+  moveCell(k, b.i, it.x, it.z, b.pos.x, b.pos.z);
+  it.x = b.pos.x; it.z = b.pos.z; it.yaw = b.yaw;
+  it.y = S.groundAt(b.pos.x, b.pos.z, b.pos.y + b.H * 0.5);
+  it.dyn = false;
+  k.dirty = true;
+  S.scene.remove(b.group);
+  bodies.splice(bodies.indexOf(b), 1);
+  b.state = "gone";
+}
+
+const wrapPi = a => a - Math.round(a / (Math.PI * 2)) * Math.PI * 2;
+
+// 건물 벽: 가장 얕게 파고든 축으로 밀어내고 튕긴다. 지붕 위에서 내려앉는 중이면 바닥(groundAt)이 받는다.
+function collideBoxes(b) {
+  if (!S.nearBoxes) return;
+  const p = b.pos, v = b.vel, r = b.R;
+  const list = S.nearBoxes(p.x, p.z, r + 2, _near);
+  for (let n = 0; n < list.length; n++) {
+    const o = list[n], top = o.y0 + o.h;
+    if (p.y > top - 1.5 || p.y + b.H < o.y0) continue;
+    const dx = p.x - o.x, dz = p.z - o.z;
+    const ox = o.w / 2 + r - Math.abs(dx), oz = o.d / 2 + r - Math.abs(dz);
+    if (ox <= 0 || oz <= 0) continue;
+    if (ox < oz) { const sg = Math.sign(dx) || 1; p.x = o.x + sg * (o.w / 2 + r); if (v.x * sg < 0) v.x *= -0.35; }
+    else         { const sg = Math.sign(dz) || 1; p.z = o.z + sg * (o.d / 2 + r); if (v.z * sg < 0) v.z *= -0.35; }
+    b.spin *= -0.6;
+  }
+}
+
+function stepBody(b, dt, ctx) {
+  const p = b.pos, v = b.vel;
+  b.age += dt;
+  if (b.state === "held" && ctx) {
+    // 들고 있는 동안: 손 앞 목표점으로 임계 감쇠 스프링. 감쇠는 플레이어 속도 기준이라 스윙해도 따라온다.
+    const K = 70, C = 2 * Math.sqrt(K), hv = ctx.holdVel;
+    v.x += ((ctx.hold.x - p.x) * K - (v.x - hv.x) * C) * dt;
+    v.y += ((ctx.hold.y - b.H * 0.5 - p.y) * K - (v.y - hv.y) * C) * dt;
+    v.z += ((ctx.hold.z - p.z) * K - (v.z - hv.z) * C) * dt;
+    b.spin *= Math.exp(-3 * dt);
+    b.tilt *= Math.exp(-4 * dt);
+  } else {
+    if (b.state === "held") b.state = "free";
+    v.y -= PROP_G * dt;
+  }
+  p.addScaledVector(v, dt);
+  b.yaw += b.spin * dt;
+  b.tilt += b.tiltV * dt;
+  collideBoxes(b);
+  const gy = S.groundAt(p.x, p.z, p.y + b.H * 0.5);
+  if (p.y <= gy) {
+    p.y = gy;
+    if (v.y < 0) v.y *= -0.28;
+    if (v.y < 2.5) v.y = 0;
+    const f = Math.exp(-5 * dt);
+    v.x *= f; v.z *= f; b.spin *= f; b.tiltV *= f;
+    b.tilt = wrapPi(b.tilt) * Math.exp(-7 * dt);   // 인스턴스로 돌아갈 때 곧게 서 있어야 한다
+    if (b.state === "free" && v.lengthSq() < 2) b.rest += dt; else b.rest = 0;
+  } else b.rest = 0;
+}
+
+// 매 프레임. ctx = { hold: 들고 있을 점, holdVel: 플레이어 속도 } 또는 null
+function propStep(dt, ctx) {
+  if (!bodies.length) return;
+  const n = Math.max(1, Math.ceil(dt / (1 / 90))), h = dt / n;
+  for (let s = 0; s < n; s++) for (const b of bodies) stepBody(b, h, ctx);
+  for (let i = bodies.length - 1; i >= 0; i--) {
+    const b = bodies[i];
+    if (b.state === "free" && (b.rest > 0.5 || b.age > 15 || b.pos.y < -50)) settleBody(b);
+    else syncGroup(b);
+  }
+}
+function propBodies() { return bodies; }
+
 // ─────────────────────────── 시작 · 매 프레임 ───────────────────────────
 async function initNycProps(opts) {
   if (typeof window === "undefined") return false;     // 테스트 하네스(Node)에서는 아무것도 안 한다
@@ -519,6 +709,11 @@ async function initNycProps(opts) {
 
 function updateNycProps(dt, px, pz) {
   if (!ready) return;
+  // 잡히거나 내려앉은 소품이 있는 종류는 기다리지 않고 바로 다시 채운다 (안 그러면 0.25초 동안 두 개로 보인다)
+  for (const name of Object.keys(kinds)) {
+    const k = kinds[name];
+    if (k.dirty) { k.dirty = false; rebuildKind(name, px, pz); }
+  }
   rebuildT -= dt;
   if (rebuildT <= 0) {
     rebuildT = REBUILD_T;
@@ -535,7 +730,7 @@ function nycStats() {
   const o = {};
   for (const [n, k] of Object.entries(kinds)) o[n] = { items: k.items.length, drawn: k.meshes && k.meshes[0] ? k.meshes[0].count : 0, parts: k.parts ? k.parts.length : 0 };
   if (cars) o.cars = Object.fromEntries(Object.entries(cars.types).map(([t, T]) => [t, T.meshes[0].count]));
-  return { ready, loaded: loadedCount, ...o };
+  return { ready, loaded: loadedCount, bodies: bodies.length, ...o };
 }
 
 // 디버그: 이 점에서 가장 가까운 소품 위치. 눈으로 확인할 때 카메라를 거기로 옮긴다.
@@ -550,4 +745,5 @@ function nycFind(name, x, z) {
   return best;
 }
 
-export { initNycProps, updateNycProps, nycStats, nycFind, TYPES, CAR_R };
+export { initNycProps, updateNycProps, nycStats, nycFind, TYPES, CAR_R,
+  GRAB, propPick, propGrab, propYank, propThrow, propStep, propBodies };

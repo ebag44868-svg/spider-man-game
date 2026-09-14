@@ -68,6 +68,10 @@ export const T = {
   get fpRoll(){ return fpRoll; }, setFpRoll(v){ fpRoll = v; },
   camRight(){ const v = new THREE.Vector3(1,0,0); v.applyQuaternion(camera.quaternion); return v; },
   YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN,
+  // 거리 상호작용: 차 충돌 · 체력 · 소품 잡기
+  get hp(){ return hp; }, setHp(v){ hp = v; }, HP_MAX, SPAWN, hitCars, tickHp, hurtPlayer, get carHits(){ return carHits; },
+  CAR_ROOF, CAR_L, CAR_W, CAR_H, HERO_3P_SCALE, nycFind, groundAt: groundHeightAt,
+  propPick, propGrab, propYank, propThrow, propStep, propBodies, grabStart, grabEnd, get grabbed(){ return grabbed; },
   setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, get aimCenter(){ return aimCenter; }, setAim,
   player,
   camera,
