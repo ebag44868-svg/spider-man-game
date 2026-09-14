@@ -2408,6 +2408,8 @@ const CAM_WALL_PAD = 0.55;  // 벽에서 이만큼 앞에 서고 싶다
 const CAM_MIN_DIST = 1.25;  // 머리에서 이만큼은 떨어지고 싶다
 const CAM_NEAR_SKIN = 0.15; // 벽까지 최소한 이만큼은 남긴다. near 평면이 0.1이다
 const CAM_HIDE_DIST = 1.1;  // 이보다 붙으면 몸 안이 보이므로 캐릭터를 숨긴다
+// 3인칭 카메라가 발밑에서 얼마나 위에 있는가. 캐릭터를 2.4배로 키운 뒤 3.0m 는 허리 높이라 올렸다.
+const CAM_RISE_3P = 5.5;
 const CAM_PIVOT_Y = 1.7;    // 선분을 쏘는 기준점 높이 = 시선 높이
 let camBlocked = false;     // 지금 벽에 막혀 있나 (테스트/디버그용)
 
@@ -3197,11 +3199,13 @@ let acroCd = 0, acroCount = 0;
 
 
 // 3인칭 휠 줌. 기본 거리에 곱해지는 배율이라 속도에 따른 거리 변화와 공존한다.
-const ZOOM_MIN = 0.35, ZOOM_MAX = 1.6;
+// 한 칸에 30%씩 곱해서 바꾼다. 0.09씩 더하던 때는 몇 칸을 돌려도 티가 안 났고,
+// 더하기는 가까울 때와 멀 때 체감이 달라 곱하기로 바꿨다.
+const ZOOM_MIN = 0.3, ZOOM_MAX = 2.8, ZOOM_STEP = 1.3;
 let camZoom = 0.62;          // 기본값을 1보다 작게 — 지금 기본이 너무 멀다
 addEventListener("wheel", e => {
   if (firstPerson) return;
-  camZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, camZoom + (e.deltaY > 0 ? 0.09 : -0.09)));
+  camZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, e.deltaY > 0 ? camZoom * ZOOM_STEP : camZoom / ZOOM_STEP));
   camMsg = 0.9;
 }, { passive: true });
 
@@ -4613,7 +4617,7 @@ function updateCamera(dt) {
     const camDist = Math.min(9.5 + hsp * 0.28, 34) * camZoom * (aimCenter ? CAM_TIGHT : 1);
     const desired = _c0.set(
       player.renderPos.x - viewDir.x * camDist,
-      player.renderPos.y + (3.0 - hug * 1.4) - viewDir.y * camDist * 0.55,
+      player.renderPos.y + (CAM_RISE_3P - hug * 1.4) - viewDir.y * camDist * 0.55,
       player.renderPos.z - viewDir.z * camDist
     );
     // 어깨너머: 캐릭터를 화면 한쪽으로 비켜 세워 정중앙(조준점)을 비운다.
