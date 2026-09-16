@@ -86,8 +86,8 @@ console.log("\n===== 4. 회복 · 쓰러짐 =====");
   ok(early === 50, "막 다친 직후 4초는 안 찬다", `1초 뒤 ${early.toFixed(1)}`);
   ok(T.hp > 60, "그 뒤로 다시 찬다", `7초 뒤 ${T.hp.toFixed(1)}`);
 
-  T.setHp(5);
-  for (let i = 0; i < 180; i++) { P.pos.y = 300; T.update(DT); }
+  for (let i = 0; i < 180; i++) { P.pos.y = 300; T.update(DT); }   // 무적 시간을 벗긴다
+  T.setHp(3);                                                      // 맞는 순간에 낮춴야 한다 — 먼저 낮추면 그 사이에 회복된다
   place(car.x, 0.2, car.z + car.dir * (T.CAR_L / 2 + 0.3));
   T.update(DT);
   ok(T.hp === T.HP_MAX, "0이 되면 체력이 가득 찬다", `${T.hp}`);

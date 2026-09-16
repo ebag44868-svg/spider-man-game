@@ -301,6 +301,17 @@ function towerAt(x, z) {
   return t;
 }
 
+// 도심 '한복판'. 타워 강도(towerAt)보다 훨씬 좁은 언덕이다 — 허브 중심 200~300m 안에서만
+// 값이 크다. 이 값으로 높이에 곱을 준다. 미드타운 한가운데만 다른 동네보다 몇 배 높게 솟는다.
+const CORE_R = 270;
+function coreAt(x, z) {
+  let c = 0;
+  for (const h of TOWER_HUBS) {
+    c = Math.max(c, h.k * Math.exp(-((x - h.x) ** 2 + (z - h.z) ** 2) / (2 * CORE_R * CORE_R)));
+  }
+  return c;
+}
+
 // 큰 광장 교차로 "애비뉴 번호,스트리트 번호". 첫 번째가 시작 지점(-600, 590) 교차로다 —
 // 저층 지대 한복판이지만 광장 둘레 블록은 고층으로 세우므로, 시작하자마자 탁 트인 광장과 타워 벽이 보인다.
 const SQUARE_AT = new Set(["2,18", "6,5", "5,11", "7,23"]);
@@ -315,15 +326,20 @@ function pickFam(h) {
 }
 
 // 타워 강도에 따른 필지 하나의 높이
-function lotH(T) {
+// 필지 하나의 높이. mul 은 도심 한복판 보정(coreAt 에서 온다).
+//
+// 전체적으로 한 단계씩 올렸다. 예전 저층 지대(18~44m)는 스윙 높이에서 바닥처럼 보였고,
+// 도심도 90~340m 라 '마천루 숲'으로는 낮았다.
+function lotH(T, mul) {
+  const m = mul === undefined ? 1 : mul;
   if (T > 0.55) {                                         // 도심
-    if (Math.random() < 0.2) return 60 + Math.random() * 60;   // 도심에도 중층이 섞여야 계단처럼 내려앉을 데가 생긴다
-    let h = 90 + T * (110 + Math.random() * 230);
-    if (Math.random() < 0.08) h *= 1.7 + Math.random() * 0.6;  // 랜드마크
-    return h;
+    if (Math.random() < 0.18) return (95 + Math.random() * 85) * m;   // 도심에도 중층이 섞여야 계단처럼 내려앉을 데가 생긴다
+    let h = 150 + T * (190 + Math.random() * 330);
+    if (Math.random() < 0.1) h *= 1.8 + Math.random() * 0.8;  // 랜드마크
+    return Math.min(1250, h * m);                             // 상한 — 안 두면 한복판이 3km 까지 간다
   }
-  if (T > 0.25) return Math.random() < 0.15 ? 120 + Math.random() * 90 : 40 + Math.random() * 60;
-  return Math.random() < 0.1 ? 55 + Math.random() * 35 : 18 + Math.random() * 26;   // 저층 옥상 지대
+  if (T > 0.25) return (Math.random() < 0.18 ? 190 + Math.random() * 150 : 70 + Math.random() * 95) * m;
+  return (Math.random() < 0.12 ? 90 + Math.random() * 60 : 32 + Math.random() * 42) * m;   // 저층 옥상 지대
 }
 
 function addLot(bx, zc, w, d, h) {
@@ -345,7 +361,8 @@ function addLot(bx, zc, w, d, h) {
 //   pocket 필지 대신 작은 광장을 둘 확률
 function rowLots(xa, xb, za, zb, T, o = {}) {
   const face = o.face || 0, minW = o.minW || 20, varW = o.varW || 34;
-  let x = xa, prevH = o.baseH || lotH(T);
+  const hMul = o.hMul === undefined ? 1 : o.hMul;
+  let x = xa, prevH = o.baseH || lotH(T, hMul);
   while (x < xb - 12) {
     if (o.pocket && xb - x > 90 && Math.random() < o.pocket) {
       const pw = 30 + Math.random() * 20;
@@ -358,8 +375,8 @@ function rowLots(xa, xb, za, zb, T, o = {}) {
     let h;
     if (o.baseH) h = Math.max(14, o.baseH + (Math.random() - 0.5) * (o.jitter || 8));
     // 저층 지대는 옆 건물과 높이가 비슷해야 옥상을 이어 달릴 수 있다
-    else if (T <= 0.25 && Math.random() < 0.7) h = Math.max(14, prevH + (Math.random() - 0.5) * 14);
-    else h = lotH(T);
+    else if (T <= 0.25 && Math.random() < 0.7) h = Math.max(20, prevH + (Math.random() - 0.5) * 18);
+    else h = lotH(T, hMul);
     prevH = h;
     const d = (zb - za) * (face ? 1 : 0.88 + Math.random() * 0.12);
     const zc = face < 0 ? za + d / 2 : face > 0 ? zb - d / 2 : (za + zb) / 2;
@@ -368,7 +385,7 @@ function rowLots(xa, xb, za, zb, T, o = {}) {
   }
 }
 
-function genBlock(xa, xb, z0, z1, cz, T) {
+function genBlock(xa, xb, z0, z1, cz, T, hMul) {
   const D = z1 - z0, W = xb - xa, r = Math.random();
 
   // 광장 타워: 넓은 광장 가운데 타워 하나 (시그램 빌딩 · 록펠러 센터 느낌)
@@ -376,25 +393,25 @@ function genBlock(xa, xb, z0, z1, cz, T) {
   if (plazaTower && W > 150) {
     const w = 70 + Math.random() * 40, d = D * 0.78;
     const bx = xa + W * (0.35 + Math.random() * 0.3);
-    const h = Math.max(T > 0.55 ? 220 : 130, lotH(T));
+    const h = Math.max((T > 0.55 ? 260 : 170) * hMul, lotH(T, hMul));
     addSetbackTower(bx, cz, w, d, h, pickFam(h));
     plazas.push({ x0: xa, x1: bx - w / 2 - 1, z0, z1, kind: "plaza" });
     plazas.push({ x0: bx + w / 2 + 1, x1: xb, z0, z1, kind: "plaza" });
     return;
   }
   if (T > 0.55) {                                         // 도심 타워 줄. 필지가 넓고 사이에 포켓 광장
-    rowLots(xa, xb, z0, z1, T, { minW: 40, varW: 55, pocket: 0.12 });
+    rowLots(xa, xb, z0, z1, T, { minW: 40, varW: 55, pocket: 0.12, hMul });
     return;
   }
 
   const q = Math.random();
   if (q < 0.25) {                                         // 뒷골목 낀 두 줄
     const gap = 8 + Math.random() * 6, dd = (D - gap) / 2;
-    rowLots(xa, xb, z0, z0 + dd, T, { face: -1 });
-    rowLots(xa, xb, z1 - dd, z1, T, { face: 1 });
+    rowLots(xa, xb, z0, z0 + dd, T, { face: -1, hMul });
+    rowLots(xa, xb, z1 - dd, z1, T, { face: 1, hMul });
   } else if (q < 0.40) {                                  // 중정: 가장자리만 건물, 옥상이 고리처럼 이어진다
     const rd = 16 + Math.random() * 6;
-    const hb = T > 0.25 ? 45 + Math.random() * 45 : 22 + Math.random() * 22;
+    const hb = (T > 0.25 ? 70 + Math.random() * 70 : 34 + Math.random() * 34) * hMul;
     const ew = 24 + Math.random() * 12;
     rowLots(xa, xb, z0, z0 + rd, T, { face: -1, baseH: hb });
     rowLots(xa, xb, z1 - rd, z1, T, { face: 1, baseH: hb });
@@ -404,12 +421,12 @@ function genBlock(xa, xb, z0, z1, cz, T) {
   } else if (q < 0.55 && T <= 0.25) {                     // 창고: 넓고 낮은 지붕 두세 개
     const n = 2 + (Math.random() * 2 | 0), gw = W / n;
     for (let k = 0; k < n; k++) {
-      const h = 14 + Math.random() * 18;
+      const h = (22 + Math.random() * 26) * Math.min(hMul, 1.4);   // 창고는 넓고 낮은 게 특징이라 덜 키운다
       addBox(xa + gw * (k + 0.5), cz, gw - 1, D * (0.9 + Math.random() * 0.1), h,
              pickKind(Math.random() < 0.6 ? FAM_IND : FAM_BRICK));
     }
   } else {                                                // 한 줄
-    rowLots(xa, xb, z0, z1, T, { pocket: T <= 0.25 ? 0.05 : 0.06 });
+    rowLots(xa, xb, z0, z1, T, { pocket: T <= 0.25 ? 0.05 : 0.06, hMul });
   }
 }
 
@@ -435,7 +452,10 @@ for (let ai = 0; ai < N_AVE; ai++) {
     if (sqE) { plazas.push({ x0: x1 - SQ_CUT, x1, z0, z1, kind: "square" }); xb -= SQ_CUT; }
     // 광장을 둘러싼 블록은 고층으로 — 트인 자리 둘레에 벽이 서야 광장으로 읽힌다
     const T = sqW || sqE ? Math.max(0.6, towerAt(cx, cz)) : towerAt(cx, cz);
-    genBlock(xa, xb, z0, z1, cz, T);
+    // 한복판일수록 높아진다 (중심 270m 안에서 최대 1.95배).
+    // 동네 자체(towerAt)가 이미 외곽의 3~4배라, 곱까지 크게 주면 3km 짜리가 선다.
+    const hMul = 1 + coreAt(cx, cz) * 0.95;
+    genBlock(xa, xb, z0, z1, cz, T, hMul);
   }
 }
 
