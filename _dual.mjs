@@ -237,6 +237,34 @@ console.log("\n===== 6. 양손 새총 — 지상 (S로 힘을 모은다) =====")
     ok(P.vel.length() < T.SLING_V_MAX - 15, "덜 끌렸으면 약하게 나간다", `${P.vel.length().toFixed(0)} m/s`);
   } else ok(false, "세 번째 시험 준비");
   T.setWeb2Held(false); T.releaseWeb(); T.releaseWeb2();
+
+  console.log("\n===== 6c. 좌우 동시 클릭 = 두 줄 자동 =====");
+  {
+    const C = globalThis.__cv, W = globalThis.__win;
+    const down = btn => (C.mousedown || []).forEach(f => f({ button: btn, preventDefault() {} }));
+    const up = btn => (W.mouseup || []).forEach(f => f({ button: btn, preventDefault() {} }));
+    up(0); up(2);
+    T.setMouseL(false); T.setMouseR(false); T.setWeb2Held(false);
+    T.releaseWeb(); T.releaseWeb2();
+    // 도심 상공에서 아래를 보며 좌우를 같이 누른다
+    P.pos.set(0, 220, 0); P.prevPos.copy(P.pos); P.renderPos.copy(P.pos); P.vel.set(0, 0, 26);
+    P.grounded = false;
+    T.setFP(true); T.aimYaw(0.6); T.setPitch(-0.05); T.syncWorld();
+    for (let i = 0; i < 3; i++) T.updateCamera(DT);
+    down(0);
+    down(2);
+    ok(!!T.web && !!T.web2, "좌우를 같이 누르면 두 줄이 한 번에 걸린다",
+       `web ${!!T.web} web2 ${!!T.web2}`);
+    if (T.web && T.web2) {
+      const gap = T.web.a.distanceTo(T.web2.a);
+      ok(gap >= T.DUAL_SPREAD, "두 앵커가 충분히 벌어져 있다", `${gap.toFixed(0)}m`);
+      for (let i = 0; i < 4; i++) T.update(DT);
+      ok(T.slingAir, "그 상태로 바로 공중 새총이 시작된다");
+    }
+    up(0); up(2);
+    T.setMouseL(false); T.setMouseR(false); T.setWeb2Held(false);
+    T.releaseWeb(); T.releaseWeb2();
+  }
 }
 
 console.log("\n===== 7. 미니맵 좌표 =====");
