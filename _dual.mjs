@@ -267,6 +267,10 @@ console.log("\n===== 6. 양손 새총 — 지상 (S로 힘을 모은다) =====")
       const sR = side(T.web.a), sL = side(T.web2.a);
       ok(sR.cross * sL.cross < 0, "두 줄이 시선의 좌우로 하나씩 걸린다",
          `${sR.cross.toFixed(0)} / ${sL.cross.toFixed(0)}`);
+      // 손이 꼬이면 안 된다 — 오른손은 오른쪽, 왼손(보조 줄)은 왼쪽
+      ok(T.sideOf(T.web.a) === "R" && T.sideOf(T.web2.a) === "L",
+         "오른손은 오른쪽, 왼손은 왼쪽 앵커를 잡는다",
+         `주 ${T.sideOf(T.web.a)} / 보조 ${T.sideOf(T.web2.a)}`);
       // 부채꼴의 축(두 줄의 이등분선)이 시선에서 크게 안 벗어나고, 적당히 벌어져 있어야 한다.
       // 축을 시선에 딱 고정하면 한쪽에 걸 건물이 없을 때 아예 못 건다 — 축이 좀 도는 건 허용한다.
       const bias = Math.abs(sR.ang - sL.ang) / 2, open = (sR.ang + sL.ang) / 2;

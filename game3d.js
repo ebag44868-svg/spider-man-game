@@ -2601,8 +2601,10 @@ const _dualL = [], _dualR = [];
 function findDualAnchors() {
   _dualO.set(player.pos.x, player.pos.y + 1.6, player.pos.z);
   const baseA = viewYaw;                      // 화면이 보는 쪽이 부채꼴의 축이다
-  scanDualSide(baseA, -1, _dualL);
-  scanDualSide(baseA, 1, _dualR);
+  // 이 게임은 플레이어의 오른쪽이 월드 -X 다 (sideOf 참고).
+  // yaw 에 + 를 더하면 +X = 왼쪽이다. 예전엔 이걸 거꾸로 담아서 두 팔이 교차로 걸렸다.
+  scanDualSide(baseA, 1, _dualL);
+  scanDualSide(baseA, -1, _dualR);
   if (!_dualL.length || !_dualR.length) return null;
   // 대칭이 잘 맞는 쌍부터 찾고, 없으면 기준을 단계적으로 푸다
   for (const [maxBias, maxOpen] of [[10, 52], [20, 58], [32, 66], [999, 999]]) {
@@ -2626,8 +2628,10 @@ function autoDualWeb() {
     return false;
   }
   releaseWeb(); releaseWeb2();
-  attachWeb(pair.R, "R");        // 오른손은 오른쪽 앵커
-  attachWeb2(pair.L);            // 보조 줄은 반대 손에서 나간다
+  // 손이 교차되면 몸이 꼬인다. 어느 쪽인지는 sideOf 가 한 번만 판단하게 한다.
+  const rightFirst = sideOf(pair.R) === "R";
+  attachWeb(rightFirst ? pair.R : pair.L, "R");    // 오른손은 오른쪽 앵커
+  attachWeb2(rightFirst ? pair.L : pair.R);        // 보조 줄은 왼손에서 나간다
   web2Held = true;
   armPulse = 0.35;
   return true;
