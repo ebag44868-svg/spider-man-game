@@ -73,7 +73,7 @@ export const T = {
   CAR_ROOF, CAR_L, CAR_W, CAR_H, HERO_3P_SCALE, nycFind, groundAt: groundHeightAt,
   propPick, propGrab, propYank, propThrow, propStep, propBodies, grabStart, grabEnd, updateGrab, get grabbed(){ return grabbed; }, get missShot(){ return missShot; }, GRIP_TIME, WEB_SHOOT_T,
   // 양손 새총
-  fireSling, updateSling, slingArmed, slingDir, autoDualWeb, findSecondAnchor, DUAL_SPREAD, DUAL_WINDOW, SLING_V_AIR, SLING_AIR_DRAW, get slingK(){ return slingK; }, get slingCount(){ return slingCount; },
+  fireSling, updateSling, slingArmed, slingDir, autoDualWeb, findDualAnchors, DUAL_SPREAD, DUAL_WINDOW, SLING_V_AIR, SLING_AIR_DRAW, get slingK(){ return slingK; }, get slingCount(){ return slingCount; },
   get slingAir(){ return slingAir; }, get slingDrawn(){ return slingDrawn; }, get slingMode(){ return slingMode; },
   SLING_CHARGE_T, SLING_MIN_K, SLING_V_MIN, SLING_V_MAX, SLING_AIR_DRAW,
   setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, get aimCenter(){ return aimCenter; }, setAim,

@@ -258,6 +258,23 @@ console.log("\n===== 6. 양손 새총 — 지상 (S로 힘을 모은다) =====")
     if (T.web && T.web2) {
       const gap = T.web.a.distanceTo(T.web2.a);
       ok(gap >= T.DUAL_SPREAD, "두 앵커가 충분히 벌어져 있다", `${gap.toFixed(0)}m`);
+      // 내가 부채꼴의 중심이어야 한다 — 두 줄이 시선 축의 좌우로 하나씩, 비슷한 각도로
+      const fx = Math.sin(T.viewYaw), fz = Math.cos(T.viewYaw);
+      const side = a => {
+        const dx = a.x - P.pos.x, dz = a.z - P.pos.z;
+        return { cross: fx * dz - fz * dx, ang: Math.abs(Math.atan2(fx * dz - fz * dx, fx * dx + fz * dz)) * 180 / Math.PI };
+      };
+      const sR = side(T.web.a), sL = side(T.web2.a);
+      ok(sR.cross * sL.cross < 0, "두 줄이 시선의 좌우로 하나씩 걸린다",
+         `${sR.cross.toFixed(0)} / ${sL.cross.toFixed(0)}`);
+      // 부채꼴의 축(두 줄의 이등분선)이 시선에서 크게 안 벗어나고, 적당히 벌어져 있어야 한다.
+      // 축을 시선에 딱 고정하면 한쪽에 걸 건물이 없을 때 아예 못 건다 — 축이 좀 도는 건 허용한다.
+      const bias = Math.abs(sR.ang - sL.ang) / 2, open = (sR.ang + sL.ang) / 2;
+      ok(bias < 25, "부채꼴의 축이 보는 쪽에서 크게 안 벗어난다", `${bias.toFixed(0)}도`);
+      ok(open > 18 && open < 80, "좌우로 적당히 벌어진다", `한쪽 ${open.toFixed(0)}도`);
+      const dR = P.pos.distanceTo(T.web.a), dL = P.pos.distanceTo(T.web2.a);
+      ok(Math.abs(dR - dL) < Math.max(dR, dL) * 0.65, "줄 길이도 크게 안 차이 난다",
+         `${dR.toFixed(0)}m / ${dL.toFixed(0)}m`);
       for (let i = 0; i < 4; i++) T.update(DT);
       ok(T.slingAir, "그 상태로 바로 공중 새총이 시작된다");
     }

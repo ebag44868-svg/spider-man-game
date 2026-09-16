@@ -2285,6 +2285,7 @@ addEventListener("keydown", e => {
   if (e.code === "Escape") {
     // F1이 열려 있으면 그것부터 닫는다. 바로 시작 화면으로 튀면 놀란다.
     if (hudEl.classList.contains("show")) { hudEl.classList.remove("show"); return; }
+    if (!menuOn) { showMenu(true); return; }
   }
   // Enter = 이 단계 건너뛰기. 막히면 튜토리얼이 감옥이 된다.
   // O = 조준 방식 전환 (실험). 커서 조준 <-> 중앙 고정 + 어깨너머.
@@ -2536,48 +2537,96 @@ function slingArmed() { return slingK >= SLING_MIN_K && !!web && !!web2; }
 // 두 건물을 따로 조준해서 따닥 거는 건 실제로 해보면 너무 어렵다 — 조준은 한 번이면 된다.
 const DUAL_WINDOW = 0.35;     // 좌우 클릭이 이 안에 들어오면 '동시'로 본다 (초)
 const DUAL_SPREAD = 28;       // 두 앵커가 이만큼은 떨어져야 새총이 된다 (m)
-const DUAL_YAW = [-58, -44, -31, -20, 20, 31, 44, 58];
-const DUAL_PITCH = [36, 24, 13, 3];
-// 첫 줄(a1) 좌우로 부채꼴을 훑어 두 번째 앵커를 고른다.
-// 가까울수록, 첫 줄과 적당히 벌어질수록, 높을수록 좋다.
-function findSecondAnchor(a1) {
-  const base = Math.atan2(a1.x - player.pos.x, a1.z - player.pos.z);
-  _aOrigin.set(player.pos.x, player.pos.y + 1.6, player.pos.z);
-  let best = null, bestScore = -Infinity;
+// 좌우 한 쌍을 한 번에 고른다.
+//
+// 예전에는 '첫 줄을 조준해서 걸고, 그 옆에서 둘째를 찾는' 식이었다. 그러면 첫 줄이
+// 어디에 붙느냐에 따라 두 줄이 한쪽으로 쏠려서, 내가 부채꼴의 중심이 아니라 끝에 매달렸다.
+// 이제는 보는 방향을 가운데 축으로 두고, 그 **좌우 대칭**으로 한 쌍을 고른다.
+// 내가 호의 중심에 서고 두 줄이 V 자로 벌어지는 그림이 되어야 새총이 새총으로 읽힌다.
+const DUAL_YAW = [14, 22, 30, 38, 47, 57, 68, 80];   // 축에서 좌/우로 벌리는 각도
+// 위로 올려다보는 각도. 옥상보다 높이 날 때는 걸 데가 아래에 있어 아래쪽까지 훑는다
+const DUAL_PITCH = [40, 30, 21, 13, 6, -3, -12, -22];
+const DUAL_IDEAL_YAW = 40;                    // 이 정도로 벌어진 게 가장 보기 좋다
+const _dualO = new THREE.Vector3(), _dualD = new THREE.Vector3(), _dualS = new THREE.Vector3();
+const _dualHit = new THREE.Vector3();
+
+// 한쪽(sign = -1 왼쪽 / +1 오른쪽)에서 걸 수 있는 자리를 모은다
+function scanDualSide(baseA, sign, out) {
+  out.length = 0;
   for (const yd of DUAL_YAW) {
-    const a = base + yd * Math.PI / 180;
+    const a = baseA + sign * yd * Math.PI / 180;
     for (const pd of DUAL_PITCH) {
       const cs = Math.cos(pd * Math.PI / 180), sy = Math.sin(pd * Math.PI / 180);
-      _aDir.set(Math.sin(a) * cs, sy, Math.cos(a) * cs).normalize();
-      _aStep.copy(_aDir).multiplyScalar(ROPE_MAX);
-      if (!segHitWorld(_aOrigin, _aStep, _aHit, 18 / ROPE_MAX)) continue;
-      const d1 = _aHit.distanceTo(a1);
-      if (d1 < DUAL_SPREAD) continue;
-      const dp = player.pos.distanceTo(_aHit);
-      if (dp < SWING_MIN_LEN || dp > ROPE_MAX) continue;
-      if (_aHit.y - player.pos.y < -10) continue;
-      const sc = -dp * 0.6 + Math.min(d1, 120) * 0.5 + (_aHit.y - player.pos.y) * 0.25;
-      if (sc > bestScore) { bestScore = sc; best = _aHit.clone(); }
+      _dualD.set(Math.sin(a) * cs, sy, Math.cos(a) * cs).normalize();
+      _dualS.copy(_dualD).multiplyScalar(ROPE_MAX);
+      if (!segHitWorld(_dualO, _dualS, _dualHit, SWING_MIN_LEN / ROPE_MAX)) continue;
+      const d = player.pos.distanceTo(_dualHit);
+      if (d < SWING_MIN_LEN || d > ROPE_MAX) continue;
+      const up = _dualHit.y - player.pos.y;
+      if (up < -55) continue;                 // 너무 깊은 아래에 걸면 새총이 아니라 추락이다
+      out.push({ p: _dualHit.clone(), yaw: yd, d, up });
+      break;                                  // 같은 각도에서는 가장 높이 걸리는 것 하나면 된다
     }
   }
-  return best;
+  return out;
 }
-// 좌우 동시 클릭에서 부른다. 이미 걸린 줄이 있으면 그걸 첫 줄로 쓴다.
+
+// 두 앵커가 얼마나 '부채꼴'인가.
+//
+// 중요한 건 시선 축에 딱 맞추는 게 아니라, 내가 두 줄의 **가운데**에 서는 것이다.
+// 한쪽에 걸 건물이 없으면 부채꼴 자체를 좀 돌려서라도 대칭을 지키는 게 낫다.
+// 그래서 축(두 줄의 이등분선)이 시선에서 벗어난 만큼만 감점한다.
+function dualPairScore(L, R, maxBias, maxOpen) {
+  const spread = L.p.distanceTo(R.p);
+  if (spread < DUAL_SPREAD) return -Infinity;
+  const bias = Math.abs(R.yaw - L.yaw) / 2;      // 축이 시선에서 기울어진 각도
+  const open = (R.yaw + L.yaw) / 2;              // 부채꼴이 벌어진 각도 (한쪽)
+  if (bias > maxBias || open > maxOpen) return -Infinity;   // 너무 많이 벌어지면 두 줄이 서로 반대로 당겨 힘이 죽는다
+  return -bias * 1.4                                          // 축은 보는 쪽에 가까울수록 좋다
+         - Math.abs(open - DUAL_IDEAL_YAW) * 0.9              // 적당히 벌어진 V 자
+         - Math.abs(L.d - R.d) * 0.5                          // 거리 대칭
+         - Math.abs(L.up - R.up) * 0.35                       // 높이 대칭
+         - Math.max(0, (L.d + R.d) / 2 - 90) * 0.2            // 너무 멀면 감점
+         + Math.min(L.up, R.up) * 0.15;                       // 둘 다 높을수록 좋다
+}
+
+const _dualL = [], _dualR = [];
+// 보는 방향을 축으로 좌우 한 쌍을 고른다. 못 찾으면 null.
+function findDualAnchors() {
+  _dualO.set(player.pos.x, player.pos.y + 1.6, player.pos.z);
+  const baseA = viewYaw;                      // 화면이 보는 쪽이 부채꼴의 축이다
+  scanDualSide(baseA, -1, _dualL);
+  scanDualSide(baseA, 1, _dualR);
+  if (!_dualL.length || !_dualR.length) return null;
+  // 대칭이 잘 맞는 쌍부터 찾고, 없으면 기준을 단계적으로 푸다
+  for (const [maxBias, maxOpen] of [[10, 52], [20, 58], [32, 66], [999, 999]]) {
+    let best = null, bestScore = -Infinity;
+    for (const L of _dualL) for (const R of _dualR) {
+      const sc = dualPairScore(L, R, maxBias, maxOpen);
+      if (sc > bestScore) { bestScore = sc; best = { L: L.p, R: R.p }; }
+    }
+    if (best) return best;
+  }
+  return null;
+}
+
+// 좌우 동시 클릭에서 부른다. 두 줄을 좌우 대칭으로 새로 건다.
 function autoDualWeb() {
   initAudio();
-  if (!web) {
-    const a1 = resolveAnchor() || findSwingAnchor();
-    if (!a1) { fireMissShot(); return false; }
-    attachWeb(a1, autoHand);
+  const pair = findDualAnchors();
+  if (!pair) {
+    // 한 쌍을 못 찾으면 평범한 스윙으로 떨어진다 (줄 하나라도 걸리게)
+    if (!web) return tryAttach();
+    return false;
   }
-  if (!web2) {
-    const a2 = findSecondAnchor(web.a);
-    if (a2) attachWeb2(a2);
-  }
+  releaseWeb(); releaseWeb2();
+  attachWeb(pair.R, "R");        // 오른손은 오른쪽 앵커
+  attachWeb2(pair.L);            // 보조 줄은 반대 손에서 나간다
   web2Held = true;
   armPulse = 0.35;
-  return !!web2;
+  return true;
 }
+
 // 새총을 당기는 중인가 (보조 웹의 조향력을 끄고, 게이지를 지상에서만 띄우는 데 쓴다)
 function slingPulling() { return slingK > 0 || slingAir; }
 
@@ -5256,6 +5305,41 @@ function adaptRes(ms) {
 }
 
 let frameErrs = 0;
+// ===================== 시작 화면 =====================
+// 게임이 시작되기 전에는 물리를 돌리지 않는다. 카메라만 도시 위를 천천히 돈다 —
+// 글자 뒤로 배경이 은은하게 지나가는 그 화면이다 (v1.0 에서 가져왔다).
+let menuOn = true, menuAngle = 0;
+const titleEl = document.getElementById("title");
+function updateMenuCamera(dt) {
+  menuAngle += dt * 0.055;
+  _menuAt.set(0, 210, 0);
+  const r = 460;
+  camera.position.set(Math.sin(menuAngle) * r, 210 + Math.sin(menuAngle * 0.7) * 55, Math.cos(menuAngle) * r);
+  camera.lookAt(_menuAt.x, 120, _menuAt.z);
+  camera.fov = 62;
+  camera.updateProjectionMatrix();
+}
+function showMenu(on) {
+  menuOn = on;
+  if (titleEl) titleEl.classList.toggle("show", on);
+  if (on) {
+    // 메뉴로 돌아가면 손에 든 것부터 놓는다 (줄을 잡은 채로 멈춰 있으면 돌아왔을 때 엉킨다)
+    mouseDownL = false; mouseDownR = false; web2Held = false;
+    releaseWeb(); releaseWeb2();
+    document.exitPointerLock();
+  } else {
+    last = performance.now();     // 메뉴에 머문 시간만큼 물리가 한 번에 밀리지 않게
+    acc = 0;
+    initAudio();
+    if (firstPerson) requestLook();
+  }
+}
+if (titleEl) {
+  titleEl.classList.add("show");
+  const btn = document.getElementById("btnStart");
+  if (btn) btn.addEventListener("click", () => showMenu(false));
+}
+
 function frame(now) {
   try { frameBody(now); }
   catch (err) {
@@ -5270,6 +5354,14 @@ function frame(now) {
 function frameBody(now) {
   const realDt = Math.min(0.05, (now - last) / 1000);
   adaptRes((now - last) || 16);
+  // 시작 화면: 물리·입력은 멈추고 카메라만 돈다
+  if (menuOn) {
+    last = now;
+    updateMenuCamera(realDt);
+    skyMesh.position.copy(camera.position);
+    renderer.render(scene, camera);
+    return;
+  }
   last = now;
   // F1 조작법이 열려 있으면 게임을 멈춘다. 화면은 계속 그린다.
   // acc를 비워야 닫는 순간 밀린 물리 스텝이 한꺼번에 터지지 않는다.
@@ -5593,12 +5685,12 @@ window.__dbg = { scene, camera, renderer, player, frameBody, updateWebVisual, ny
   get fpIne(){ return fpIne; }, get fpFwdAcc(){ return fpFwdAcc; }, get fpRoll(){ return fpRoll; }, makeBodyInertia,
   get hp(){ return hp; }, setHp(v){ hp = v; }, HP_MAX, SPAWN, hitCars, tickHp, get carHits(){ return carHits; }, CAR_ROOF, HERO_3P_SCALE,
   grabStart, grabEnd, updateGrab, get grabbed(){ return grabbed; }, get missShot(){ return missShot; }, get missStrand(){ return missStrand; }, tryAttach, propBodies, propPick, propGrab, propYank, propThrow, propStep, CAR_L, CAR_W, CAR_H,
-  YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
+  YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, showMenu, get menuOn(){ return menuOn; }, updateMenuCamera, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
   get web(){ return web; }, get web2(){ return web2; }, get zip(){ return zip; }, attachWeb, releaseWeb, attachWeb2, releaseWeb2, tryAttach, resolveAnchor, sideOf, otherSide, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, get web2Count(){ return web2Count; }, WEB2_PULL, WEB2_FADE, armR, armL, webStrand, // 자동 앵커
   findSwingAnchor, findSwingAnchorV2, findSwingAnchorLegacy, scoreAnchor, scoreAnchorV2, intentDir, fanYaw, A_TUNE, FAN_PITCH, get autoV2(){ return autoV2; }, setAutoV2(v){ autoV2 = !!v; }, get autoHand(){ return autoHand; }, get scoreWhy(){ return scoreWhy; }, // 디버그 오버레이
   toggleWebDbg, updateWebDbg, dbgOn, setDbg, dbgCands, dbgPicked, dbgPickIdx, dbgAccepted, dbgLines, MAX_CAND, get dbgMarks(){ return dbgMarks; }, // 벽 짚기 · 건물 타기
   plantCheck, plantImpulse, plantSide, plantPoint, findNearbyWall, PLANT_TIME, PLANT_MIN_V, PLANT_PUSH, PLANT_KEEP, PLANT_CD, PLANT_LOOK, get plantT(){ return plantT; }, get plantCd(){ return plantCd; }, get plantHand(){ return plantHand; }, get plantCount(){ return plantCount; }, vclimbAnchor, vclimbShouldFire, VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD, get vcCount(){ return vcCount; }, get vcCd(){ return vcCd; }, setClimb(v){ climbMouse = v; }, // 슬링샷
-  fireSling, updateSling, slingArmed, slingDir, autoDualWeb, findSecondAnchor, DUAL_SPREAD, SLING_AIR_DRAW, SLING_V_AIR, get slingK(){ return slingK; }, get slingCount(){ return slingCount; }, get slingAir(){ return slingAir; }, get slingDrawn(){ return slingDrawn; }, get slingMode(){ return slingMode; }, SLING_CHARGE_T, SLING_MIN_K, SLING_V_MIN, SLING_V_MAX, SLING_AIR_DRAW, // 손 · 몸 표현
+  fireSling, updateSling, slingArmed, slingDir, autoDualWeb, findDualAnchors, DUAL_SPREAD, SLING_AIR_DRAW, SLING_V_AIR, get slingK(){ return slingK; }, get slingCount(){ return slingCount; }, get slingAir(){ return slingAir; }, get slingDrawn(){ return slingDrawn; }, get slingMode(){ return slingMode; }, SLING_CHARGE_T, SLING_MIN_K, SLING_V_MIN, SLING_V_MAX, SLING_AIR_DRAW, // 손 · 몸 표현
   getReach, setReach, clearReach, updateReach, applyReach, initReach, init3p, pose3p, bones3p, ready3p, pose3pNow, get rig3pOn(){ return rig3pOn; }, get fpBody(){ return fpBody; }, poseFpBody, ensureUpperArms, linkUpperArm, get upperR(){ return upperR; }, get upperL(){ return upperL; }, SHOULDER_R, SHOULDER_L, // 카메라 · 설정
   cineFire, cineAmt, get cineT(){ return cineT; }, camStandDist, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, SETTINGS, setOpt, setAim, drawSettings, get aimCenter(){ return aimCenter; }, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, get uiMode(){ return uiMode; }, // 미니맵 · 기타
   updateMinimap, mmPt, MM_R, mmBuildCity, MOVE_SPEED, FALL_MIN_V, get diving(){ return diving; }, get toast(){ return toastT > 0 ? toast : ""; }, get heroClip(){ return heroCurrentClip; }, get heroClips(){ return Object.keys(heroActions); } };

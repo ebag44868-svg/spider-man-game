@@ -245,6 +245,62 @@
   .tlink:hover { color: #fff; border-color: rgba(255,255,255,.4); }
 
   /* 부팅 화면 */
+  /* ================= 시작 화면 ================= */
+  #title {
+    position: fixed; inset: 0; z-index: 60; display: none;
+    align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 40%, rgba(8,10,16,.55) 0%, rgba(5,6,10,.92) 70%);
+    color: #e8eef7; font-family: inherit;
+  }
+  #title.show { display: flex; }
+  .tinner { text-align: center; }
+  #title h1 {
+    margin: 0; font-size: clamp(48px, 11vw, 132px); letter-spacing: .08em; font-weight: 800;
+    line-height: .95; color: #fff; text-shadow: 0 0 30px rgba(220,30,45,.55), 0 6px 24px rgba(0,0,0,.8);
+  }
+  #title h1 span { color: #e11d2e; }
+  #title .sub { margin: 10px 0 34px; opacity: .55; letter-spacing: .28em; font-size: 12px; }
+  .tbtns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  #title button {
+    font: inherit; font-size: 15px; padding: 13px 30px; cursor: pointer; color: #dfe7f2;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.18); border-radius: 8px;
+    transition: background .12s, border-color .12s, transform .08s;
+  }
+  #title button:hover { background: rgba(255,255,255,.13); border-color: rgba(255,255,255,.4); }
+  #title button:active { transform: translateY(1px); }
+  #title button.primary { background: #b3121f; border-color: #e11d2e; color: #fff; }
+  #title button.primary:hover { background: #d4162a; }
+  .thint { margin-top: 26px; font-size: 12px; opacity: .5; }
+  .thint b { color: #ffd24a; opacity: 1; }
+
+  /* ================= 시작 화면 ================= */
+  #title {
+    position: fixed; inset: 0; z-index: 60; display: none;
+    align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 40%, rgba(8,10,16,.55) 0%, rgba(5,6,10,.92) 70%);
+    color: #e8eef7; font-family: inherit;
+  }
+  #title.show { display: flex; }
+  .tinner { text-align: center; }
+  #title h1 {
+    margin: 0; font-size: clamp(48px, 11vw, 132px); letter-spacing: .08em; font-weight: 800;
+    line-height: .95; color: #fff; text-shadow: 0 0 30px rgba(220,30,45,.55), 0 6px 24px rgba(0,0,0,.8);
+  }
+  #title h1 span { color: #e11d2e; }
+  #title .sub { margin: 10px 0 34px; opacity: .55; letter-spacing: .28em; font-size: 12px; }
+  .tbtns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  #title button {
+    font: inherit; font-size: 15px; padding: 13px 30px; cursor: pointer; color: #dfe7f2;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.18); border-radius: 8px;
+    transition: background .12s, border-color .12s, transform .08s;
+  }
+  #title button:hover { background: rgba(255,255,255,.13); border-color: rgba(255,255,255,.4); }
+  #title button:active { transform: translateY(1px); }
+  #title button.primary { background: #b3121f; border-color: #e11d2e; color: #fff; }
+  #title button.primary:hover { background: #d4162a; }
+  .thint { margin-top: 26px; font-size: 12px; opacity: .5; }
+  .thint b { color: #ffd24a; opacity: 1; }
+
   #boot { position: fixed; inset: 0; z-index: 90; display: none;
     background: #05060a; color: #e8eef7; align-items: center; justify-content: center;
     transition: opacity .3s; }
@@ -626,6 +682,30 @@
      정지 이미지보다 훨씬 낫고, 이미 있는 걸 쓰는 거라 공짜다. -->
 <!-- 부팅 / 로딩 (문서 02 §5.1). 화려할 필요 없다 — 멈춘 게 아니라는 것만 알리면 된다 -->
 <div id="wdbg"></div>
+<!-- ================= 시작 화면 =================
+     글자 뒤로 도시가 은은하게 지나간다 (updateMenuCamera 가 카메라를 천천히 돌린다).
+     v1.0 의 시작 화면을 그대로 가져오되 버튼은 '게임 시작' 하나만 남겼다. -->
+<div id="title">
+  <div class="tinner">
+    <h1>SPIDER<span>MAN</span></h1>
+    <p class="sub">뉴욕 · 웹스윙</p>
+    <div class="tbtns"><button id="btnStart" class="primary">게임 시작</button></div>
+    <p class="thint">시작한 뒤 <b>F1</b> 로 조작법 · <b>ESC</b> 로 이 화면</p>
+  </div>
+</div>
+
+<!-- ================= 시작 화면 =================
+     글자 뒤로 도시가 은은하게 지나간다 (updateMenuCamera 가 카메라를 천천히 돌린다).
+     v1.0 의 시작 화면을 그대로 가져오되 버튼은 '게임 시작' 하나만 남겼다. -->
+<div id="title">
+  <div class="tinner">
+    <h1>SPIDER<span>MAN</span></h1>
+    <p class="sub">뉴욕 · 웹스윙</p>
+    <div class="tbtns"><button id="btnStart" class="primary">게임 시작</button></div>
+    <p class="thint">시작한 뒤 <b>F1</b> 로 조작법 · <b>ESC</b> 로 이 화면</p>
+  </div>
+</div>
+
 <div id="boot" class="show">
   <div class="binner">
     <div class="blogo">SPIDER<span>MAN</span></div>
