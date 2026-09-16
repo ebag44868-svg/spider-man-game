@@ -291,7 +291,7 @@ export const T = {
   setReach,
   clearReach,
   updateReach,
-  getReach,
+  getReach, poseHand,
   applyReach,
   armR,
   armL,

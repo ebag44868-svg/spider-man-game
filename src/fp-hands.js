@@ -26,20 +26,29 @@ function initHands() {
 }
 
 // 손가락 = 두 마디. root를 굽히면 손가락 전체가, mid를 굽히면 끝마디만 접힌다.
+// 손가락 — 실제 손처럼 마디 셋. 뿌리(MCP) → 가운데(PIP) → 끝(DIP).
+// 마디가 둘이면 주먹을 쥘 때 손끝이 손바닥을 뚫거나 갈고리처럼 꺾인다.
+// 길이 비율은 사람 손에 가깝게 잡았다 (뿌리 42% · 가운데 33% · 끝 25%).
+const PHAL = [0.42, 0.33, 0.25];
 function makeFinger(len, thick) {
   const root = new THREE.Group();
-  const prox = new THREE.Mesh(new THREE.CapsuleGeometry(thick, len * 0.5, 3, 6), gloveMat);
-  prox.rotation.x = Math.PI / 2;
-  prox.position.z = -(len * 0.25 + thick * 0.2);
-  root.add(prox);
+  const seg = (parent, L, r) => {
+    const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(0.005, L - r * 2), 3, 6), gloveMat);
+    m.rotation.x = Math.PI / 2;
+    m.position.z = -L / 2;
+    parent.add(m);
+  };
+  seg(root, len * PHAL[0], thick);
   const mid = new THREE.Group();
-  mid.position.z = -(len * 0.5 + thick * 0.4);
-  const dist = new THREE.Mesh(new THREE.CapsuleGeometry(thick * 0.84, len * 0.4, 3, 6), gloveMat);
-  dist.rotation.x = Math.PI / 2;
-  dist.position.z = -(len * 0.2 + thick * 0.18);
-  mid.add(dist);
+  mid.position.z = -len * PHAL[0];
+  seg(mid, len * PHAL[1], thick * 0.9);
   root.add(mid);
+  const tip = new THREE.Group();
+  tip.position.z = -len * PHAL[1];
+  seg(tip, len * PHAL[2], thick * 0.78);
+  mid.add(tip);
   root.userData.mid = mid;
+  root.userData.tip = tip;
   return root;
 }
 
@@ -137,7 +146,13 @@ function makeHand(mirror) {
   thumb.rotation.set(0, -0.85, 0);
   g.add(thumb);
 
-  g.userData.nozzle = nozzle;   // 손목 웹슈터 — 거미줄이 여기서 나간다
+  // 줄을 쥐는 지점. 주먹을 쥐면 줄이 여기(손가락과 손바닥 사이)를 지난다.
+  const gripPt = new THREE.Object3D();
+  gripPt.position.set(0, 0.052, -0.118);
+  g.add(gripPt);
+
+  g.userData.nozzle = nozzle;   // 손목 웹슈터 — 거미줄이 처음 나가는 곳
+  g.userData.gripPoint = gripPt;  // 줄을 잡은 뒤에는 여기서 나간다
   g.userData.fingers = fingers;
   g.userData.thumb = thumb;
   g.userData.curl = [0, 0, 0, 0];   // 손마다 따로 (양손이 서로 값을 덮어쓰지 않게)
@@ -389,24 +404,35 @@ function poseFpBody(g, pitch, ctx, ine, dt) {
   }
 }
 
-// 손 포즈. spider=1이면 중지·약지를 접은 웹슈팅 자세, grip=1이면 벽 짚는 자세.
+// 손 포즈.
+//   spider = 1 : 중지·약지만 접은 웹슈팅 자세 (쏘는 손)
+//   grip   = 1 : 네 손가락을 말아 줄(또는 벽)을 움켜쥔 자세
+//
+// curl 은 "얼마나 말렸나(0~1)" 하나만 들고 다니고, 마디 셋은 그 값을 비율로 나눠 쓴다.
+// 사람 손은 뿌리보다 가운데 마디가 더 많이 굽는다 — 그 비율을 지켜야 주먹이 주먹으로 보인다.
+const CURL_MCP = 1.45, CURL_PIP = 1.72, CURL_DIP = 1.02;
 function poseHand(h, spider, grip, splay, fire, k) {
   const f = h.userData.fingers;
   const curl = h.userData.curl;
   for (let i = 0; i < 4; i++) {
     const isFolded = (i === 1 || i === 2);
-    // 웹슈팅: 중지·약지만 손바닥으로 말아 넣는다
-    // 뿌리 1.75 + 끝마디 1.66 = 약 195도. 손끝이 손바닥 위에 얹힌다 (더 굽히면 뚫고 들어간다).
-    const sp = isFolded ? 1.75 + fire * 0.3 : 0.06;
-    // 벽 짚기: 네 손가락 모두 적당히 구부려 표면을 움켜쥔다
-    const gr = 0.85 + (isFolded ? 0.12 : 0.05);
-    const target = sp * spider + gr * grip;
+    const sp = isFolded ? 1 + fire * 0.06 : 0.04;      // 웹슈팅: 중지·약지만
+    const gr = isFolded ? 1 : 0.94;                    // 움켜쥠: 네 손가락 모두
+    const target = Math.min(1.06, sp * spider + gr * grip);
     curl[i] += (target - curl[i]) * k;
-    f[i].rotation.x = curl[i];
-    f[i].rotation.z = (i - 1.5) * 0.055 * splay;
-    f[i].userData.mid.rotation.x = curl[i] * (isFolded ? 0.95 : 0.35);
+    const a = curl[i];
+    f[i].rotation.x = CURL_MCP * a;
+    f[i].rotation.z = (i - 1.5) * 0.055 * splay * (1 - a * 0.7);   // 말수록 손가락이 모인다
+    f[i].userData.mid.rotation.x = CURL_PIP * a;
+    f[i].userData.tip.rotation.x = CURL_DIP * a;
   }
-  h.userData.thumb.rotation.x = 0.35 + grip * 0.5 + fire * 0.2;
+  // 엄지. 손바닥이 하늘을 보므로 엄지는 바깥쪽(오른손 +X)에 있고,
+  // 쥘 때는 손바닥을 가로질러 안으로 덮는다 (Y 회전) + 마디가 접힌다.
+  const th = h.userData.thumb;
+  const g = Math.min(1, grip + spider * 0.35);
+  th.rotation.set(0.22 + g * 0.45 + fire * 0.15, -0.85 - g * 0.5, 0);
+  th.userData.mid.rotation.x = 0.2 + g * 0.85;
+  th.userData.tip.rotation.x = 0.1 + g * 0.6;
 }
 
 export {

@@ -59,6 +59,7 @@ function mkSide() {
     fire: 0,                  // 쏘는 순간 (손가락 폄)
     grip: 0,                  // 움켜쥠
     kick: 0,                  // 걸린 순간의 반동
+    open: 0,                  // 놓는 순간 손가락을 쫙 편다
   };
 }
 const sides = { R: mkSide(), L: mkSide() };
@@ -107,9 +108,12 @@ function updateReach(dt) {
     // 연출값
     s.fire = s.phase === "shoot" ? 1 - s.t / SHOOT_T : 0;
     s.kick = s.phase === "catch" ? 1 - s.t / CATCH_T : 0;
+    // 놓는 순간에는 손가락을 쫙 편다 (줄이 손에서 빠져나가는 그림)
+    s.open = s.phase === "release" ? 1 - s.t / REL_T : 0;
     // 걸린 뒤에는 움켜쥔다. 쏘는 동안은 편다.
+    // 쥐는 건 빠르게(0.1초 안), 펴는 건 그보다 느리게 — 잡는 순간이 또렷해야 한다.
     const gripWant = s.has && (s.phase === "hold" || s.phase === "catch") ? 1 : 0;
-    s.grip += (gripWant - s.grip) * Math.min(1, 14 * dt);
+    s.grip += (gripWant - s.grip) * Math.min(1, (gripWant ? 30 : 11) * dt);
 
     if (s.on < 0.001 || !camera) { s.yaw = s.pitch = 0; s.dist = 0; continue; }
 
@@ -194,8 +198,10 @@ function applyReach(arm, side, strength) {
   arm.position.y -= back * 0.10 * k;                 // 어깨는 눈보다 아래다
   // 쏘는 순간과 잡히는 순간에 어깨가 앞뒤로 반응한다. 이게 없으면 팔만 돌아가고
   // 몸이 가만히 있어서 "닿았다"가 아니라 "가리킨다"로 보인다.
-  arm.position.z -= (s.fire * 0.10 - s.kick * 0.06) * k;
-  arm.position.y += s.kick * 0.03 * k;
+  // 줄이 걸리는 순간 손이 줄에 끌려 위·뒤로 튄다. 이게 '잡았다'의 신호다.
+  arm.position.z -= (s.fire * 0.10 - s.kick * 0.13) * k;
+  arm.position.y += s.kick * 0.075 * k;
+  arm.rotation.z += s.kick * 0.18 * k * (s === sides.R ? -1 : 1);
   return s;
 }
 

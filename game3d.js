@@ -1853,6 +1853,7 @@ const DASH_IN_MIN = 7, DASH_IN_MAX = 75, DASH_IN_STAM = 12;
 
 const _mDir = new THREE.Vector3(), _mh = new THREE.Vector3(), _mImp = new THREE.Vector3();
 const _w2v = new THREE.Vector3();      // 보조 웹 방향 계산용
+const _wGrip = new THREE.Vector3();
 const _w2s = new THREE.Vector3();      // 보조 웹 줄이 나가는 손 위치
 
 
@@ -4490,8 +4491,14 @@ function updateWebVisual() {
   // 움직이므로 줄이 손에서 떨어진 허공에서 시작하는 것처럼 보였다.
   // 줄은 '잡은 손'에서 나가야 한다. 지금까지는 어디에 걸든 오른손 노즐에서
   // 나갔다 — 왼손이 뻗어 있는데 줄만 오른쪽에서 나오는 그림이 됐다.
+  // 쏘는 순간에는 손목 웹슈터에서, 줄을 잡은 뒤에는 쥔 손에서 나간다.
+  // (레퍼런스처럼 "쏘고 나서 손으로 줄을 잡는" 그림이 되려면 시작점이 옮겨가야 한다)
   const wHand = web.side === "L" ? armL : armR;
-  if (firstPerson && wHand.userData.nozzle) wHand.userData.nozzle.getWorldPosition(s);
+  if (firstPerson && wHand.userData.nozzle) {
+    wHand.userData.nozzle.getWorldPosition(s);
+    const gp = wHand.userData.gripPoint, g = getReach(web.side).grip;
+    if (gp && g > 0.001) { gp.getWorldPosition(_wGrip); s.lerp(_wGrip, g); }
+  }
   else if (firstPerson) handAnchor.getWorldPosition(s);
   else s.set(player.pos.x, player.pos.y + 1.8 * HERO_3P_SCALE, player.pos.z);
 
@@ -4666,7 +4673,7 @@ function updateHands(dt, sp) {
       armL.rotation.set(0.55 - 0.4 * lr.on, 0, -0.06 * lr.on);
       applyReach(armL, "L");
       armL.scale.setScalar(0.72);
-      poseHand(armL, 1 - lr.grip, lr.grip, 0.4, lr.fire, kf);
+      poseHand(armL, 1 - lr.grip, lr.grip, 0.4 + lr.open * 0.9, lr.fire, kf);
     } else {
       armL.visible = false;
     }
@@ -4705,7 +4712,7 @@ function updateHands(dt, sp) {
     const rr = applyReach(armR, "R");
     armR.scale.setScalar(0.72);
     armR.visible = firstPerson;
-    poseHand(armR, 1 - rr.grip, rr.grip, 0.35 + spd * 0.65,
+    poseHand(armR, 1 - rr.grip, rr.grip, 0.35 + spd * 0.65 + rr.open * 0.9,
              Math.max(fireKick, rr.fire), kf);
   }
 

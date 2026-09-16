@@ -252,5 +252,52 @@ console.log("\n===== 5. 상완 — 어깨와 팔꿈치가 이어진다 =====");
   T.armR.visible = true;
 }
 
+console.log("\n===== 손: 마디별 관절 · 쏘고 나서 줄을 잡는다 =====");
+{
+  reset();
+  const h = T.armR;
+  const f0 = h.userData.fingers[0];
+  ok(!!f0.userData.mid && !!f0.userData.tip, "손가락이 마디 셋으로 나뉜다 (뿌리·가운데·끝)");
+  ok(!!h.userData.gripPoint, "줄을 쥐는 지점이 있다");
+
+  for (let i = 0; i < 40; i++) T.poseHand(h, 0, 0, 1, 0, 0.5);
+  const flat = h.userData.fingers.map(f => f.rotation.x + f.userData.mid.rotation.x);
+  ok(flat.every(v => v < 0.2), "아무것도 안 쥐면 손가락이 펴져 있다", flat.map(v => v.toFixed(2)).join(" "));
+  const thFlat = Math.abs(h.userData.thumb.rotation.y);
+
+  for (let i = 0; i < 40; i++) T.poseHand(h, 1, 0, 1, 0, 0.5);
+  const sp = h.userData.fingers.map(f => f.rotation.x);
+  ok(sp[1] > 1 && sp[2] > 1 && sp[0] < 0.2 && sp[3] < 0.2,
+     "웹슈팅 자세는 중지·약지만 접는다", sp.map(v => v.toFixed(2)).join(" "));
+
+  for (let i = 0; i < 40; i++) T.poseHand(h, 0, 1, 1, 0, 0.5);
+  const g = h.userData.fingers;
+  ok(g.every(f => f.rotation.x > 1.2), "줄을 쥐면 네 손가락이 다 말린다",
+     g.map(f => f.rotation.x.toFixed(2)).join(" "));
+  ok(g[0].userData.mid.rotation.x > g[0].rotation.x, "가운데 마디가 뿌리보다 더 굽는다",
+     `뿌리 ${g[0].rotation.x.toFixed(2)} / 가운데 ${g[0].userData.mid.rotation.x.toFixed(2)}`);
+  ok(g[0].userData.tip.rotation.x > 0.5 && g[0].userData.tip.rotation.x < g[0].userData.mid.rotation.x,
+     "끝마디는 조금 덜 굽는다", g[0].userData.tip.rotation.x.toFixed(2));
+  ok(Math.abs(h.userData.thumb.rotation.y) > thFlat, "엄지가 쥘 때 손바닥 쪽으로 덮는다",
+     `${thFlat.toFixed(2)} -> ${Math.abs(h.userData.thumb.rotation.y).toFixed(2)}`);
+  ok(h.userData.thumb.userData.mid.rotation.x > 0.7, "엄지도 마디가 접힌다",
+     h.userData.thumb.userData.mid.rotation.x.toFixed(2));
+
+  // 쏘는 동안은 아직 안 쥐고, 걸리면 쥔다. 놓으면 편다.
+  const r = T.getReach("R");
+  T.setReach("R", P(0, 3, -30), "web");
+  settle(1);
+  ok(r.phase === "shoot" && r.grip < 0.2, "쏘는 동안은 아직 안 쥔다", `grip ${r.grip.toFixed(2)}`);
+  settle(40);
+  ok(r.grip > 0.8, "걸리면 0.33초 안에 줄을 잡는다", `grip ${r.grip.toFixed(2)}`);
+  ok(r.kick >= 0, "잡는 순간 반동값이 나온다");
+  T.clearReach("R");
+  settle(1);
+  ok(r.open > 0.8, "놓는 순간 손을 편다", `open ${r.open.toFixed(2)}`);
+  settle(40);
+  ok(r.open === 0 && r.grip < 0.4, "펴고 나면 원래 손으로 돌아온다", `grip ${r.grip.toFixed(2)}`);
+  reset();
+}
+
 console.log(`\n최종  통과 ${pass} / 실패 ${fail}`);
 process.exit(fail ? 1 : 0);
