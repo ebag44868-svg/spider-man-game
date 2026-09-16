@@ -3750,6 +3750,28 @@ const _c1 = new THREE.Vector3();
 // 카메라 충돌 전용 임시 벡터. _c0(desired)와 겹치면 안 된다.
 const _cPiv = new THREE.Vector3(), _cSeg = new THREE.Vector3(), _cHit = new THREE.Vector3();
 
+// ===================== 속도감: 스침 =====================
+// 속도는 숫자가 아니라 '스쳐 지나가는 것'으로 느껴진다. 벽을 바짝 붙어 지나가면
+// 그 순간 바람소리가 훅 지나가고 화면 가장자리가 잠깐 번진다.
+// 아무것도 없는 하늘을 100m/s 로 나는 것보다, 골목을 40m/s 로 스치는 게 더 빠르게 느껴진다.
+const GRAZE_DIST = 11;      // 이만큼 안으로 벽이 스치면
+const GRAZE_SPEED = 18;     // 이보다 빨라야 (m/s)
+const GRAZE_CD = 0.45;      // 연달아 터지지 않게
+let grazeFx = 0, grazeCd = 0, grazeCount = 0;
+function updateGraze(dt) {
+  if (grazeFx > 0) grazeFx = Math.max(0, grazeFx - dt * 3.2);
+  if (grazeCd > 0) grazeCd -= dt;
+  const sp = player.vel.length();
+  if (sp < GRAZE_SPEED || player.grounded || clinging) return;
+  if (grazeCd > 0) return;
+  if (!findNearbyWall(GRAZE_DIST)) return;
+  grazeCd = GRAZE_CD;
+  grazeCount++;
+  grazeFx = Math.min(1, 0.45 + sp / 120);
+  shake = Math.max(shake, 0.12 + sp / 400);
+  sfxWhoosh();
+}
+
 // ===================== 차 충돌 · 체력 =====================
 // 체력은 차에 치일 때만 닳는다. 가만히 두면 다시 찬다. 0이 되면 시작 광장에서 다시 선다.
 const HP_MAX = 100;
@@ -4404,6 +4426,7 @@ function update(dt) {
   }
   hitCars(dt);
   tickHp(dt);
+  updateGraze(dt);
   spiderGroup.position.copy(player.renderPos);
   spiderGroup.rotation.y = bodyYaw;
   // 덤블링: 진행 방향 축으로 한 바퀴. 끝나면 정확히 0으로 되돌아온다.
@@ -4964,8 +4987,11 @@ function updateCamera(dt) {
   const spN = Math.min(sp / MAX_SPEED, 1.25);
   // 1인칭 시야각. 레퍼런스는 화면 가장자리가 눈에 보이게 휠 만큼 광각이다 —
   // 건물이 시야를 스치며 지나가는 게 속도감의 큰 몫이다. 78은 좁았다.
+  // 예전엔 제곱항만 있어서 72~148km/h 구간이 거의 안 변했다 (실측 71.3 -> 75.2도).
+  // 선형항을 얹어 '빨라지고 있다'가 중간 속도에서부터 읽히게 한다.
   const targetFov = (firstPerson ? 95 : 70)
-    + spN * spN * (firstPerson ? 26 : 40)
+    + spN * (firstPerson ? 10 : 14)
+    + spN * spN * (firstPerson ? 22 : 34)
     + Math.max(dashKick, 0) * 48
     + Math.max(pumpFx, 0) * 30
     + (diving ? 8 + diveFx * 16 : 0);
@@ -4975,6 +5001,9 @@ function updateCamera(dt) {
     ? (cineKind === "drop" ? 10 : cineKind === "release" ? 7 : 5) * cineAmt() : 0;
   camera.fov += (targetFov + cineFov - camera.fov) * Math.min(1, 5 * dt);
   camera.updateProjectionMatrix();
+
+  // 고속에서는 화면이 미세하게 떤다. 공기가 몸을 때리는 느낌 — 설정(shakeScale)을 따른다.
+  if (sp > 55) shake = Math.max(shake, Math.min(0.30, (sp - 55) / 150));
 
   updateHands(dt, sp);
 
@@ -5424,15 +5453,18 @@ function frameBody(now) {
   pumpEl.style.opacity = Math.min(1, Math.max(pumpFx, 0) * 6);
   // 급강하 연출: 목표치로 서서히 붙였다 빠진다. 즉시 켜고 끄면 화면이 깜빡인다.
   diveFx += ((diving ? 1 : 0) - diveFx) * Math.min(1, 5 * (1 / 60));
-  // 임계 이하에서는 0으로 눌러 평상시 화면이 뿌옇지 않게 한다
-  const lineSp = Math.max(0, player.vel.length() - SOFT_SPEED * 0.5) / MAX_SPEED;
+  // 임계 이하에서는 0으로 눌러 평상시 화면이 뿌옇지 않게 한다.
+  // 예전 문턱은 41m/s(148km/h)라 평범한 스윙(30~40m/s)에서는 한 줄도 안 보였다 —
+  // "147이나 480이나 화면이 똑같다"의 정체가 이것이다. 15m/s(54km/h)부터 서서히 올린다.
+  const lineSp = Math.min(1, Math.max(0, player.vel.length() - 15) / 70);
   // 달리기(Shift)는 바람이 스치는 정도만. 예전엔 속도선이 회피와 똑같이 세서
   // 둘이 구분이 안 됐다.
   const sprintWind = (player.grounded && wl0 > 0
     && (keys["ShiftLeft"] || keys["ShiftRight"])) ? 0.14 : 0;
   // 회피는 짧고 강하게 — 시작 순간에 확 올라왔다 빠진다
   linesEl.style.opacity = sprintWind + Math.max(rollFx * rollFx * 1.1, 0) + Math.min(0.95,
-    lineSp * lineSp * 1.6
+    Math.pow(lineSp, 1.5) * 0.9
+    + grazeFx * 0.45                       // 벽을 스치는 순간 확 번진다
     + (pumpFx > 0 ? 0.35 : 0)
     + (dashKick > 0 ? 0.4 : 0)
     + diveFx * 0.55);
@@ -5699,9 +5731,10 @@ if (wantTouchUI()) enableTouch();
 
 window.__dbg = { scene, camera, renderer, player, frameBody, updateWebVisual, nycStats, nycFind,
   get fpIne(){ return fpIne; }, get fpFwdAcc(){ return fpFwdAcc; }, get fpRoll(){ return fpRoll; }, makeBodyInertia,
+  get grazeFx(){ return grazeFx; }, get grazeCount(){ return grazeCount; }, GRAZE_DIST, GRAZE_SPEED, updateGraze,
   get hp(){ return hp; }, setHp(v){ hp = v; }, HP_MAX, SPAWN, hitCars, tickHp, get carHits(){ return carHits; }, CAR_ROOF, HERO_3P_SCALE,
   grabStart, grabEnd, updateGrab, get grabbed(){ return grabbed; }, get missShot(){ return missShot; }, get missStrand(){ return missStrand; }, tryAttach, propBodies, propPick, propGrab, propYank, propThrow, propStep, CAR_L, CAR_W, CAR_H,
-  YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, showMenu, get suitOn(){ return suitOn; }, get heroRoot(){ return heroRoot; }, get menuOn(){ return menuOn; }, updateMenuCamera, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
+  YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, showMenu, get heroMixer(){ return heroMixer; }, get heroActions(){ return heroActions; }, get heroCurrentClip(){ return heroCurrentClip; }, get suitOn(){ return suitOn; }, get heroRoot(){ return heroRoot; }, get menuOn(){ return menuOn; }, updateMenuCamera, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
   get web(){ return web; }, get web2(){ return web2; }, get zip(){ return zip; }, attachWeb, releaseWeb, attachWeb2, releaseWeb2, tryAttach, resolveAnchor, sideOf, otherSide, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, get web2Count(){ return web2Count; }, WEB2_PULL, WEB2_FADE, armR, armL, webStrand, // 자동 앵커
   findSwingAnchor, findSwingAnchorV2, findSwingAnchorLegacy, scoreAnchor, scoreAnchorV2, intentDir, fanYaw, A_TUNE, FAN_PITCH, get autoV2(){ return autoV2; }, setAutoV2(v){ autoV2 = !!v; }, get autoHand(){ return autoHand; }, get scoreWhy(){ return scoreWhy; }, // 디버그 오버레이
   toggleWebDbg, updateWebDbg, dbgOn, setDbg, dbgCands, dbgPicked, dbgPickIdx, dbgAccepted, dbgLines, MAX_CAND, get dbgMarks(){ return dbgMarks; }, // 벽 짚기 · 건물 타기

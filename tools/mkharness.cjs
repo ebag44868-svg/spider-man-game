@@ -69,6 +69,7 @@ export const T = {
   camRight(){ const v = new THREE.Vector3(1,0,0); v.applyQuaternion(camera.quaternion); return v; },
   YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN,
   // 거리 상호작용: 차 충돌 · 체력 · 소품 잡기
+  get grazeFx(){ return grazeFx; }, get grazeCount(){ return grazeCount; }, GRAZE_DIST, GRAZE_SPEED,
   get hp(){ return hp; }, setHp(v){ hp = v; }, HP_MAX, SPAWN, hitCars, tickHp, hurtPlayer, get carHits(){ return carHits; },
   CAR_ROOF, CAR_L, CAR_W, CAR_H, HERO_3P_SCALE, nycFind, groundAt: groundHeightAt,
   propPick, propGrab, propYank, propThrow, propStep, propBodies, grabStart, grabEnd, updateGrab, get grabbed(){ return grabbed; }, get missShot(){ return missShot; }, GRIP_TIME, WEB_SHOOT_T,
