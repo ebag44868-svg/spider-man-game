@@ -29,6 +29,7 @@ import {
 import { initNycProps, updateNycProps, nycStats, nycFind,
   propPick, propGrab, propYank, propThrow, propStep, propBodies } from "./src/nyc-props.js";
 import { PROP_SCALE } from "./src/scale.js";
+import { applySuit } from "./src/suit.js";
 import {
   TUNE as A_TUNE, FAN_PITCH, fanYaw, intentDir, scoreAnchorV2,
 } from "./src/anchor.js";
@@ -1290,7 +1291,8 @@ function stripRootMotion(clip) {
 let heroMixer = null;
 let heroActions = {};   // { Idle: AnimationAction, ... }
 let heroCurrentClip = null;
-let heroRoot = null;    // GLTF 씬 루트 (spiderGroup 아래 붙는다)
+let heroRoot = null;
+let suitOn = false;        // 3인칭 수트가 입혀졌는가    // GLTF 씬 루트 (spiderGroup 아래 붙는다)
 
 function crossfadeTo(name, dur = 0.25) {
   if (!heroMixer || heroCurrentClip === name) return;
@@ -1337,6 +1339,9 @@ new GLTFLoader().load(
     const bb = new THREE.Box3().setFromObject(heroRoot);
     const h = bb.max.y - bb.min.y;
     if (h > 0.01) heroRoot.scale.setScalar(HERO_HEIGHT / h);
+    // 스파이더맨 수트를 코드로 입힌다 (src/suit.js). 모델은 텍스처가 없는 마네킨이라
+    // 뻐주보다 낫다. 빨강·파랑 배색 + 거미줄 + 가슴 문양 + 눈까지 셀더가 그린다.
+    try { suitOn = applySuit(heroRoot); } catch (e) { console.warn("[suit]", e); }
     spiderGroup.add(heroRoot);
 
     heroMixer = new THREE.AnimationMixer(heroRoot);
@@ -5692,7 +5697,7 @@ window.__dbg = { scene, camera, renderer, player, frameBody, updateWebVisual, ny
   get fpIne(){ return fpIne; }, get fpFwdAcc(){ return fpFwdAcc; }, get fpRoll(){ return fpRoll; }, makeBodyInertia,
   get hp(){ return hp; }, setHp(v){ hp = v; }, HP_MAX, SPAWN, hitCars, tickHp, get carHits(){ return carHits; }, CAR_ROOF, HERO_3P_SCALE,
   grabStart, grabEnd, updateGrab, get grabbed(){ return grabbed; }, get missShot(){ return missShot; }, get missStrand(){ return missStrand; }, tryAttach, propBodies, propPick, propGrab, propYank, propThrow, propStep, CAR_L, CAR_W, CAR_H,
-  YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, showMenu, get menuOn(){ return menuOn; }, updateMenuCamera, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
+  YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, showMenu, get suitOn(){ return suitOn; }, get heroRoot(){ return heroRoot; }, get menuOn(){ return menuOn; }, updateMenuCamera, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
   get web(){ return web; }, get web2(){ return web2; }, get zip(){ return zip; }, attachWeb, releaseWeb, attachWeb2, releaseWeb2, tryAttach, resolveAnchor, sideOf, otherSide, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, get web2Count(){ return web2Count; }, WEB2_PULL, WEB2_FADE, armR, armL, webStrand, // 자동 앵커
   findSwingAnchor, findSwingAnchorV2, findSwingAnchorLegacy, scoreAnchor, scoreAnchorV2, intentDir, fanYaw, A_TUNE, FAN_PITCH, get autoV2(){ return autoV2; }, setAutoV2(v){ autoV2 = !!v; }, get autoHand(){ return autoHand; }, get scoreWhy(){ return scoreWhy; }, // 디버그 오버레이
   toggleWebDbg, updateWebDbg, dbgOn, setDbg, dbgCands, dbgPicked, dbgPickIdx, dbgAccepted, dbgLines, MAX_CAND, get dbgMarks(){ return dbgMarks; }, // 벽 짚기 · 건물 타기

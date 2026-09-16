@@ -136,6 +136,47 @@ console.log("\n===== 5b. 두 다리가 따로 움직인다 =====");
      `${z0.toFixed(3)} / ${z1.toFixed(3)}`);
 }
 
+console.log("\n===== 5d. 마디가 위 마디를 뒤따른다 (한 덩어리로 안 움직인다) =====");
+{
+  const g = T.fpBody;
+  const hip0 = g.userData.legs[0];
+  ok(!!hip0.userData.toe, "발끝 관절이 있다");
+  ok(hip0.userData.toe.parent === hip0.userData.ankle, "발끝이 발목에 매달려 있다");
+  ok(!!g.userData.chestJoint, "가슴도 관절이다 (목에 붙은 통짜가 아니다)");
+  ok(g.userData.waist.parent === g.userData.chestJoint, "허리가 가슴에 매달려 있다");
+  ok(!!T.armR.userData.wrist, "손목 관절이 있다");
+
+  // 멈춰 있다가 갑자기 뛰어오른다. 골반이 먼저 돌고 무릎이 뒤따라야 한다.
+  const ine = T.makeBodyInertia();
+  const ctx = { run: 0, air: 0, lean: 0, fwdAcc: 0, upVel: 0, ropeBack: 0, grounded: true, t: 0 };
+  for (let i = 0; i < 120; i++) T.poseFpBody(g, 0, ctx, ine, DT);   // 가만히 서 있기
+  ctx.grounded = false; ctx.air = 1; ctx.upVel = 26; ctx.fwdAcc = -40; ctx.ropeBack = 0.9;
+  const hist = [];
+  for (let i = 0; i < 60; i++) {
+    T.poseFpBody(g, 0, ctx, ine, DT);
+    hist.push([Math.abs(hip0.rotation.x), Math.abs(hip0.userData.knee.rotation.x),
+               Math.abs(hip0.userData.ankle.rotation.x)]);
+  }
+  const early = hist[6], late = hist[hist.length - 1];
+  ok(early[0] > 0.02, "뛰어오르면 골반이 먼저 돈다", `${(early[0] * 57.3).toFixed(1)}도`);
+  ok(early[1] < late[1] * 0.75, "무릎은 한 박자 늦게 접힌다",
+     `0.05초 ${(early[1] * 57.3).toFixed(1)}도 → 0.5초 ${(late[1] * 57.3).toFixed(1)}도`);
+  ok(early[2] < late[2] * 0.85, "발목은 무릎보다 더 늦다",
+     `0.05초 ${(early[2] * 57.3).toFixed(1)}도 → 0.5초 ${(late[2] * 57.3).toFixed(1)}도`);
+
+  // 두 다리의 무릎이 서로 다른 순간에 접힌다
+  const k0 = [], k1 = [];
+  for (let i = 0; i < 200; i++) {
+    ctx.fwdAcc = -40 * Math.sin(i * 0.05);
+    T.poseFpBody(g, 0, ctx, ine, DT);
+    k0.push(g.userData.legs[0].userData.knee.rotation.x);
+    k1.push(g.userData.legs[1].userData.knee.rotation.x);
+  }
+  let maxKneeGap = 0;
+  for (let i = 0; i < k0.length; i++) maxKneeGap = Math.max(maxKneeGap, Math.abs(k0[i] - k1[i]));
+  ok(maxKneeGap > 0.05, "두 무릎이 따로 접힌다", `최대 차이 ${(maxKneeGap * 57.3).toFixed(1)}도`);
+}
+
 console.log("\n===== 5c. 팔이 어깨에서 목표 방향으로 뻗는다 =====");
 {
   // 손목을 화면 앞쪽에 박아두면 위팔이 늘어나 V자로 꺾인다. 손목이 어깨에서
