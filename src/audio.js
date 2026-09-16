@@ -319,8 +319,29 @@ function setWind(gain, freq) {
   windFilter.frequency.value = freq;
 }
 
+// 양손 새총 충전 — 줄이 팽팽해지며 나는 삐걱임. k(0~1)가 높을수록 높고 크다.
+// 충전량을 눈이 아니라 귀로 알 수 있어야 한다.
+function sfxStrain(k) {
+  if (!actx) return;
+  const t = actx.currentTime;
+  const o = actx.createOscillator();
+  o.type = "sawtooth";
+  o.frequency.setValueAtTime(64 + k * 70, t);
+  o.frequency.linearRampToValueAtTime(86 + k * 140, t + 0.1);
+  const f = actx.createBiquadFilter();
+  f.type = "bandpass";
+  f.frequency.value = 280 + k * 620;
+  f.Q.value = 7;
+  const g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.02 + k * 0.05, t + 0.025);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+  o.connect(f); f.connect(g); g.connect(actx.destination);
+  o.start(t); o.stop(t + 0.15);
+}
+
 export {
   initAudio, setAudioEnabled,
   windActive, setWind,
-  sfxZoneClear, sfxMiss, sfxEnemyShot, sfxRegen, sfxDodge, sfxPerfect, sfxHurt, sfxShot, sfxHit, sfxReload, sfxBind, sfxUlt, sfxWhoosh, sfxThwip, sfxThud, sfxDash,
+  sfxZoneClear, sfxMiss, sfxEnemyShot, sfxRegen, sfxDodge, sfxPerfect, sfxHurt, sfxShot, sfxHit, sfxReload, sfxBind, sfxUlt, sfxWhoosh, sfxThwip, sfxThud, sfxDash, sfxStrain,
 };

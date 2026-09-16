@@ -21,16 +21,15 @@ T.setFP(true); T.aimYaw(0.6); T.setPitch(-0.1);
 place(0, 150, 0, 10, 10);
 for(let i=0;i<40;i++){ T.updateCamera(DT); T.update(DT); }
 T.syncWorld();
-// 슬링샷은 세 버튼(좌+우+가운데)을 물고 힘을 모았다가 떼는 기술이다.
-// **잡고 있는 줄을 타고** 나간다 — 줄이 없으면 아무 일도 없는 게 맞다.
-// 예전에는 줄이 없으면 집라인을 새로 쐈는데, 손에 든 줄을 버리고 딴 데서
-// 줄이 또 나가는 그림이 어색해서 없앴다.
+// 새총은 양손 웹(좌+우)을 걸고 S로 당기는 기술이다 (_dual.mjs 6번에서 본다).
+// 세 버튼 홀드는 이제 아무 일도 하지 않는다.
 T.setMouseL(true); T.setMouseR(true); T.setMid(true);
-for (let i = 0; i < Math.ceil(T.SLING_MAX * 120) + 4; i++) T.update(DT);
-ok(T.slingT > T.SLING_MIN, "세 버튼을 물고 있으면 힘이 모인다", `${T.slingT.toFixed(2)}초`);
-T.setMid(false);
-T.update(DT);
+T.setKey("KeyS", true);
+for (let i = 0; i < 150; i++) T.update(DT);
+ok(T.slingK === 0, "줄이 없으면 새총이 안 모인다", `${T.slingK}`);
 ok(!T.zip, "잡은 줄이 없으면 아무것도 안 나간다");
+T.setKey("KeyS", false);
+T.setMid(false);
 T.setMouseL(false); T.setMouseR(false);
 T.setMouseL(false); T.setMouseR(false);
 mu(2); clearZip();

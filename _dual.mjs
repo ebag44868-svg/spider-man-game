@@ -148,59 +148,95 @@ console.log("\n===== 5. 왼손에도 구동이 생겼다 =====");
   for (let i = 0; i < 150; i++) T.updateReach(DT);
 }
 
-console.log("\n===== 6. 슬링샷 (좌 + 우 + 가운데) =====");
+console.log("\n===== 6. 양손 새총 — 지상 (S로 힘을 모은다) =====");
 {
-  // 집라인이 우클릭 한 번이면 이동이 전부 그것만 된다. 세 버튼으로 문턱을 올렸다.
   const P = T.player;
-  // 도심 한복판 상공. _input.mjs 가 집라인을 검증할 때 쓰는 자리와 같다 —
-  // 여기서는 조준선에 확실히 건물이 걸린다.
-  const put = () => {
-    // 앞선 집라인이 아직 당기고 있으면 다음 측정이 그 힘에 오염된다.
-    // 실제로 "한 틱만 물었다 뗀 건 무시한다"가 그것 때문에 실패했다.
-    T.releaseWeb();
-    for (let i = 0; i < 400 && T.zip; i++) T.update(DT);
-    P.pos.set(0, 150, 0);
-    P.prevPos.copy(P.pos); P.renderPos.copy(P.pos); P.vel.set(0, 0, 24);
-    P.grounded = false;
-    T.setClinging(null); T.releaseWeb();
-    T.aimYaw(0.6); T.setPitch(-0.1); T.syncWorld();
-    // 슬링샷은 **잡고 있는 줄을 타고** 나간다. 줄이 없으면 아무 일도 없는 게
-    // 정상이므로, 이 검사에서는 먼저 줄을 걸어둔다. (예전에는 줄이 없으면
-    // 집라인을 새로 쐈고, 이 테스트는 그 동작에 기대고 있었다.)
-    const a = T.findSwingAnchor();
-    if (a) T.attachWeb(a, T.autoHand);
+  const V = P.pos.constructor;
+  // 옥상에 서서 두 줄을 건다. 앵커는 직접 준다 — 지형 운에 시험이 좌우되면 안 된다.
+  const b = T.buildings.find(o => o.y0 === 0 && o.h > 60 && o.w > 30 && o.d > 30);
+  const setup = (grounded) => {
+    T.setMouseL(false); T.setMouseR(false); T.setKey("KeyS", false);
+    T.setWeb2Held(false); T.releaseWeb(); T.releaseWeb2(); T.setClinging(null);
+    for (let i = 0; i < 3; i++) T.update(DT);
+    if (grounded) P.pos.set(b.x, b.h, b.z);
+    else P.pos.set(b.x, b.h + 120, b.z);
+    P.prevPos.copy(P.pos); P.renderPos.copy(P.pos); P.vel.set(0, 0, 0);
+    P.grounded = grounded;
+    T.syncWorld();
+    T.attachWeb(new V(P.pos.x + 34, P.pos.y + 46, P.pos.z + 12), "R");
+    T.attachWeb2(new V(P.pos.x - 30, P.pos.y + 44, P.pos.z + 16));
+    T.setWeb2Held(true);
+    T.setMouseL(true); T.setMouseR(true);
+    return !!(T.web && T.web2);
   };
-  T.setMouseL(false); T.setMouseR(false); T.setMid(false);
-  put();
-  for (let i = 0; i < 5; i++) T.update(DT);
 
-  T.setMouseL(true); T.setMouseR(true);
-  for (let i = 0; i < 30; i++) T.update(DT);
-  ok(T.slingT === 0, "두 버튼만으로는 힘이 안 모인다 (가운데까지 필요하다)");
+  ok(setup(true), "두 줄이 걸린다");
+  for (let i = 0; i < 60; i++) T.update(DT);
+  ok(T.slingK === 0, "땅에서는 두 버튼만으로 안 모인다 (S가 있어야 한다)", `${T.slingK}`);
 
-  T.setMid(true);
-  const sp0 = P.vel.length();
-  for (let i = 0; i < Math.ceil(T.SLING_MAX * 120) + 4; i++) T.update(DT);
-  ok(T.slingT >= T.SLING_MAX - 1e-6, "세 버튼을 물면 최대까지 찬다", `${T.slingT.toFixed(2)}초`);
-  const spHold = P.vel.length();
-  ok(spHold < sp0, "물고 있는 동안 속도가 죽는다 (잡아 땡기는 느낌)",
-     `${sp0.toFixed(1)} -> ${spHold.toFixed(1)}`);
+  const p0 = P.pos.clone();
+  T.setKey("KeyS", true);
+  for (let i = 0; i < Math.ceil(T.SLING_CHARGE_T * 120) + 6; i++) T.update(DT);
+  ok(T.slingK >= 1 - 1e-6, "S를 물면 최대까지 찬다", `${T.slingK.toFixed(2)}`);
+  ok(P.pos.distanceTo(p0) < 2, "몸은 아주 살짝만 움직인다", `${P.pos.distanceTo(p0).toFixed(2)}m`);
 
-  T.setMid(false);
+  const dir = new V();
+  T.slingDir(dir);
+  const n0 = T.slingCount;
+  T.setMouseL(false);
   T.update(DT);
-  const spGo = P.vel.length();
-  ok(spGo > spHold + 10, "떼면 튀어나간다", `${spHold.toFixed(1)} -> ${spGo.toFixed(1)}`);
-  T.setMouseL(false); T.setMouseR(false);
-
-  // 살짝 스친 건 무시한다
-  put();
-  T.setMouseL(true); T.setMouseR(true); T.setMid(true);
+  ok(!!T.web && !!T.web2 && T.slingCount === n0, "한 손만 놓으면 아직 안 나간다");
+  T.setMouseR(false);
   T.update(DT);
-  const spB = P.vel.length();
-  T.setMid(false); T.update(DT);
-  ok(P.vel.length() < spB + 5, "한 틱만 물었다 뗀 건 무시한다",
-     `${spB.toFixed(1)} -> ${P.vel.length().toFixed(1)}`);
-  T.setMouseL(false); T.setMouseR(false);
+  const v = P.vel.clone();
+  ok(T.slingCount === n0 + 1, "두 버튼을 다 놓으면 발사된다");
+  ok(v.length() > T.SLING_V_MAX - 6, "최대 충전이면 가장 빠르게 나간다", `${v.length().toFixed(0)} m/s`);
+  ok(v.clone().normalize().dot(dir) > 0.9, "두 줄이 당기는 쪽으로 간다",
+     `dot ${v.clone().normalize().dot(dir).toFixed(2)}`);
+  ok(!T.web && !T.web2, "발사하면 두 줄 다 끊긴다");
+  T.setKey("KeyS", false);
+
+  // 살짝 물었다 뗀 건 발사가 아니다
+  if (setup(true)) {
+    T.setKey("KeyS", true);
+    T.update(DT);
+    T.setKey("KeyS", false);
+    const spB = P.vel.length(), n1 = T.slingCount;
+    T.setMouseL(false); T.setMouseR(false);
+    for (let i = 0; i < 4; i++) T.update(DT);
+    ok(T.slingCount === n1, "한 틱만 물었다 뗀 건 발사가 아니다");
+    ok(P.vel.length() < spB + 8, "속도도 안 튄다", `${spB.toFixed(1)} -> ${P.vel.length().toFixed(1)}`);
+  } else ok(false, "두 번째 시험 준비");
+
+  console.log("\n===== 6b. 양손 새총 — 공중 (S 없이 쭉 끌렸다가 저절로) =====");
+  ok(setup(false), "공중에서도 두 줄이 걸린다");
+  const a0 = P.pos.clone();
+  const dirA = new V();
+  T.slingDir(dirA);
+  const n2 = T.slingCount;
+  T.update(DT); T.update(DT);
+  ok(T.slingAir, "두 줄을 물면 S 없이 바로 끌리기 시작한다");
+  let fired = 0;
+  for (let i = 0; i < 120 && !fired; i++) { T.update(DT); if (T.slingCount > n2) fired = i + 1; }
+  ok(fired > 0, "손을 안 떼도 저절로 발사된다", `${(fired / 120).toFixed(2)}초`);
+  const drawn = a0.distanceTo(P.pos);
+  ok(drawn > T.SLING_AIR_DRAW * 0.6, "그 전에 몸이 뒤로 끌려간다", `${drawn.toFixed(1)}m`);
+  const vA = P.vel.clone();
+  ok(vA.length() > T.SLING_V_MAX - 8, "끝까지 끌렸으니 최대로 나간다", `${vA.length().toFixed(0)} m/s`);
+  ok(vA.clone().normalize().dot(dirA) > 0.85, "두 줄이 당기는 쪽으로 간다",
+     `dot ${vA.clone().normalize().dot(dirA).toFixed(2)}`);
+  ok(!T.web && !T.web2 && !T.slingAir, "발사하면 줄이 끊기고 상태가 풀린다");
+
+  // 중간에 손을 떼면 끌린 만큼만
+  if (setup(false)) {
+    const n3 = T.slingCount;
+    for (let i = 0; i < 12; i++) T.update(DT);       // 0.1초만 끌린다
+    T.setMouseL(false); T.setMouseR(false);
+    T.update(DT);
+    ok(T.slingCount === n3 + 1, "중간에 떼도 나간다");
+    ok(P.vel.length() < T.SLING_V_MAX - 15, "덜 끌렸으면 약하게 나간다", `${P.vel.length().toFixed(0)} m/s`);
+  } else ok(false, "세 번째 시험 준비");
+  T.setWeb2Held(false); T.releaseWeb(); T.releaseWeb2();
 }
 
 console.log("\n===== 7. 미니맵 좌표 =====");

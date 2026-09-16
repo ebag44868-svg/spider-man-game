@@ -48,7 +48,7 @@ import {
 // 사운드는 게임 상태를 전혀 모르는 독립 모듈이라 가장 먼저 떼어냈다. src/audio.js 참고.
 import {
   initAudio, windActive, setWind,
-  setAudioEnabled, sfxZoneClear, sfxMiss, sfxEnemyShot, sfxRegen, sfxDodge, sfxPerfect, sfxHurt, sfxShot, sfxHit, sfxReload, sfxBind, sfxUlt, sfxWhoosh, sfxThwip, sfxThud, sfxDash,
+  setAudioEnabled, sfxZoneClear, sfxMiss, sfxEnemyShot, sfxRegen, sfxDodge, sfxPerfect, sfxHurt, sfxShot, sfxHit, sfxReload, sfxBind, sfxUlt, sfxWhoosh, sfxThwip, sfxThud, sfxDash, sfxStrain,
 } from "./src/audio.js";
 
 // preserveDrawingBuffer: 개발 중 화면을 캡처해서 확인하기 위해 켜둔다
@@ -2482,62 +2482,129 @@ let mouseDownL = false;
 let mouseDownR = false;
 // 좌우 동시 클릭 판정 여유. 사람이 두 손가락을 정확히 같은 밀리초에 누르지는 못한다.
 const ZIP_CHORD = 0.34;
-// ---------- 슬링샷 (좌 + 우 + 가운데 동시 홀드) ----------
-// 집라인이 너무 쉬웠다. 우클릭 한 번이면 어디든 날아가서 이동이 전부 그것만
-// 되는 양상이 있었다. 세 버튼을 같이 물고 있어야 하도록 올린다 —
-// 물고 있는 동안 속도가 죽고(잡아 땡기는 느낌), 떼는 순간 그만큼 튀어나간다.
-const SLING_MAX   = 0.50;   // 최대 충전 시간. 0.85는 잡고 기다리는 시간이 길었다
-const SLING_MIN   = 0.10;   // 이보다 짧으면 그냥 스친 것으로 본다
-const SLING_BOOST = 64;     // 최대 충전에서 더해지는 속도 (m/s)
-const SLING_REEL  = 0.22;   // 밀고 나가면서 줄을 이만큼 감는다 (늘어지면 안 밀린다)
-const SLING_DRAG  = 5.2;    // 물고 있는 동안 속도가 죽는 세기
-let midDown = false;
-let slingT = 0, slingOn = false;
-function slingHeld() { return mouseDownL && mouseDownR && midDown; }
-const _slv = new THREE.Vector3(), _slt = new THREE.Vector3();
+// ---------- 양손 새총 (좌클릭 + 우클릭 + S) ----------
+// 두 건물에 좌클릭·우클릭으로 줄을 따닥 걸고, S로 몸을 뒤로 당겨 힘을 모았다가
+// 두 버튼을 다 놓는 순간 두 줄이 당기는 쪽으로 튕겨 나간다.
+//
+// 몸은 거의 안 움직인다. 아주 살짝 뒤로 밀리면서 속도가 죽을 뿐이다 — 그 정지가
+// 있어야 놓는 순간의 가속이 크게 읽힌다. 충전량은 화면 게이지와 삐걱이는 소리로 알린다.
+//
+// 예전 슬링샷(좌+우+휠 세 버튼 홀드)을 이것으로 대체했다. 세 버튼은 외우기도,
+// 누르기도 어려웠고 '양손으로 당긴다'는 그림이 조작에 드러나지 않았다.
+const SLING_CHARGE_T = 1.1;   // 최대까지 차는 시간 (초)
+const SLING_MIN_K    = 0.12;  // 이보다 덜 찼으면 그냥 줄을 놓은 것으로 본다
+const SLING_V_MIN    = 46;    // 최소 충전 발사 속도 (m/s)
+const SLING_V_MAX    = 95;    // 최대 충전 발사 속도
+const SLING_BACK     = 6;     // 뒤로 당겨지는 가속 (m/s^2). 1초 물어도 1m 를 안 간다
+const SLING_HOLD     = 7;     // 충전 중 속도가 죽는 세기
+// 공중은 느낌이 다르다. 땅에서는 버티고 서서 힘을 모으지만, 공중에서는 붙잡을 데가 없으니
+// 몸 자체가 새총의 돌이 된다 — 두 줄을 걸면 바로 뒤로 쭉 끌려갔다가 튕겨 나간다.
+const SLING_AIR_DRAW = 6.5;   // 공중에서 뒤로 끌리는 거리 (m)
+const SLING_AIR_T    = 0.5;   // 끝까지 끌리는 시간 (초)
+const SLING_AIR_STALL = 0.18; // 뒤에 벽이 있어 더 못 끌릴 때 이만큼 버티면 그냥 쏜다
+let midDown = false;          // 휠 버튼. 지금은 쓰지 않지만 입력은 계속 받아둔다
+let slingK = 0;               // 힘 0..1 (지상은 충전량, 공중은 끌려간 정도)
+let slingCreak = 0;           // 다음 삐걱임까지 남은 시간
+let slingCount = 0;
+let slingAir = false;         // 공중 새총으로 끌려가는 중
+// 두 줄을 물기 시작한 순간의 상태로 모드를 고정한다. 줄이 팽팽해지면 땅에 서 있다가도
+// 몸이 살짝 뜬다 — 그 한 순간에 지상 충전이 공중 새총으로 바뀌면 조작이 생각대로 안 간다.
+let slingMode = "";           // "" | "ground" | "air"
+let slingDrawn = 0, slingStall = 0;
+const _slv = new THREE.Vector3(), _slt = new THREE.Vector3(), _slp = new THREE.Vector3();
+
+// 두 줄이 당기는 방향 = 각 줄 방향(단위벡터)의 합
+function slingDir(out) {
+  if (!web || !web2) return false;
+  out.copy(web.a).sub(player.pos);
+  if (out.lengthSq() < 1e-6) return false;
+  out.normalize();
+  _slt.copy(web2.a).sub(player.pos);
+  if (_slt.lengthSq() < 1e-6) return false;
+  out.add(_slt.normalize());
+  if (out.lengthSq() < 1e-6) return false;
+  out.normalize();
+  if (out.y < 0.12) { out.y = 0.12; out.normalize(); }   // 땅으로 처박는 발사는 막는다
+  return true;
+}
+function slingArmed() { return slingK >= SLING_MIN_K && !!web && !!web2; }
+// 새총을 당기는 중인가 (보조 웹의 조향력을 끄고, 게이지를 지상에서만 띄우는 데 쓴다)
+function slingPulling() { return slingK > 0 || slingAir; }
 
 function fireSling() {
-  const k = slingT / SLING_MAX;
-  slingT = 0; slingOn = false;
-  if (k < SLING_MIN / SLING_MAX) return false;
-
-  // 이미 줄을 잡고 있으면 **그 줄을 타고** 나간다.
-  // 여기서 새로 쏘면 손에 든 줄을 버리고 엉뚱한 줄이 또 나가는 그림이 된다 —
-  // 양손으로 잡고 있다가 딴 데서 줄이 튀어나오니 어색하다는 지적이 있었다.
-  if (web) {
-    // 두 줄을 잡고 있으면 두 앵커의 가운데로 민다. 양손으로 같이 당기는 방향이다.
-    if (web2) _slt.copy(web.a).add(web2.a).multiplyScalar(0.5);
-    else _slt.copy(web.a);
-    _slv.copy(_slt).sub(player.pos);
-    const d = _slv.length();
-    if (d > 0.5) player.vel.addScaledVector(_slv.divideScalar(d), SLING_BOOST * k);
-    // 줄을 조금 감는다. 늘어진 채로 밀면 앞으로 안 나가고 아래로 처진다.
-    web.len = Math.max(ROPE_MIN, web.len * (1 - SLING_REEL * k));
-    web.base = web.len;
-    shake = Math.max(shake, 0.55 * k);
-    pumpFx = Math.max(pumpFx, 0.5);
-    sfxDash();
-    return true;
-  }
-
-  // 잡은 줄이 없으면 아무것도 안 한다.
-  // 예전에는 여기서 집라인을 새로 쐈는데, 손에 든 줄을 버리고 딴 데서 줄이
-  // 또 나가는 그림이 어색했다. 슬링샷은 '잡고 있는 줄을 타고 나가는 것'이다.
-  return false;
+  if (!slingArmed() || !slingDir(_slv)) { slingK = 0; return false; }
+  const k = slingK;
+  slingK = 0;
+  player.vel.copy(_slv).multiplyScalar(SLING_V_MIN + (SLING_V_MAX - SLING_V_MIN) * k);
+  slingAir = false; slingDrawn = 0; slingStall = 0; slingMode = "";
+  releaseWeb();
+  releaseWeb2();
+  web2Held = false;
+  hasDash = true;
+  slingCount++;
+  shake = Math.max(shake, 0.5 + k * 0.4);
+  pumpFx = Math.max(pumpFx, 0.6);
+  sfxDash();
+  return true;
 }
 
 function updateSling(dt) {
-  if (slingHeld() && !clinging && canAct()) {
-    slingOn = true;
-    slingT = Math.min(SLING_MAX, slingT + dt);
-    // 줄을 잡고 있으면 반대 손도 같이 잡는다. 한 손으로 잡고 미는 그림은 어색하다.
-    if (web && !player.grounded) web2Held = true;
-    // 물고 있는 동안 속도가 죽는다. 이 정지가 있어야 다음 순간의 가속이 크게 느껴진다.
-    const k2 = Math.exp(-SLING_DRAG * dt);
-    player.vel.x *= k2; player.vel.z *= k2;
-    if (player.vel.y < 0) player.vel.y *= k2;
-  } else if (slingOn) fireSling();
+  const both = !!web && !!web2 && !clinging;
+  const holding = both && mouseDownL && mouseDownR;
+  if (!holding) slingMode = "";
+  // 발밑 높이로 가른다. grounded 만 보면, 줄을 거는 순간 몸이 한 테이크 뜸 때 공중으로 찍힌다.
+  else if (!slingMode) {
+    const gh = groundHeightAt(player.pos.x, player.pos.z, player.pos.y);
+    slingMode = player.grounded || player.pos.y - gh < 3.5 ? "ground" : "air";
+  }
+
+  // ── 공중: S 없이, 두 줄을 걸고 두 버튼을 물면 그 순간부터 뒤로 쭉 끌린다 ──
+  if (holding && slingMode === "air") {
+    if (!slingAir) { slingAir = true; slingDrawn = 0; slingStall = 0; slingK = 0; }
+    if (slingDir(_slt)) {
+      _slp.copy(player.pos);
+      // 뒤로 끌려가는 속도. 줄은 그만큼 늘어난다 (안 늘리면 로프 구속이 도로 잡아당긴다)
+      player.vel.copy(_slt).multiplyScalar(-SLING_AIR_DRAW / SLING_AIR_T);
+      const dw = Math.max(0, player.pos.distanceTo(web.a) + 0.4);
+      if (dw > web.len) { web.len = dw; web.base = dw; }
+      const moved = _slp.distanceTo(player.prevPos);
+      slingDrawn += moved;
+      slingStall = moved < (SLING_AIR_DRAW / SLING_AIR_T) * dt * 0.3 ? slingStall + dt : 0;
+      slingK = Math.min(1, slingDrawn / SLING_AIR_DRAW);
+      slingCreak -= dt;
+      if (slingCreak <= 0) { slingCreak = 0.12; sfxStrain(slingK); }
+      // 끝까지 끌렸거나(또는 뒤가 막혔거나) 하면 손을 안 떼도 저절로 나간다
+      if (slingDrawn >= SLING_AIR_DRAW || slingStall > SLING_AIR_STALL) { slingK = Math.max(slingK, SLING_MIN_K); fireSling(); }
+    }
+    return;
+  }
+  if (slingAir) {                       // 공중에서 당기다 버튼을 놓았다 — 끌린 만큼 나간다
+    slingAir = false;
+    if (slingK >= SLING_MIN_K && both) { fireSling(); return; }
+    slingK = 0; slingDrawn = 0;
+    if (!mouseDownL && web) releaseWeb();
+    if (!mouseDownR) web2Held = false;
+    return;
+  }
+
+  // ── 지상: S로 버티며 힘을 모은다 ──
+  if (holding && slingMode === "ground" && keys["KeyS"]) {
+    slingK = Math.min(1, slingK + dt / SLING_CHARGE_T);
+    const k2 = Math.exp(-SLING_HOLD * dt);
+    player.vel.multiplyScalar(k2);                       // 제자리에 붙잡힌다
+    player.vel.y += G * dt;                              // 두 줄이 몸을 받친다 — 안 상쇄하면 1초에 8m 가라앉는다
+    if (slingDir(_slt)) player.vel.addScaledVector(_slt, -SLING_BACK * dt);   // 아주 살짝 뒤로
+    slingCreak -= dt;
+    if (slingCreak <= 0) { slingCreak = 0.17 - slingK * 0.08; sfxStrain(slingK); }
+    return;
+  }
+  if (slingK <= 0) return;
+  if (!both) { slingK = 0; return; }                              // 줄이 끊겼다
+  if (!mouseDownL && !mouseDownR) { fireSling(); return; }        // 두 버튼을 다 놓았다 = 발사
+  slingK = Math.max(0, slingK - dt / 0.5);                        // S만 뗐다 — 힘이 빠진다
+  if (slingK === 0 && !mouseDownL) releaseWeb();                  // 안 나갔으면 그냥 놓는다
 }
+
 let lClickT = -1, rClickT = -1;
 let diving = false;
 let diveFx = 0;      // 급강하 연출 강도 0..1 (서서히 차오르고 서서히 빠진다)
@@ -3159,7 +3226,7 @@ renderer.domElement.addEventListener("mousedown", e => {
     // 우클릭 = 급선회용 두 번째 거미줄. 주 웹에 매달려 있을 때만 나간다.
     // 집라인은 세 버튼 홀드(슬링샷)로 옮겼다 — 우클릭 한 번으로 날아갈 수
     // 있으면 이동이 전부 그것만 된다.
-    if (web && !player.grounded) { web2Held = true; return; }
+    if (web) { web2Held = true; return; }   // 주 웹이 걸려 있으면 땅에서도 두 번째 줄 (양손 새총)
     // 매달린 게 없으면 예전대로. 3인칭은 시점 드래그, 1인칭은 시점이 이미 마우스다.
     if (!firstPerson) dragging = true;
     return;
@@ -3183,10 +3250,16 @@ renderer.domElement.addEventListener("mousedown", e => {
 addEventListener("mouseup", e => {
   if (e.button === 0) {
     mouseDownL = false;
+    // 양손 새총을 물고 있으면 줄을 놓지 않는다. 두 버튼이 다 떨어지는 순간 updateSling이 쏜다.
+    if (slingArmed()) return;
     if (grabbed) grabEnd();                        // 들고 있던 소품: 탭이면 끌어오기, 홀드였으면 던지기
     releaseWeb();                                  // 떼면 즉시 손 놓기
   }
-  if (e.button === 2) { mouseDownR = false; dragging = false; web2Held = false; }
+  if (e.button === 2) {
+    mouseDownR = false; dragging = false;
+    if (slingArmed()) return;
+    web2Held = false;
+  }
 });
 // ---------- 자동 곡예 (문서 01 §14) ----------
 // 플레이어가 공중제비 버튼을 외울 필요는 없다. 조건이 맞으면 알아서 나간다.
@@ -3232,7 +3305,7 @@ function requestLook() {
 }
 
 addEventListener("contextmenu", e => e.preventDefault());
-addEventListener("blur", () => { dragging = false; mouseDownL = false; mouseDownR = false; midDown = false; web2Held = false; slingT = 0; slingOn = false; releaseWeb(); });
+addEventListener("blur", () => { dragging = false; mouseDownL = false; mouseDownR = false; midDown = false; web2Held = false; slingK = 0; releaseWeb(); });
 
 document.addEventListener("mousemove", e => {
   // 1인칭은 포인터 락 성공 여부와 관계없이 이동량으로 시점을 돌린다.
@@ -3406,6 +3479,13 @@ function sideOf(p) {
 function otherSide(s) { return s === "R" ? "L" : "R"; }
 
 function releaseWeb2() { web2 = null; }
+// 두 번째 줄을 건다. 게임에서는 우클릭이, 시험에서는 하네스가 같은 길로 부른다.
+function attachWeb2(point) {
+  web2 = { a: point.clone(), t: 0 };
+  web2Count++;
+  armPulse = 0.3;
+  sfxThwip();
+}
 
 // ---------- 웹으로 건물 타기 ----------
 // 벽타기 버튼을 누른 채 공중에서 벽 옆에 있으면, 위쪽에 줄을 걸어 끌려 올라간다.
@@ -3756,7 +3836,8 @@ function update(dt) {
 
   let ix = 0, iz = 0;
   if (keys["KeyW"]) iz -= 1;
-  if (keys["KeyS"]) iz += 1;
+  // 양손 새총을 당기는 동안의 S 는 이동이 아니라 충전이다 (공중 이동이 같이 걸리면 몸이 뒤로 끌려간다)
+  if (keys["KeyS"] && slingMode !== "ground") iz += 1;
   if (keys["KeyA"]) ix -= 1;
   if (keys["KeyD"]) ix += 1;
   // 가상 스틱(터치). 키보드와 섞이지 않게 스틱이 밀려 있을 때만 덮어쓴다.
@@ -4027,20 +4108,21 @@ function update(dt) {
       // 조준한 곳이 먼저다. 하늘을 보고 있으면 자동 탐색으로 넘어간다 —
       // 주 웹이 그렇게 하고 있고, 보조만 조준을 요구하면 거의 안 붙는다.
       // (실측: 조준 전용으로 두니 붙는 횟수가 0이었다)
-      const p2 = findSwingAnchor();
-      if (p2) {
-        web2 = { a: p2.clone(), t: 0 };
-        web2Count++;
-        armPulse = 0.3;
-        sfxThwip();
-      }
+      // 조준한 곳이 먼저다. 주 웹과 같은 건물이면 자동 탐색으로 넘긴다 —
+      // 두 줄이 같은 데 붙으면 새총이 아니라 줄 하나와 다를 게 없다.
+      let p2 = resolveAnchor();
+      if (p2 && web && p2.distanceTo(web.a) < 10) p2 = null;
+      if (!p2) p2 = findSwingAnchor();
+      if (p2) attachWeb2(p2);
     } else if (!web2Held && web2) releaseWeb2();
     if (web2) {
       web2.t += dt;
       _w2v.copy(web2.a).sub(player.pos);
       const d2 = _w2v.length();
       if (d2 > ROPE_MAX * 1.15) releaseWeb2();      // 너무 멀어지면 저절로 끊긴다
-      else if (d2 > 1) {
+      else if (d2 > 1 && !slingPulling()) {
+        // 새총을 당기는 동안엔 이 힘을 끔다. 안 그러면 몸이 앵커 쪽으로 끌려가서
+        // '제자리에서 살짝 뒤로'가 아니라 그냥 빨려들어간다 (실측 1.1초에 9m).
         // 멀수록 약하게. 가까이서 세게 당기면 앵커로 빨려들어가 스윙이 망가진다.
         const k = WEB2_PULL * Math.min(1, WEB2_FADE / d2);
         player.vel.addScaledVector(_w2v.divideScalar(d2), k * dt);
@@ -5054,6 +5136,7 @@ const _snF = new THREE.Vector3();
 
 const hurtEl = document.getElementById("hurt");
 const hpBarEl = document.getElementById("hpBar"), hpNumEl = document.getElementById("hpNum");
+const slingGaugeEl = document.getElementById("slingGauge");
 const dodgeEl = document.getElementById("dodgeFx");
 
 
@@ -5072,6 +5155,11 @@ function updateHud(dtReal) {
     }
     hpNumEl.textContent = `${Math.ceil(hp)} / ${HP_MAX}`;
     hpNumEl.classList.toggle("low", hp < 30);
+  }
+  // 양손 새총 충전 게이지 — 조준점 아래. 충전 중에만 보인다.
+  if (slingGaugeEl) {
+    slingGaugeEl.style.display = slingK > 0 && !slingAir ? "block" : "none";   // 공중에서는 몸이 끌리는 것 자체가 게이지다
+    if (slingK > 0) slingGaugeEl.firstElementChild.style.width = `${Math.round(slingK * 100)}%`;
   }
   hurtEl.style.opacity = Math.max(0, Math.min(1, hurtFx)) * 0.85;
   dodgeEl.style.opacity = Math.max(0, Math.min(1, dodgeFx)) * 0.7;
@@ -5441,11 +5529,11 @@ window.__dbg = { scene, camera, renderer, player, frameBody, updateWebVisual, ny
   get hp(){ return hp; }, setHp(v){ hp = v; }, HP_MAX, SPAWN, hitCars, tickHp, get carHits(){ return carHits; }, CAR_ROOF, HERO_3P_SCALE,
   grabStart, grabEnd, updateGrab, get grabbed(){ return grabbed; }, get missShot(){ return missShot; }, get missStrand(){ return missStrand; }, tryAttach, propBodies, propPick, propGrab, propYank, propThrow, propStep, CAR_L, CAR_W, CAR_H,
   YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
-  get web(){ return web; }, get web2(){ return web2; }, get zip(){ return zip; }, attachWeb, releaseWeb, releaseWeb2, tryAttach, resolveAnchor, sideOf, otherSide, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, get web2Count(){ return web2Count; }, WEB2_PULL, WEB2_FADE, armR, armL, webStrand, // 자동 앵커
+  get web(){ return web; }, get web2(){ return web2; }, get zip(){ return zip; }, attachWeb, releaseWeb, attachWeb2, releaseWeb2, tryAttach, resolveAnchor, sideOf, otherSide, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, get web2Count(){ return web2Count; }, WEB2_PULL, WEB2_FADE, armR, armL, webStrand, // 자동 앵커
   findSwingAnchor, findSwingAnchorV2, findSwingAnchorLegacy, scoreAnchor, scoreAnchorV2, intentDir, fanYaw, A_TUNE, FAN_PITCH, get autoV2(){ return autoV2; }, setAutoV2(v){ autoV2 = !!v; }, get autoHand(){ return autoHand; }, get scoreWhy(){ return scoreWhy; }, // 디버그 오버레이
   toggleWebDbg, updateWebDbg, dbgOn, setDbg, dbgCands, dbgPicked, dbgPickIdx, dbgAccepted, dbgLines, MAX_CAND, get dbgMarks(){ return dbgMarks; }, // 벽 짚기 · 건물 타기
   plantCheck, plantImpulse, plantSide, plantPoint, findNearbyWall, PLANT_TIME, PLANT_MIN_V, PLANT_PUSH, PLANT_KEEP, PLANT_CD, PLANT_LOOK, get plantT(){ return plantT; }, get plantCd(){ return plantCd; }, get plantHand(){ return plantHand; }, get plantCount(){ return plantCount; }, vclimbAnchor, vclimbShouldFire, VC_NEAR, VC_STEP, VC_OUT, VC_ARRIVE, VC_TOP, VC_CD, get vcCount(){ return vcCount; }, get vcCd(){ return vcCd; }, setClimb(v){ climbMouse = v; }, // 슬링샷
-  slingHeld, fireSling, updateSling, SLING_MAX, SLING_MIN, SLING_BOOST, SLING_REEL, get slingT(){ return slingT; }, // 손 · 몸 표현
+  fireSling, updateSling, slingArmed, slingDir, get slingK(){ return slingK; }, get slingCount(){ return slingCount; }, get slingAir(){ return slingAir; }, get slingDrawn(){ return slingDrawn; }, get slingMode(){ return slingMode; }, SLING_CHARGE_T, SLING_MIN_K, SLING_V_MIN, SLING_V_MAX, SLING_AIR_DRAW, // 손 · 몸 표현
   getReach, setReach, clearReach, updateReach, applyReach, initReach, init3p, pose3p, bones3p, ready3p, pose3pNow, get rig3pOn(){ return rig3pOn; }, get fpBody(){ return fpBody; }, poseFpBody, ensureUpperArms, linkUpperArm, get upperR(){ return upperR; }, get upperL(){ return upperL; }, SHOULDER_R, SHOULDER_L, // 카메라 · 설정
   cineFire, cineAmt, get cineT(){ return cineT; }, camStandDist, CAM_SHOULDER, CAM_TIGHT, CAM_WALL_PAD, CAM_MIN_DIST, CAM_NEAR_SKIN, CAM_HIDE_DIST, CAM_PIVOT_Y, get camZoom(){ return camZoom; }, get camBlocked(){ return camBlocked; }, SETTINGS, setOpt, setAim, drawSettings, get aimCenter(){ return aimCenter; }, setAimCenter(v){ aimCenter = v; if (v) camAuto = false; }, get uiMode(){ return uiMode; }, // 미니맵 · 기타
   updateMinimap, mmPt, MM_R, mmBuildCity, MOVE_SPEED, FALL_MIN_V, get diving(){ return diving; }, get toast(){ return toastT > 0 ? toast : ""; }, get heroClip(){ return heroCurrentClip; }, get heroClips(){ return Object.keys(heroActions); } };
