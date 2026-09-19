@@ -30,6 +30,8 @@ import { initNycProps, updateNycProps, nycStats, nycFind,
   propPick, propGrab, propYank, propThrow, propStep, propBodies } from "./src/nyc-props.js";
 import { PROP_SCALE } from "./src/scale.js";
 import { applySuit } from "./src/suit.js";
+import { createService } from "./src/service/service.js";
+import { initShell } from "./src/ui/shell.js";
 import {
   TUNE as A_TUNE, FAN_PITCH, fanYaw, intentDir, scoreAnchorV2,
 } from "./src/anchor.js";
@@ -2277,6 +2279,9 @@ initReach(camera);
 
 const keys = {};
 addEventListener("keydown", e => {
+  // 설정 화면의 글자 입력칸(닉네임)에 치는 글자가 게임 키로 새면 안 된다 (P 가 시점을 바꾸는 식으로)
+  const tg = e.target && e.target.tagName;
+  if ((tg === "INPUT" || tg === "TEXTAREA") && e.code !== "Escape") return;
   keys[e.code] = true;
   // Ctrl = 락온 토글. 브라우저 기본 단축키가 끼어들지 않게 막는다.
   if (e.code === "ControlLeft" || e.code === "ControlRight") {
@@ -2307,11 +2312,12 @@ addEventListener("keydown", e => {
     setOpt("ui", (uiMode + 1) % 3);
     say(["화면 전체", "화면 최소", "화면 없음 — 웹스윙에 집중"][uiMode], 2);
   }
-  // Esc = 시작 화면으로. 캐릭터를 다시 고르거나 튜토리얼을 다시 볼 수 있다.
+  // Esc = 일시정지 메뉴. 게임 밖 화면(src/ui/shell.js)이 열려 있으면 맨 위 한 장을 닫는다.
+  // 타이틀로 나가는 건 일시정지 메뉴의 '타이틀로' — 판 결과를 보여주고 저장한다.
   if (e.code === "Escape") {
-    // F1이 열려 있으면 그것부터 닫는다. 바로 시작 화면으로 튀면 놀란다.
+    // F1이 열려 있으면 그것부터 닫는다.
     if (hudEl.classList.contains("show")) { hudEl.classList.remove("show"); return; }
-    if (!menuOn) { showMenu(true); return; }
+    if (shell && shell.onEscape()) return;
   }
   // Enter = 이 단계 건너뛰기. 막히면 튜토리얼이 감옥이 된다.
   // O = 조준 방식 전환 (실험). 커서 조준 <-> 중앙 고정 + 어깨너머.
@@ -2662,6 +2668,7 @@ function slingPulling() { return slingK > 0 || slingAir; }
 
 function fireSling() {
   if (!slingArmed() || !slingDir(_slv)) { slingK = 0; return false; }
+  svc.event("slings");
   const k = slingK;
   const vmax = slingAir ? SLING_V_AIR : SLING_V_MAX;   // 공중이 더 세다 — 몸 전체가 돌이 되어 날아간다
   const v = SLING_V_MIN + (vmax - SLING_V_MIN) * k;
@@ -2809,6 +2816,11 @@ let audioOn = true;
 
 
 
+// 게임 밖 서비스 층 (저장 · 기록 · 업적). 저장소를 못 쓰면(시크릿 창 · 테스트 하네스) null 로 돌고, 저장만 안 된다.
+const svc = createService({ storage: (() => { try { return window.localStorage || null; } catch (e) { return null; } })() });
+// 마우스 감도 · 상하 반전 (설정 > 조작)
+let lookSens = 1, invertY = false;
+
 const SETTINGS = {
   aim: {
     get: () => aimCenter,
@@ -2845,7 +2857,7 @@ const SETTINGS = {
     get: () => uiMode,
     opts: [
       { v: 0, label: "전체", desc: "전부 보인다" },
-      { v: 1, label: "최소", desc: "체력·궁·조준점만. 속도계·목표·스킬칸이 사라진다" },
+      { v: 1, label: "최소", desc: "꼭 필요한 것만 남기고 줄인다" },
       { v: 2, label: "없음", desc: "조준점만 남는다. 웹스윙에만 집중하고 싶을 때 (H키)" },
     ],
     set(v) {
@@ -2889,11 +2901,30 @@ const SETTINGS = {
     ],
     set(v) { audioOn = v; setAudioEnabled(v); },
   },
+  sens: {
+    get: () => lookSens,
+    opts: [
+      { v: 0.6,  label: "매우 낮음", desc: "시점이 천천히 돈다" },
+      { v: 0.8,  label: "낮음",     desc: "" },
+      { v: 1,    label: "보통",     desc: "기본값" },
+      { v: 1.25, label: "높음",     desc: "" },
+      { v: 1.6,  label: "매우 높음", desc: "손목을 조금만 움직여도 크게 돈다" },
+    ],
+    set(v) { lookSens = v; },
+  },
+  invertY: {
+    get: () => invertY,
+    opts: [
+      { v: false, label: "끔", desc: "마우스를 올리면 위를 본다" },
+      { v: true,  label: "켬", desc: "마우스를 올리면 아래를 본다 (비행 조종식)" },
+    ],
+    set(v) { invertY = v; },
+  },
   view: {
     get: () => firstPerson,
     opts: [
-      { v: false, label: "3인칭", desc: "몸이 보인다. 웹스윙과 근접 격투는 이쪽이 편하다" },
-      { v: true,  label: "1인칭", desc: "조준점이 화면 중앙 고정. 사격이 정확하다" },
+      { v: false, label: "3인칭", desc: "몸이 보인다. 주변을 넓게 보며 스윙한다" },
+      { v: true,  label: "1인칭", desc: "눈높이 시점. 조준점이 화면 중앙에 고정된다" },
     ],
     set(v) {
       if (firstPerson === v) return;
@@ -2905,10 +2936,19 @@ const SETTINGS = {
     },
   },
 };
-// 설정은 메모리에만 둔다 — 진행도 저장을 없앴다. 껐다 켜면 기본값이다.
-function setOpt(key, v) {
+// 설정은 서비스 층 저장본에 남는다 (src/service). quiet = 저장하지 않는다 — 부팅 기본값을 깔 때 쓴다.
+function setOpt(key, v, quiet) {
   SETTINGS[key].set(v);
   drawSettings();
+  if (!quiet) svc.setting(key, v);
+}
+// 저장본의 설정을 입힌다. 표에 없는 키나 고를 수 없는 값(옛 버전 저장본)은 건너뛴다.
+function applySavedSettings() {
+  const saved = svc.data.settings || {};
+  for (const k of Object.keys(saved)) {
+    const S = SETTINGS[k];
+    if (S && S.opts.some(o => o.v === saved[k])) setOpt(k, saved[k], true);
+  }
 }
 
 function setAim(v) { setOpt("aim", v); }        // 예전 이름을 남겨둔다
@@ -2949,8 +2989,9 @@ function bootStep(pct, msg) {
 
 setTimeout(() => {
   // 1인칭이 기본이다. 레퍼런스가 1인칭이고, 이 빌드는 이동 감각만 보는 판이다.
-  setOpt("aim", true);
-  setOpt("view", true);
+  setOpt("aim", true, true);
+  setOpt("view", true, true);
+  applySavedSettings();          // 저장본의 설정이 기본값을 덮는다
   bootStep(70, "모델을 불러오는 중…");
   // 뉴욕 소품. 도시가 전부 만들어진 뒤에 부른다 — 모델 객체는 GLB 로드가 끝난
   // 뒤에 생기므로 도시 생성 난수열에 끼어들지 않는다. 파일이 없으면 조용히 넘어간다.
@@ -2967,8 +3008,6 @@ setTimeout(() => {
   // 그대로 두면 로딩 화면에 갇힌다. 실제로 그렇게 됐다.
   setTimeout(bootDone, 4000);
 }, 0);
-const optsEl = document.getElementById("opts");
-document.getElementById("btnOptsBack").onclick = () => optsEl.classList.remove("show");
 document.getElementById("btnResume").onclick = () => hudEl.classList.remove("show");
 // 일시정지에서 바로 미션·튜토리얼로 (문서 02 §3)
 // 캐릭터 미리보기 조명.
@@ -3028,6 +3067,7 @@ function attachWeb(point, hand) {
   // 어느 손으로 잡는가. 자동 앵커가 골라줬으면 그걸 쓰고(문서 §18),
   // 아니면 예전처럼 지점의 좌우로 정한다. 조준해서 쏜 경우가 후자다.
   web = { a: point.clone(), len: d, base: d, t: 0, side: hand || sideOf(point) };
+  svc.event("webs");
   hasDash = true;
   armPulse = 0.35;
   sfxThwip();
@@ -3424,7 +3464,10 @@ addEventListener("wheel", e => {
 
 // 포인터 락이 새로 걸릴 때마다 첫 이벤트를 버리도록 표시한다
 document.addEventListener("pointerlockchange", () => {
-  if (document.pointerLockElement === renderer.domElement) lockSettle = true;
+  if (document.pointerLockElement === renderer.domElement) { lockSettle = true; return; }
+  // 게임 중에 락이 풀렸다 = ESC 를 브라우저가 먹었거나 창을 옮겼다. 일시정지로 받는다.
+  // 코드가 스스로 푼 경우(F1 · 메뉴 · 3인칭 커서 조준 전환)는 그 전에 상태가 이미 바뀌어 있어 걸러진다.
+  if (shell && !menuOn && !gamePaused && !hudEl.classList.contains("show") && (firstPerson || aimCenter)) shell.openPause(true);
 });
 // 락이 거부돼도 시점 조작은 계속된다(위 mousemove 참고). 커서만 안 가둬질 뿐이라 알리기만 한다.
 document.addEventListener("pointerlockerror", () => {
@@ -3459,8 +3502,8 @@ document.addEventListener("mousemove", e => {
     const dx = Math.max(-140, Math.min(140, e.movementX || 0));
     const dy = Math.max(-140, Math.min(140, e.movementY || 0));
     // 3인칭은 카메라가 뒤에 있어 같은 델타라도 화면 이동이 작게 느껴진다. 조금 더 준다.
-    viewYaw -= dx * (firstPerson ? 0.0022 : 0.0026);
-    viewPitch -= dy * (firstPerson ? 0.0018 : 0.0021);
+    viewYaw -= dx * (firstPerson ? 0.0022 : 0.0026) * lookSens;
+    viewPitch -= dy * (firstPerson ? 0.0018 : 0.0021) * lookSens * (invertY ? -1 : 1);
     viewPitch = Math.min(Math.max(viewPitch, -1.2), 1.35);
     if (!firstPerson) { camFree = CAM_FREE; lookIdle = 0; }   // 자동 정렬이 끼어들면 조준이 흔들린다
     return;
@@ -3474,8 +3517,8 @@ document.addEventListener("mousemove", e => {
   if (dragging) {
     const dx = Math.max(-140, Math.min(140, e.movementX || 0));
     const dy = Math.max(-140, Math.min(140, e.movementY || 0));
-    viewYaw -= dx * 0.005;
-    viewPitch -= dy * 0.004;
+    viewYaw -= dx * 0.005 * lookSens;
+    viewPitch -= dy * 0.004 * lookSens * (invertY ? -1 : 1);
     viewPitch = Math.min(Math.max(viewPitch, -1.0), 1.2);
     // 자동/수동 모드는 건드리지 않는다. 그건 C키만의 몫이다.
     // 대신 자동 정렬을 잠시 재운다 — 놓자마자 되당기면 돌린 의미가 없다.
@@ -3623,6 +3666,7 @@ function releaseWeb2() { web2 = null; }
 function attachWeb2(point) {
   web2 = { a: point.clone(), t: 0 };
   web2Count++;
+  svc.event("webs");
   armPulse = 0.3;
   sfxThwip();
 }
@@ -3787,6 +3831,7 @@ function updateGraze(dt) {
   if (!findNearbyWall(GRAZE_DIST)) return;
   grazeCd = GRAZE_CD;
   grazeCount++;
+  svc.event("grazes");
   grazeFx = Math.min(1, 0.45 + sp / 120);
   shake = Math.max(shake, 0.12 + sp / 400);
   sfxWhoosh();
@@ -3855,6 +3900,7 @@ function hitCars(dt) {
     if (into > 6 && hpHitCd <= 0) {
       const dmg = Math.min(45, Math.max(8, into * 0.9));
       hurtPlayer(dmg);
+      svc.event("carHits");
       player.vel.y = Math.max(player.vel.y, 9 + into * 0.3);   // 떠 있어야 바닥 마찰에 옆으로 튕기는 힘이 안 죽는다
       player.grounded = false;
       hpHitCd = CAR_HIT_CD;
@@ -3882,6 +3928,7 @@ function respawnPlayer() {
   player.vel.set(0, 0, 0);
   hp = HP_MAX; hpRegenWait = 0; hpHitCd = 1.5;
   hurtFx = 1.4;
+  svc.event("falls");
   say("쓰러졌다 — 시작 광장에서 다시", 2.2);
 }
 
@@ -4447,6 +4494,7 @@ function update(dt) {
   hitCars(dt);
   tickHp(dt);
   updateGraze(dt);
+  svcTick(dt);
   spiderGroup.position.copy(player.renderPos);
   spiderGroup.rotation.y = bodyYaw;
   // 덤블링: 진행 방향 축으로 한 바퀴. 끝나면 정확히 0으로 되돌아온다.
@@ -4576,6 +4624,7 @@ function fireMissShot() {
   aimRay(_aimO, _aimD);
   const end = aimHit(ROPE_MAX, 0) || aimOrigin(_msA).addScaledVector(_aimD, ROPE_MAX);
   missShot = { end: end.clone ? end.clone() : end, t: 0, side: web2 ? "L" : "R" };
+  svc.event("webs");
   armPulse = 0.35;
   sfxThwip();
 }
@@ -5399,10 +5448,68 @@ function showMenu(on) {
     if (firstPerson) requestLook();
   }
 }
-if (titleEl) {
-  titleEl.classList.add("show");
-  const btn = document.getElementById("btnStart");
-  if (btn) btn.addEventListener("click", () => showMenu(false));
+if (titleEl) titleEl.classList.add("show");
+
+// ===================== 게임 밖 화면 (서비스 층) =====================
+// 저장 · 기록 · 업적은 src/service, 화면은 src/ui/shell.js. 여기엔 둘과 게임을 잇는 창구만 둔다.
+// 흐름: 타이틀 → (이어하기 | 게임 시작 → 모드) → 플레이 → ESC 일시정지 → 타이틀로 → 결과 → 타이틀
+let gamePaused = false;       // 일시정지 메뉴. F1 카드처럼 물리를 세우고 화면만 그린다
+let shell = null;
+let spotT = 0;
+// 판을 연다. spot 이 있으면 그 자리(이어하기), 없으면 시작 광장.
+function startPlay(mode, spot) {
+  releaseWeb(); releaseWeb2();
+  web2 = null; zip = null; clinging = null;
+  const ok = spot && isFinite(spot.x) && isFinite(spot.z);
+  const x = ok ? spot.x : SPAWN.x, z = ok ? spot.z : SPAWN.z;
+  // 도시는 켤 때마다 새로 지어진다(시드 없음). 저장된 자리에 건물이 서 있을 수 있어서
+  // 저장된 높이가 아니라 '그 자리의 가장 높은 바닥'에 세운다.
+  player.pos.set(x, groundHeightAt(x, z), z);
+  player.prevPos.copy(player.pos); player.renderPos.copy(player.pos);
+  player.vel.set(0, 0, 0);
+  hp = HP_MAX; hpRegenWait = 0; hpHitCd = 1.5;
+  if (ok && isFinite(spot.yaw)) viewYaw = spot.yaw;
+  svc.startSession(mode || "free");
+  gamePaused = false;
+  showMenu(false);
+}
+// 판을 닫고 타이틀로. 결과 화면에 쓸 요약을 돌려준다.
+function quitToTitle() {
+  saveSpot();
+  const sum = svc.endSession();
+  gamePaused = false;
+  showMenu(true);
+  return sum;
+}
+// 이어하기 자리. 발이 땅(옥상)에 닿아 있을 때만 적는다 — 공중이나 차 지붕에서 이어하면 바로 떨어진다.
+function saveSpot() {
+  if (!player.grounded || rideCar || clinging || web) return;
+  svc.setSpot({ x: player.pos.x, y: player.pos.y, z: player.pos.z, yaw: viewYaw });
+}
+function svcTick(dt) {
+  svc.tick(dt, { speed: player.vel.length(), alt: player.pos.y, air: !player.grounded && !clinging });
+  spotT += dt;
+  if (spotT >= 2) { spotT = 0; saveSpot(); }
+}
+function setPaused(on) {
+  gamePaused = on;
+  if (on) { document.exitPointerLock(); svc.save(); }
+  else {
+    last = performance.now(); acc = 0;
+    if (firstPerson || aimCenter) requestLook();
+  }
+}
+// 탭을 닫거나 숨길 때 판 중간 기록을 넣는다 (자동 저장 20초 사이에 닫힐 수 있다)
+addEventListener("pagehide", () => { if (!menuOn) { saveSpot(); svc.save(); } });
+document.addEventListener("visibilitychange", () => { if (document.hidden && !menuOn) { saveSpot(); svc.save(); } });
+// 화면은 DOM 이 있을 때만 (테스트 하네스에는 없다)
+if (document.body && typeof document.body.append === "function") {
+  shell = initShell({
+    svc, settings: SETTINGS, drawSettings, applySettings: applySavedSettings,
+    start: startPlay, quit: quitToTitle, pause: setPaused,
+    inGame: () => !menuOn,
+    help() { gamePaused = false; hudEl.classList.add("show"); document.exitPointerLock(); drawSettings(); },
+  });
 }
 
 function frame(now) {
@@ -5430,7 +5537,7 @@ function frameBody(now) {
   last = now;
   // F1 조작법이 열려 있으면 게임을 멈춘다. 화면은 계속 그린다.
   // acc를 비워야 닫는 순간 밀린 물리 스텝이 한꺼번에 터지지 않는다.
-  if (hudEl.classList.contains("show")) {
+  if (hudEl.classList.contains("show") || gamePaused) {   // 일시정지 메뉴도 같다
     acc = 0;
     renderer.render(scene, camera);
     return;
@@ -5754,7 +5861,7 @@ window.__dbg = { scene, camera, renderer, player, frameBody, updateWebVisual, ny
   get grazeFx(){ return grazeFx; }, get grazeCount(){ return grazeCount; }, GRAZE_DIST, GRAZE_SPEED, updateGraze,
   get hp(){ return hp; }, setHp(v){ hp = v; }, HP_MAX, SPAWN, hitCars, tickHp, get carHits(){ return carHits; }, CAR_ROOF, HERO_3P_SCALE,
   grabStart, grabEnd, updateGrab, get grabbed(){ return grabbed; }, get missShot(){ return missShot; }, get missStrand(){ return missStrand; }, tryAttach, propBodies, propPick, propGrab, propYank, propThrow, propStep, CAR_L, CAR_W, CAR_H,
-  YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, showMenu, get heroMixer(){ return heroMixer; }, get heroActions(){ return heroActions; }, get heroCurrentClip(){ return heroCurrentClip; }, get suitOn(){ return suitOn; }, get heroRoot(){ return heroRoot; }, get menuOn(){ return menuOn; }, updateMenuCamera, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
+  YAW_OUT, YAW_IN, PITCH_UP, PITCH_DN, spiderGroup, buildings, blocks, cars, groundAt: groundHeightAt, updateCars, setNight, get night(){ return night; }, HEROES, applyHero, get hero(){ return hero; }, get speedBase(){ return speedBase; }, get shakeScale(){ return shakeScale; }, get audioOn(){ return audioOn; }, bootDone, bootStep, showMenu, get heroMixer(){ return heroMixer; }, get heroActions(){ return heroActions; }, get heroCurrentClip(){ return heroCurrentClip; }, get suitOn(){ return suitOn; }, get heroRoot(){ return heroRoot; }, get menuOn(){ return menuOn; }, svc, get shell(){ return shell; }, get gamePaused(){ return gamePaused; }, startPlay, quitToTitle, updateMenuCamera, update, updateCamera, updateCrosshair, updateHud, get viewYaw(){ return viewYaw; }, get viewPitch(){ return viewPitch; }, setView(y,p){ viewYaw = y; viewPitch = p; }, setKey(k,v){ if(v) keys[k]=true; else delete keys[k]; }, setMouseL(v){ mouseDownL = v; }, setMouseR(v){ mouseDownR = v; }, setMid(v){ midDown = v; }, setCursor(x,y){ mx = x; my = y; }, canAct, // 웹
   get web(){ return web; }, get web2(){ return web2; }, get zip(){ return zip; }, attachWeb, releaseWeb, attachWeb2, releaseWeb2, tryAttach, resolveAnchor, sideOf, otherSide, setWeb2Held(v){ web2Held = v; }, get web2Held(){ return web2Held; }, get web2Count(){ return web2Count; }, WEB2_PULL, WEB2_FADE, armR, armL, webStrand, // 자동 앵커
   findSwingAnchor, findSwingAnchorV2, findSwingAnchorLegacy, scoreAnchor, scoreAnchorV2, intentDir, fanYaw, A_TUNE, FAN_PITCH, get autoV2(){ return autoV2; }, setAutoV2(v){ autoV2 = !!v; }, get autoHand(){ return autoHand; }, get scoreWhy(){ return scoreWhy; }, // 디버그 오버레이
   toggleWebDbg, updateWebDbg, dbgOn, setDbg, dbgCands, dbgPicked, dbgPickIdx, dbgAccepted, dbgLines, MAX_CAND, get dbgMarks(){ return dbgMarks; }, // 벽 짚기 · 건물 타기

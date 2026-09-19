@@ -245,62 +245,6 @@
   .tlink:hover { color: #fff; border-color: rgba(255,255,255,.4); }
 
   /* 부팅 화면 */
-  /* ================= 시작 화면 ================= */
-  #title {
-    position: fixed; inset: 0; z-index: 60; display: none;
-    align-items: center; justify-content: center;
-    background: radial-gradient(ellipse at 50% 40%, rgba(8,10,16,.55) 0%, rgba(5,6,10,.92) 70%);
-    color: #e8eef7; font-family: inherit;
-  }
-  #title.show { display: flex; }
-  .tinner { text-align: center; }
-  #title h1 {
-    margin: 0; font-size: clamp(48px, 11vw, 132px); letter-spacing: .08em; font-weight: 800;
-    line-height: .95; color: #fff; text-shadow: 0 0 30px rgba(220,30,45,.55), 0 6px 24px rgba(0,0,0,.8);
-  }
-  #title h1 span { color: #e11d2e; }
-  #title .sub { margin: 10px 0 34px; opacity: .55; letter-spacing: .28em; font-size: 12px; }
-  .tbtns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-  #title button {
-    font: inherit; font-size: 15px; padding: 13px 30px; cursor: pointer; color: #dfe7f2;
-    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.18); border-radius: 8px;
-    transition: background .12s, border-color .12s, transform .08s;
-  }
-  #title button:hover { background: rgba(255,255,255,.13); border-color: rgba(255,255,255,.4); }
-  #title button:active { transform: translateY(1px); }
-  #title button.primary { background: #b3121f; border-color: #e11d2e; color: #fff; }
-  #title button.primary:hover { background: #d4162a; }
-  .thint { margin-top: 26px; font-size: 12px; opacity: .5; }
-  .thint b { color: #ffd24a; opacity: 1; }
-
-  /* ================= 시작 화면 ================= */
-  #title {
-    position: fixed; inset: 0; z-index: 60; display: none;
-    align-items: center; justify-content: center;
-    background: radial-gradient(ellipse at 50% 40%, rgba(8,10,16,.55) 0%, rgba(5,6,10,.92) 70%);
-    color: #e8eef7; font-family: inherit;
-  }
-  #title.show { display: flex; }
-  .tinner { text-align: center; }
-  #title h1 {
-    margin: 0; font-size: clamp(48px, 11vw, 132px); letter-spacing: .08em; font-weight: 800;
-    line-height: .95; color: #fff; text-shadow: 0 0 30px rgba(220,30,45,.55), 0 6px 24px rgba(0,0,0,.8);
-  }
-  #title h1 span { color: #e11d2e; }
-  #title .sub { margin: 10px 0 34px; opacity: .55; letter-spacing: .28em; font-size: 12px; }
-  .tbtns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-  #title button {
-    font: inherit; font-size: 15px; padding: 13px 30px; cursor: pointer; color: #dfe7f2;
-    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.18); border-radius: 8px;
-    transition: background .12s, border-color .12s, transform .08s;
-  }
-  #title button:hover { background: rgba(255,255,255,.13); border-color: rgba(255,255,255,.4); }
-  #title button:active { transform: translateY(1px); }
-  #title button.primary { background: #b3121f; border-color: #e11d2e; color: #fff; }
-  #title button.primary:hover { background: #d4162a; }
-  .thint { margin-top: 26px; font-size: 12px; opacity: .5; }
-  .thint b { color: #ffd24a; opacity: 1; }
-
   #boot { position: fixed; inset: 0; z-index: 90; display: none;
     background: #05060a; color: #e8eef7; align-items: center; justify-content: center;
     transition: opacity .3s; }
@@ -675,6 +619,7 @@
             mask-image: radial-gradient(ellipse at center, transparent 14%, #000 62%);
   }
 </style>
+<link rel="stylesheet" href="./src/ui/shell.css">
 </head>
 <body>
 <!-- ================= 시작 화면 ================= -->
@@ -686,17 +631,35 @@
      글자 뒤로 도시가 은은하게 지나간다 (updateMenuCamera 가 카메라를 천천히 돌린다).
      v1.0 의 시작 화면을 그대로 가져오되 버튼은 '게임 시작' 하나만 남겼다. -->
 <div id="title">
+  <!-- 버튼 동작 · 모드 선택 · 기록 등 나머지 화면은 src/ui/shell.js 가 단다 -->
+  <div class="tcorner tl">
+    <button id="tProf" class="tprof">프로필 <b id="tProfName">플레이어</b></button>
+    <span>업적 <b id="tAchN">0/0</b></span>
+  </div>
+  <div class="tcorner tr"><button id="btnLogin">로그인</button></div>
   <div class="tinner">
     <h1>SPIDER <span>MAN</span></h1>
     <p class="sub">New York</p>
-    <div class="tbtns"><button id="btnStart" class="primary">게임 시작</button></div>
-    <p class="thint">시작한 뒤 <b>F1</b> 로 조작법 · <b>ESC</b> 로 이 화면</p>
+    <div class="tmain">
+      <button id="btnContinue" class="primary" hidden>이어하기</button>
+      <button id="btnStart" class="primary">게임 시작</button>
+    </div>
+    <div class="tmenu">
+      <button data-open="records">기록</button>
+      <button data-open="achievements">업적</button>
+      <button data-open="suits">슈트</button>
+      <button data-open="settings">설정</button>
+      <button data-open="news">소식<i class="dot"></i></button>
+      <button data-open="credits">크레딧</button>
+    </div>
+    <p class="thint">게임 중 <b>F1</b> 조작법 · <b>ESC</b> 일시정지</p>
   </div>
+  <div class="tcorner br"><span id="tSave"></span><span id="tVer"></span></div>
 </div>
 
 <div id="boot" class="show">
   <div class="binner">
-    <div class="blogo">SPIDER<span>MAN</span></div>
+    <div class="blogo">SPIDER <span>MAN</span></div>
     <div class="bbar"><div id="bootProg"></div></div>
     <div class="bmsg" id="bootMsg">도시를 세우는 중…</div>
   </div>
@@ -710,24 +673,6 @@
      바뀐 게 티가 안 난다 (모델링을 씌우면 덜 필요해질 연출) -->
 
 <!-- ================= 튜토리얼 ================= -->
-<!-- 옵션. 시작 화면을 깔끔하게 두려고 따로 뺐다 (F1 안에도 같은 항목이 있다) -->
-<div id="opts">
-  <div class="oinner">
-    <h2>옵션</h2>
-    <div class="setrow"><span class="setk">3인칭 조준</span><span class="chips" data-set="aim"></span></div>
-    <div class="setd" id="aimDesc2"></div>
-    <div class="setrow"><span class="setk">시점 (C)</span><span class="chips" data-set="cam"></span></div>
-    <div class="setrow"><span class="setk">시야 (P)</span><span class="chips" data-set="view"></span></div>
-    <div class="setrow"><span class="setk">화면</span><span class="chips" data-set="ui"></span></div>
-    <div class="setd" id="uiDesc2"></div>
-    <div class="setrow"><span class="setk">게임 속도</span><span class="chips" data-set="speed"></span></div>
-    <div class="setd" id="speedDesc2"></div>
-    <div class="setrow"><span class="setk">1인칭 화면 기울기</span><span class="chips" data-set="roll"></span></div>
-    <div class="setrow"><span class="setk">화면 흔들림</span><span class="chips" data-set="shake"></span></div>
-    <div class="setrow"><span class="setk">소리</span><span class="chips" data-set="audio"></span></div>
-    <div class="cbtns"><button id="btnOptsBack" class="primary">닫기</button></div>
-  </div>
-</div>
 <!-- 미션 · 챌린지 · 튜토리얼 아카이브. 셋이 같은 화면을 쓴다 (문서 02 §5.7·5.10) -->
 
 <!-- 미션 결과 (문서 02 §5.9) -->
@@ -761,8 +706,8 @@
 <div id="hud">
   <div id="hudCard">
     <div id="hudTop">
-      <h2>일시정지</h2>
-      <span class="hint"><kbd>F1</kbd>로 닫기 · 열려 있는 동안 게임은 <b>멈춰 있다</b> · <kbd>ESC</kbd>는 시작 화면으로</span>
+      <h2>조작법</h2>
+      <span class="hint"><kbd>F1</kbd>로 닫기 · 열려 있는 동안 게임은 <b>멈춰 있다</b> · <kbd>ESC</kbd>는 일시정지 메뉴 (타이틀 · 설정 · 기록)</span>
     </div>
 
     <!-- 설정. 시작 화면에도 같은 항목이 있고 어디서 바꾸든 같이 움직인다. -->
